@@ -1,0 +1,8 @@
+[workspace]
+members = [
+    "digital-objects",
+]
+resolver = "3"
+
+[workspace.dependencies]
+pod2 = { git="https://github.com/0xPARC/pod2", rev = "d355e55159dbe7ea03eb4397ecb4b1df5cb19e16", default-features = false, features = ["backend_plonky2", "disk_cache", "zk"]}
