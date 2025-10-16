@@ -1,10 +1,43 @@
 [workspace]
 members = [
-    "digital-objects",
     "craftlib",
+    "common",
+    "ad-server",
 ]
 resolver = "3"
 
 [workspace.dependencies]
+# common
 anyhow = "1.0.56"
-pod2 = { git="https://github.com/0xPARC/pod2", rev = "d355e55159dbe7ea03eb4397ecb4b1df5cb19e16", default-features = false, features = ["backend_plonky2", "disk_cache", "zk"]}
+dotenvy = "0.15.7"
+
+# logging
+env_logger = { version = "0.11" }
+log = { version = "0.4.14", features = ["kv_unstable"] }
+tracing = "0.1.19"
+tracing-subscriber = { version = "0.3", features = ["registry", "env-filter" ] }
+
+# rest api
+warp = "0.3"
+
+# serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0.143"
+
+# pod
+pod2 = { git="https://github.com/0xPARC/pod2", rev = "ffed5b4fbda9189d7452824a54978a730cb10964", default-features = false, features = ["backend_plonky2", "disk_cache", "zk"]}
+plonky2 = { git = "https://github.com/0xPARC/plonky2.git", rev = "109d517d09c210ae4c2cee381d3e3fbc04aa3812" }
+pod2_onchain = { git = "https://github.com/0xPARC/pod2-onchain.git", rev = "f547f9e6518f797e2a33567c8498683ccec65b3e", default-features=false, features = ["disk_cache"]}
+
+# eth
+alloy = { version = "1.0.13", features = [
+    "eips",
+    "full",
+    "json-rpc",
+    "hyper", #
+    "transport-http", #
+    "signer-local", #
+    "rpc-client",
+    "rpc-types-beacon"
+] }
+tokio = {version="1.45", features = ["rt-multi-thread", "macros", "sync"]}
