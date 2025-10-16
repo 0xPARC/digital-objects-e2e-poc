@@ -170,6 +170,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "craftlib"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "pod2",
+]
+
+[[package]]
 name = "crossbeam-deque"
 version = "0.8.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
