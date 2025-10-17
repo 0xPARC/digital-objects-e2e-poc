@@ -1,18 +1,29 @@
-use std::{slice, sync::Arc};
+use std::{collections::HashSet, slice, sync::Arc};
 
-use pod2::middleware::{CustomPredicateBatch, CustomPredicateRef, Params};
+use pod2::{
+    dict,
+    middleware::{
+        CustomPredicateBatch, CustomPredicateRef, Hash, Params, RawValue, Value,
+        containers::{Dictionary, Set},
+        hash_values,
+    },
+};
+
+pub const CONSUMED_ITEM_EXTERNAL_NULLIFIER: &str = "consumed item external nullifier";
 
 pub struct CraftingPredicates {
     pub batches: Vec<Arc<CustomPredicateBatch>>,
 
     pub super_sub_set: CustomPredicateRef,
+    pub super_sub_set_empty: CustomPredicateRef,
     pub super_sub_set_recursive: CustomPredicateRef,
-    pub ingredients: CustomPredicateRef,
-    pub item_seed: CustomPredicateRef,
+    pub item_def: CustomPredicateRef,
 
+    pub item_key: CustomPredicateRef,
     pub nullifiers: CustomPredicateRef,
     pub nullifiers_empty: CustomPredicateRef,
     pub nullifiers_recursive: CustomPredicateRef,
+
     pub commit_crafting: CustomPredicateRef,
 }
 
@@ -32,8 +43,17 @@ pub fn custom_predicates() -> CraftingPredicates {
         // Generic recursive construciton confirming subset.  Relies on the Merkle
         // tree already requiring unique keys (so no inserts on super)
         SuperSubSet(super, sub) = OR(
-            Equal(sub, {})
+            SuperSubSetEmpty(super, sub)
             SuperSubSetRecursive(super, sub)
+        )
+
+        // We should be able to inline the first Equal above, but
+        // MainPodBuilder.op_statement doesn't know how to fill in a
+        // wildcard which isn't constrained.  The dummy Equal
+        // here lets us specify the `super` value when building.
+        SuperSubSetEmpty(super, sub) = AND(
+            Equal(sub, {})
+            Equal(super, super)
         )
 
         SuperSubSetRecursive(super, sub, private: i, smaller) = AND(
@@ -42,27 +62,12 @@ pub fn custom_predicates() -> CraftingPredicates {
             SuperSubSet(super, smaller)
         )
 
-        // Prove ingredients dict was built properly
-        Ingredients(ingredients, blueprint, inputs, seed, private: i1, i2) = AND(
-            DictInsert(i1, {}, "blueprint", blueprint)
-            DictInsert(i2, i1, "inputs", inputs)
-            DictInsert(ingredients, i2, "seed", seed)
-        )
-
-        // Fully-public construction of item hash from all of its properties.
-        // Note that this predicate is not recursively defined.  The inputs
-        // set at this level is a Merkle root without further verification.
-        // 
-        // This statement is always "inlined" elsewhere, so commented out here.
-        //CraftedItem(item, ingredients, blueprint, inputs, seed, work) = AND(
-        //    Ingredients(ingredients, blueprint, inputs, seed)
-        //    HashOf(item, ingredients, work)
-        //)
-
-        // Helper to expose just the item and seed from ItemId calculation.
-        // This is just the CraftedItem pattern with some of inupts private.
-        ItemSeed(item, seed, private: ingredients, blueprint, inputs, work) = AND(
-            Ingredients(ingredients, blueprint, inputs, seed)
+        // Prove proper derivation of item ID from defined inputs
+        // The ingredients dict is explicitly allowed to contain more fields
+        // for use in item predicates.
+        ItemDef(item, ingredients, inputs, key, work) = AND(
+            DictContains(ingredients, "inputs", inputs)
+            DictContains(ingredients, "key", key)
             HashOf(item, ingredients, work)
         )
         "#,
@@ -73,18 +78,26 @@ pub fn custom_predicates() -> CraftingPredicates {
     .custom_batch;
     let super_sub_set =
         CustomPredicateBatch::predicate_ref_by_name(&batch0, "SuperSubSet").unwrap();
+    let super_sub_set_empty =
+        CustomPredicateBatch::predicate_ref_by_name(&batch0, "SuperSubSetEmpty").unwrap();
     let super_sub_set_recursive =
-        CustomPredicateBatch::predicate_ref_by_name(&batch0, "SuperSubSet").unwrap();
-    let ingredients = CustomPredicateBatch::predicate_ref_by_name(&batch0, "Ingredients").unwrap();
-    let item_seed = CustomPredicateBatch::predicate_ref_by_name(&batch0, "ItemSeed").unwrap();
+        CustomPredicateBatch::predicate_ref_by_name(&batch0, "SuperSubSetRecursive").unwrap();
+    let item_def = CustomPredicateBatch::predicate_ref_by_name(&batch0, "ItemDef").unwrap();
 
     let batch1 = pod2::lang::parse(
-        &format!(r#"
-        use SuperSubSet, _, Ingredients, ItemSeed from {:#}
+        &format!(
+            r#"
+        use SuperSubSet, _, _, ItemDef from {:#}
+
+        // Helper to expose just the item and key from ItemId calculation.
+        // This is just the CraftedItem pattern with some of inupts private.
+        ItemKey(item, key, private: ingredients, inputs, work) = AND(
+            ItemDef(item, ingredients, inputs, key, work)
+        )
 
         // Derive nullifiers from items (using a recursive foreach construction)
-        // This proves the relationship between an item and its seed before using
-        // the seed to calculate a nullifier.
+        // This proves the relationship between an item and its key before using
+        // the key to calculate a nullifier.
         Nullifiers(nullifiers, inputs) = OR(
             NullifiersEmpty(nullifiers, inputs)
             NullifiersRecursive(nullifiers, inputs)
@@ -95,13 +108,34 @@ pub fn custom_predicates() -> CraftingPredicates {
             Equal(inputs, {{}})
         )
 
-        NullifiersRecursive(nullifiers, inputs, private: i, n, s, ns, is) = AND(
-            ItemSeed(i, s)
-            HashOf(n, s, "externalNullifier")
+        NullifiersRecursive(nullifiers, inputs, private: i, n, k, ns, is) = AND(
+            ItemKey(i, k)
+            HashOf(n, k, "consumed item external nullifier")
             SetInsert(nullifiers, ns, n)
             SetInsert(inputs, is, i)
             Nullifiers(ns, is)
         )
+        "#,
+            &batch0.id()
+        ),
+        &params,
+        slice::from_ref(&batch0),
+    )
+    .unwrap()
+    .custom_batch;
+
+    let item_key = CustomPredicateBatch::predicate_ref_by_name(&batch1, "ItemKey").unwrap();
+    let nullifiers = CustomPredicateBatch::predicate_ref_by_name(&batch1, "Nullifiers").unwrap();
+    let nullifiers_empty =
+        CustomPredicateBatch::predicate_ref_by_name(&batch1, "NullifiersEmpty").unwrap();
+    let nullifiers_recursive =
+        CustomPredicateBatch::predicate_ref_by_name(&batch1, "NullifiersRecursive").unwrap();
+
+    let batch2 = pod2::lang::parse(
+        &format!(
+            r#"
+        use SuperSubSet, _, _, ItemDef from {:#}
+        use ItemKey, Nullifiers, _, _ from {:#}
 
         // ZK version of CraftedItem for committing on-chain.
         // Validator/Logger/Archiver needs to maintain 2 append-only
@@ -110,45 +144,106 @@ pub fn custom_predicates() -> CraftingPredicates {
         // - item is not already in item set
         // - all nullifiers are not already in nullifier set
         // - createdItems is one of the historical item set roots
-        CommitCrafting(item, nullifiers, createdItemsRoot, private: ingredients, blueprint, inputs, seed, work) = AND(
-            // CraftedItem construction
-            Ingredients(ingredients, blueprint, inputs, seed)
-            HashOf(item, ingredients, work)
+        CommitCrafting(item, nullifiers, created_items, private: ingredients, inputs, key, work) = AND(
+            // Prove the item hash includes all of its committed properties
+            ItemDef(item, ingredients, inputs, key, work)
 
             // Prove all inputs are in the created set
-            SuperSubSet(createdItemsRoot, inputs)
+            SuperSubSet(created_items, inputs)
 
             // Expose nullifiers for all inputs
             Nullifiers(nullifiers, inputs)
         )
-        "#, &batch0.id()),
+        "#,
+            &batch0.id(),
+            &batch1.id()
+        ),
         &params,
-        slice::from_ref(&batch0),
+        &[batch0.clone(), batch1.clone()],
     )
     .unwrap()
     .custom_batch;
 
-    let nullifiers = CustomPredicateBatch::predicate_ref_by_name(&batch1, "Nullifiers").unwrap();
-    let nullifiers_empty =
-        CustomPredicateBatch::predicate_ref_by_name(&batch1, "NullifiersEmpty").unwrap();
-    let nullifiers_recursive =
-        CustomPredicateBatch::predicate_ref_by_name(&batch1, "NullifiersRecursive").unwrap();
     let commit_crafting =
-        CustomPredicateBatch::predicate_ref_by_name(&batch1, "CommitCrafting").unwrap();
+        CustomPredicateBatch::predicate_ref_by_name(&batch2, "CommitCrafting").unwrap();
 
     CraftingPredicates {
-        batches: vec![batch0, batch1],
+        batches: vec![batch0, batch1, batch2],
 
         super_sub_set,
+        super_sub_set_empty,
         super_sub_set_recursive,
-        ingredients,
-        item_seed,
+        item_def,
 
+        item_key,
         nullifiers,
         nullifiers_empty,
         nullifiers_recursive,
+
         commit_crafting,
     }
+}
+
+// Rust-level definition of the ingredients of an item, used to derive the
+// ingredients hash (dict root) before doing sequential work on it.
+#[derive(Debug, Clone)]
+pub struct IngredientsDef {
+    // These properties are committed on-chain
+    pub inputs: HashSet<Hash>,
+    pub key: RawValue,
+
+    // These properties are used only by item predicates
+    pub blueprint: String,
+    pub seed: RawValue,
+}
+
+impl IngredientsDef {
+    pub fn dict(&self, params: &Params) -> pod2::middleware::Result<Dictionary> {
+        dict!(params.max_depth_mt_containers, {
+            "inputs" => self.inputs_set(params)?,
+            "key" => self.key,
+            "blueprint" => self.blueprint.clone(),
+            "seed" => self.seed,
+        })
+    }
+
+    pub fn hash(&self, params: &Params) -> pod2::middleware::Result<Hash> {
+        Ok(self.dict(params)?.commitment())
+    }
+
+    pub fn inputs_set(&self, params: &Params) -> pod2::middleware::Result<Set> {
+        set_from_hashes(params, &self.inputs)
+    }
+}
+
+// Rust-level definition of an item, used to derive its ID (hash).
+#[derive(Debug, Clone)]
+pub struct ItemDef {
+    pub ingredients: IngredientsDef,
+    pub work: RawValue,
+}
+
+impl ItemDef {
+    pub fn item_hash(&self, params: &Params) -> pod2::middleware::Result<Hash> {
+        Ok(hash_values(&[
+            Value::from(self.ingredients.dict(params)?),
+            Value::from(self.work),
+        ]))
+    }
+
+    pub fn nullifier(&self, params: &Params) -> pod2::middleware::Result<Hash> {
+        Ok(hash_values(&[
+            Value::from(self.item_hash(params)?),
+            Value::from(CONSUMED_ITEM_EXTERNAL_NULLIFIER),
+        ]))
+    }
+}
+
+pub fn set_from_hashes(params: &Params, items: &HashSet<Hash>) -> pod2::middleware::Result<Set> {
+    Set::new(
+        params.max_depth_mt_containers,
+        items.iter().map(|i| Value::from(*i)).collect(),
+    )
 }
 
 #[cfg(test)]
@@ -157,10 +252,9 @@ mod tests {
 
     use pod2::{
         backends::plonky2::mock::mainpod::MockProver,
-        dict,
         frontend::{MainPodBuilder, Operation},
         lang::parse,
-        middleware::{VDSet, Value, containers::Set, hash_values},
+        middleware::{EMPTY_VALUE, Statement, VDSet, Value, hash_value},
     };
 
     use super::*;
@@ -169,72 +263,113 @@ mod tests {
         VDSet::new(6, &[]).unwrap()
     }
 
-    #[test]
-    fn test_compile_custom_predicates() {
-        let preds = custom_predicates();
-        assert!(preds.batches.len() == 2);
+    fn check_matched_wildcards(matched: HashMap<String, Value>, expected: HashMap<String, Value>) {
+        assert_eq!(matched.len(), expected.len(), "len");
+        for name in expected.keys() {
+            assert_eq!(matched[name], expected[name], "{name}");
+        }
     }
 
     #[test]
-    fn test_build_item_pod() -> anyhow::Result<()> {
+    fn test_compile_custom_predicates() {
+        let preds = custom_predicates();
+        assert!(preds.batches.len() == 3);
+    }
+
+    #[test]
+    fn test_build_pod_no_inputs() -> anyhow::Result<()> {
         let preds = custom_predicates();
         let params = Params::default();
 
         let mut builder = MainPodBuilder::new(&Default::default(), &mock_vd_set());
 
-        // Item recipe.
+        // Item recipe constants
         let blueprint = "copper";
-        let inputs = Set::new(params.max_depth_mt_containers, HashSet::new())?;
-        let seed = 123i64;
-        let work = 0i64;
+        let seed = 123;
+        let key = 0xBADC0DE;
+        let work = 0xDEADBEEF;
 
-        // Pre-calculate hashes and intermediave values.
-        let i0 = dict!(params.max_depth_mt_containers, {})?;
-        let i1 = dict!(params.max_depth_mt_containers, {
-            "blueprint" => blueprint,
-        })?;
-        let i2 = dict!(params.max_depth_mt_containers, {
-            "blueprint" => blueprint,
-            "inputs" => inputs.clone(),
-        })?;
-        let ingredients = dict!(params.max_depth_mt_containers, {
-            "blueprint" => "copper",
-            "inputs" => inputs.clone(),
-            "seed" => seed,
-        })?;
-        let item_hash = hash_values(&[Value::from(ingredients.clone()), Value::from(work)]);
+        // Pre-calculate hashes and intermediate values.
+        let ingredients_def = IngredientsDef {
+            blueprint: blueprint.to_string(),
+            inputs: HashSet::new(),
+            seed: RawValue::from(seed),
+            key: RawValue::from(key),
+        };
+        let ingredients_dict = ingredients_def.dict(&params)?;
+        let inputs_set = ingredients_def.inputs_set(&params)?;
+        let item_def = ItemDef {
+            ingredients: ingredients_def.clone(),
+            work: RawValue::from(work),
+        };
+        let item_hash = item_def.item_hash(&params)?;
 
-        // Build Ingredients statement
-        let st_i1 = builder.priv_op(Operation::dict_insert(
-            Value::from(i1.clone()),
-            Value::from(i0),
-            Value::from("blueprint"),
-            Value::from(blueprint),
+        // Sets for on-chain commitment
+        let nullifiers = set_from_hashes(&params, &HashSet::new())?;
+        let created_items = set_from_hashes(
+            &params,
+            &HashSet::from([
+                hash_value(&Value::from("dummy1").raw()),
+                hash_value(&Value::from("dummy2").raw()),
+            ]),
+        )?;
+
+        // Build ItemDef(item, ingredients, inputs, key, work)
+        let st_contains_inputs = builder.priv_op(Operation::dict_contains(
+            ingredients_dict.clone(),
+            "inputs",
+            inputs_set.clone(),
         ))?;
-        let st_i2 = builder.priv_op(Operation::dict_insert(
-            Value::from(i2.clone()),
-            Value::from(i1),
-            Value::from("inputs"),
-            Value::from(inputs.clone()),
-        ))?;
-        let st_i3 = builder.priv_op(Operation::dict_insert(
-            Value::from(ingredients.clone()),
-            Value::from(i2),
-            Value::from("seed"),
-            Value::from(seed),
-        ))?;
-        let st_ingredients = builder.pub_op(Operation::custom(
-            preds.ingredients.clone(),
-            [st_i1, st_i2, st_i3],
+        let st_contains_key = builder.priv_op(Operation::dict_contains(
+            ingredients_dict.clone(),
+            "key",
+            ingredients_def.key,
         ))?;
         let st_item_hash = builder.priv_op(Operation::hash_of(
-            Value::from(item_hash.clone()),
-            Value::from(ingredients.clone()),
-            Value::from(work),
+            item_hash,
+            ingredients_dict.clone(),
+            item_def.work,
         ))?;
-        let _st_itemseed = builder.pub_op(Operation::custom(
-            preds.item_seed.clone(),
-            [st_ingredients, st_item_hash],
+        let st_item_def = builder.pub_op(Operation::custom(
+            preds.item_def.clone(),
+            [st_contains_inputs, st_contains_key, st_item_hash],
+        ))?;
+
+        // Build ItemKey(item, key)
+        let _st_itemkey = builder.pub_op(Operation::custom(
+            preds.item_key.clone(),
+            [st_item_def.clone()],
+        ))?;
+
+        // Build SuperSubSet(created_items, inputs)
+        let st_inputs_eq_empty = builder.priv_op(Operation::eq(inputs_set.clone(), EMPTY_VALUE))?;
+        let st_created_eq_self =
+            builder.priv_op(Operation::eq(created_items.clone(), created_items.clone()))?;
+        let st_inputs_subset_empty = builder.pub_op(Operation::custom(
+            preds.super_sub_set_empty.clone(),
+            [st_inputs_eq_empty.clone(), st_created_eq_self],
+        ))?;
+        let st_inputs_subset = builder.pub_op(Operation::custom(
+            preds.super_sub_set.clone(),
+            [st_inputs_subset_empty, Statement::None],
+        ))?;
+
+        // Build Nullifiers(nullifiers, inputs)
+        let st_nullifiers_eq_empty =
+            builder.priv_op(Operation::eq(nullifiers.clone(), EMPTY_VALUE))?;
+        let st_nullifiers_empty = builder.pub_op(Operation::custom(
+            preds.nullifiers_empty.clone(),
+            [st_inputs_eq_empty, st_nullifiers_eq_empty],
+        ))?;
+        let st_nullifiers = builder.pub_op(Operation::custom(
+            preds.nullifiers.clone(),
+            [st_nullifiers_empty, Statement::None],
+        ))?;
+
+        // Build CommitCrafting(item, nullifiers, created_items)
+        let _st_commit_crafting = builder.pub_op(Operation::custom(
+            preds.commit_crafting.clone(),
+            [st_item_def, st_inputs_subset, st_nullifiers],
         ))?;
 
         // Prove MainPOD
@@ -245,28 +380,37 @@ mod tests {
         // PODLang query to check the final statement
         let query = format!(
             r#"
-            use _, _, Ingredients, ItemSeed from {:#}
+            use SuperSubSet, _, _, ItemDef from {:#}
+            use ItemKey, Nullifiers, _, _ from {:#}
+            use CommitCrafting from {:#}
 
             REQUEST(
-                Ingredients(ingredients, blueprint, inputs, seed)
-                ItemSeed(item, seed)
+                ItemDef(item, ingredients, inputs, key, work)
+                ItemKey(item, key)
+                SuperSubSet(created_items, inputs)
+                Nullifiers(nullifiers, inputs)
+                CommitCrafting(item, nullifiers, created_items)
             )
             "#,
-            &preds.batches[0].id()
+            &preds.batches[0].id(),
+            &preds.batches[1].id(),
+            &preds.batches[2].id(),
         );
 
-        println!("Verification query: {}", query);
+        println!("Verification request: {query}");
 
         let request = parse(&query, &params, &preds.batches)?.request;
         let matched_wildcards = request.exact_match_pod(&*main_pod.pod)?;
-        assert_eq!(
+        check_matched_wildcards(
             matched_wildcards,
             HashMap::from([
                 ("item".to_string(), Value::from(item_hash)),
-                ("ingredients".to_string(), Value::from(ingredients)),
-                ("blueprint".to_string(), Value::from(blueprint)),
-                ("inputs".to_string(), Value::from(inputs)),
-                ("seed".to_string(), Value::from(seed)),
+                ("ingredients".to_string(), Value::from(ingredients_dict)),
+                ("inputs".to_string(), Value::from(inputs_set)),
+                ("key".to_string(), Value::from(key)),
+                ("work".to_string(), Value::from(work)),
+                ("created_items".to_string(), Value::from(created_items)),
+                ("nullifiers".to_string(), Value::from(nullifiers)),
             ]),
         );
 
