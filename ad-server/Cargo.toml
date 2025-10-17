@@ -1,0 +1,22 @@
+[package]
+name = "ad-server"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = { workspace = true }
+pod2 = { workspace = true }
+alloy = { workspace = true}
+tokio = { workspace = true}
+plonky2 = { workspace = true}
+env_logger = { workspace = true}
+log = { workspace = true}
+dotenvy = { workspace = true }
+warp = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+serde = { workspace = true }
+
+uuid = { version = "1.18", features = ["v7", "serde"] }
+
+common = { path = "../common" }
