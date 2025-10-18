@@ -49,7 +49,7 @@ impl std::str::FromStr for ProofType {
         match s {
             "plonky2" => Ok(ProofType::Plonky2),
             "groth16" => Ok(ProofType::Groth16),
-            _ => Err(anyhow!("unsupported PROOF_TYPE {}", s)),
+            _ => Err(anyhow!("unsupported PROOF_TYPE {s}")),
         }
     }
 }
@@ -59,7 +59,7 @@ impl ProofType {
         match input {
             0u8 => Ok(ProofType::Plonky2),
             1u8 => Ok(ProofType::Groth16),
-            _ => Err(anyhow!("unsupported PROOF_TYPE {}", input)),
+            _ => Err(anyhow!("unsupported PROOF_TYPE {input}")),
         }
     }
     pub fn to_byte(self) -> u8 {

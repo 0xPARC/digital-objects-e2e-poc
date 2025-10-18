@@ -29,7 +29,7 @@ pub fn custom_predicates() -> CraftingPredicates {
     // unconstrained, so throw in some Equal statements
     let batch0 = pod2::lang::parse(
         r#"
-        // Generic recursive construciton confirming subset.  Relies on the Merkle
+        // Generic recursive construction confirming subset.  Relies on the Merkle
         // tree already requiring unique keys (so no inserts on super)
         SuperSubSet(super, sub) = OR(
             Equal(sub, {})
@@ -228,7 +228,7 @@ mod tests {
             [st_i1, st_i2, st_i3],
         ))?;
         let st_item_hash = builder.priv_op(Operation::hash_of(
-            Value::from(item_hash.clone()),
+            Value::from(item_hash),
             Value::from(ingredients.clone()),
             Value::from(work),
         ))?;
@@ -255,7 +255,7 @@ mod tests {
             &preds.batches[0].id()
         );
 
-        println!("Verification query: {}", query);
+        println!("Verification query: {query}");
 
         let request = parse(&query, &params, &preds.batches)?.request;
         let matched_wildcards = request.exact_match_pod(&*main_pod.pod)?;
