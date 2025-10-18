@@ -1,3 +1,4 @@
+#[allow(dead_code)]
 fn hello() {
     println!("hello world");
 }
