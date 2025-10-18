@@ -1,13 +1,6 @@
-use std::{collections::HashSet, slice, sync::Arc};
+use std::{slice, sync::Arc};
 
-use pod2::{
-    dict,
-    middleware::{
-        CustomPredicateBatch, CustomPredicateRef, Hash, Params, RawValue, Value,
-        containers::{Dictionary, Set},
-        hash_values,
-    },
-};
+use pod2::middleware::{CustomPredicateBatch, CustomPredicateRef, Params};
 
 pub const CONSUMED_ITEM_EXTERNAL_NULLIFIER: &str = "consumed item external nullifier";
 
@@ -25,6 +18,7 @@ pub struct CraftingPredicates {
     pub nullifiers_recursive: CustomPredicateRef,
 
     pub commit_crafting: CustomPredicateRef,
+    pub is_copper: CustomPredicateRef,
 }
 
 pub fn custom_predicates() -> CraftingPredicates {
@@ -154,6 +148,16 @@ pub fn custom_predicates() -> CraftingPredicates {
             // Expose nullifiers for all inputs
             Nullifiers(nullifiers, inputs)
         )
+
+        // Example of a mined item with no inputs or sequential work.
+        // Copper requires working in a copper mine (blueprint="copper") and
+        // 10 leading 0s.
+        IsCopper(item, private: ingredients, inputs, key, work) = AND(
+            ItemDef(item, ingredients, inputs, key, work)
+            Equal(inputs, {{}})
+            DictContains(ingredients, "blueprint", "copper")
+            // TODO input POD: HashInRange(0, 1<<10, ingredients)
+        )
         "#,
             &batch0.id(),
             &batch1.id()
@@ -166,6 +170,7 @@ pub fn custom_predicates() -> CraftingPredicates {
 
     let commit_crafting =
         CustomPredicateBatch::predicate_ref_by_name(&batch2, "CommitCrafting").unwrap();
+    let is_copper = CustomPredicateBatch::predicate_ref_by_name(&batch2, "IsCopper").unwrap();
 
     CraftingPredicates {
         batches: vec![batch0, batch1, batch2],
@@ -181,69 +186,8 @@ pub fn custom_predicates() -> CraftingPredicates {
         nullifiers_recursive,
 
         commit_crafting,
+        is_copper,
     }
-}
-
-// Rust-level definition of the ingredients of an item, used to derive the
-// ingredients hash (dict root) before doing sequential work on it.
-#[derive(Debug, Clone)]
-pub struct IngredientsDef {
-    // These properties are committed on-chain
-    pub inputs: HashSet<Hash>,
-    pub key: RawValue,
-
-    // These properties are used only by item predicates
-    pub blueprint: String,
-    pub seed: RawValue,
-}
-
-impl IngredientsDef {
-    pub fn dict(&self, params: &Params) -> pod2::middleware::Result<Dictionary> {
-        dict!(params.max_depth_mt_containers, {
-            "inputs" => self.inputs_set(params)?,
-            "key" => self.key,
-            "blueprint" => self.blueprint.clone(),
-            "seed" => self.seed,
-        })
-    }
-
-    pub fn hash(&self, params: &Params) -> pod2::middleware::Result<Hash> {
-        Ok(self.dict(params)?.commitment())
-    }
-
-    pub fn inputs_set(&self, params: &Params) -> pod2::middleware::Result<Set> {
-        set_from_hashes(params, &self.inputs)
-    }
-}
-
-// Rust-level definition of an item, used to derive its ID (hash).
-#[derive(Debug, Clone)]
-pub struct ItemDef {
-    pub ingredients: IngredientsDef,
-    pub work: RawValue,
-}
-
-impl ItemDef {
-    pub fn item_hash(&self, params: &Params) -> pod2::middleware::Result<Hash> {
-        Ok(hash_values(&[
-            Value::from(self.ingredients.dict(params)?),
-            Value::from(self.work),
-        ]))
-    }
-
-    pub fn nullifier(&self, params: &Params) -> pod2::middleware::Result<Hash> {
-        Ok(hash_values(&[
-            Value::from(self.item_hash(params)?),
-            Value::from(CONSUMED_ITEM_EXTERNAL_NULLIFIER),
-        ]))
-    }
-}
-
-pub fn set_from_hashes(params: &Params, items: &HashSet<Hash>) -> pod2::middleware::Result<Set> {
-    Set::new(
-        params.max_depth_mt_containers,
-        items.iter().map(|i| Value::from(*i)).collect(),
-    )
 }
 
 #[cfg(test)]
@@ -254,10 +198,14 @@ mod tests {
         backends::plonky2::mock::mainpod::MockProver,
         frontend::{MainPodBuilder, Operation},
         lang::parse,
-        middleware::{EMPTY_VALUE, Statement, VDSet, Value, hash_value},
+        middleware::{EMPTY_VALUE, RawValue, Statement, VDSet, Value, hash_value},
     };
 
     use super::*;
+    use crate::{
+        item::{IngredientsDef, ItemDef},
+        util::set_from_hashes,
+    };
 
     fn mock_vd_set() -> VDSet {
         VDSet::new(6, &[]).unwrap()
@@ -359,7 +307,7 @@ mod tests {
             builder.priv_op(Operation::eq(nullifiers.clone(), EMPTY_VALUE))?;
         let st_nullifiers_empty = builder.pub_op(Operation::custom(
             preds.nullifiers_empty.clone(),
-            [st_inputs_eq_empty, st_nullifiers_eq_empty],
+            [st_inputs_eq_empty.clone(), st_nullifiers_eq_empty],
         ))?;
         let st_nullifiers = builder.pub_op(Operation::custom(
             preds.nullifiers.clone(),
@@ -369,7 +317,18 @@ mod tests {
         // Build CommitCrafting(item, nullifiers, created_items)
         let _st_commit_crafting = builder.pub_op(Operation::custom(
             preds.commit_crafting.clone(),
-            [st_item_def, st_inputs_subset, st_nullifiers],
+            [st_item_def.clone(), st_inputs_subset, st_nullifiers],
+        ))?;
+
+        // Build IsCopper(item)
+        let st_contains_blueprint = builder.priv_op(Operation::dict_contains(
+            ingredients_dict.clone(),
+            "blueprint",
+            Value::from(blueprint),
+        ))?;
+        let _st_is_copper = builder.pub_op(Operation::custom(
+            preds.is_copper.clone(),
+            [st_item_def, st_inputs_eq_empty, st_contains_blueprint],
         ))?;
 
         // Prove MainPOD
@@ -377,12 +336,14 @@ mod tests {
         main_pod.pod.verify()?;
         println!("POD: {:?}", main_pod.pod);
 
-        // PODLang query to check the final statement
+        // PODLang query to check the final statements.  There are a lot
+        // more public statements than in real crafting, to allow confirming
+        // all the values.
         let query = format!(
             r#"
             use SuperSubSet, _, _, ItemDef from {:#}
             use ItemKey, Nullifiers, _, _ from {:#}
-            use CommitCrafting from {:#}
+            use CommitCrafting, IsCopper from {:#}
 
             REQUEST(
                 ItemDef(item, ingredients, inputs, key, work)
@@ -390,6 +351,7 @@ mod tests {
                 SuperSubSet(created_items, inputs)
                 Nullifiers(nullifiers, inputs)
                 CommitCrafting(item, nullifiers, created_items)
+                IsCopper(item)
             )
             "#,
             &preds.batches[0].id(),
