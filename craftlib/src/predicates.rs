@@ -203,6 +203,7 @@ mod tests {
 
     use super::*;
     use crate::{
+        constants::COPPER_BLUEPRINT,
         item::{IngredientsDef, ItemDef},
         util::set_from_hashes,
     };
@@ -232,14 +233,14 @@ mod tests {
         let mut builder = MainPodBuilder::new(&Default::default(), &mock_vd_set());
 
         // Item recipe constants
-        let blueprint = "copper";
-        let seed = 123;
+        let seed = 0xA34;
         let key = 0xBADC0DE;
         let work = 0xDEADBEEF;
+        // TODO: Real mining and sequential work.
 
         // Pre-calculate hashes and intermediate values.
-        let ingredients_def = IngredientsDef {
-            blueprint: blueprint.to_string(),
+        let ingredients_def: IngredientsDef = IngredientsDef {
+            blueprint: COPPER_BLUEPRINT.to_string(),
             inputs: HashSet::new(),
             seed: RawValue::from(seed),
             key: RawValue::from(key),
@@ -324,7 +325,7 @@ mod tests {
         let st_contains_blueprint = builder.priv_op(Operation::dict_contains(
             ingredients_dict.clone(),
             "blueprint",
-            Value::from(blueprint),
+            Value::from(COPPER_BLUEPRINT),
         ))?;
         let _st_is_copper = builder.pub_op(Operation::custom(
             preds.is_copper.clone(),
