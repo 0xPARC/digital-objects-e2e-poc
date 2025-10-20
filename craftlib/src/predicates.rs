@@ -8,16 +8,15 @@ pub struct CraftingPredicates {
     pub batches: Vec<Arc<CustomPredicateBatch>>,
 
     pub super_sub_set: CustomPredicateRef,
-    pub super_sub_set_empty: CustomPredicateRef,
     pub super_sub_set_recursive: CustomPredicateRef,
     pub item_def: CustomPredicateRef,
-
     pub item_key: CustomPredicateRef,
+
     pub nullifiers: CustomPredicateRef,
     pub nullifiers_empty: CustomPredicateRef,
     pub nullifiers_recursive: CustomPredicateRef,
-
     pub commit_crafting: CustomPredicateRef,
+
     pub is_copper: CustomPredicateRef,
 }
 
@@ -33,17 +32,8 @@ pub fn custom_predicates() -> CraftingPredicates {
         // Generic recursive construction confirming subset.  Relies on the Merkle
         // tree already requiring unique keys (so no inserts on super)
         SuperSubSet(super, sub) = OR(
-            SuperSubSetEmpty(super, sub)
-            SuperSubSetRecursive(super, sub)
-        )
-
-        // We should be able to inline the first Equal above, but
-        // frontend::op_statement doesn't know how to fill in a
-        // wildcard which isn't constrained.  The dummy Equal
-        // here lets us specify the `super` value when building.
-        SuperSubSetEmpty(super, sub) = AND(
             Equal(sub, {})
-            Equal(super, super)
+            SuperSubSetRecursive(super, sub)
         )
 
         SuperSubSetRecursive(super, sub, private: i, smaller) = AND(
@@ -60,6 +50,12 @@ pub fn custom_predicates() -> CraftingPredicates {
             DictContains(ingredients, "key", key)
             HashOf(item, ingredients, work)
         )
+
+        // Helper to expose just the item and key from ItemId calculation.
+        // This is just the CraftedItem pattern with some of inupts private.
+        ItemKey(item, key, private: ingredients, inputs, work) = AND(
+            ItemDef(item, ingredients, inputs, key, work)
+        )
         "#,
         &params,
         &[],
@@ -68,22 +64,15 @@ pub fn custom_predicates() -> CraftingPredicates {
     .custom_batch;
     let super_sub_set =
         CustomPredicateBatch::predicate_ref_by_name(&batch0, "SuperSubSet").unwrap();
-    let super_sub_set_empty =
-        CustomPredicateBatch::predicate_ref_by_name(&batch0, "SuperSubSetEmpty").unwrap();
     let super_sub_set_recursive =
         CustomPredicateBatch::predicate_ref_by_name(&batch0, "SuperSubSetRecursive").unwrap();
     let item_def = CustomPredicateBatch::predicate_ref_by_name(&batch0, "ItemDef").unwrap();
+    let item_key = CustomPredicateBatch::predicate_ref_by_name(&batch0, "ItemKey").unwrap();
 
     let batch1 = pod2::lang::parse(
         &format!(
             r#"
-        use batch SuperSubSet, _, _, ItemDef from {:#}
-
-        // Helper to expose just the item and key from ItemId calculation.
-        // This is just the CraftedItem pattern with some of inupts private.
-        ItemKey(item, key, private: ingredients, inputs, work) = AND(
-            ItemDef(item, ingredients, inputs, key, work)
-        )
+        use batch SuperSubSet, _, ItemDef, ItemKey from {:#}
 
         // Derive nullifiers from items (using a recursive foreach construction)
         // This proves the relationship between an item and its key before using
@@ -105,27 +94,6 @@ pub fn custom_predicates() -> CraftingPredicates {
             SetInsert(inputs, is, i)
             Nullifiers(ns, is)
         )
-        "#,
-            &batch0.id()
-        ),
-        &params,
-        slice::from_ref(&batch0),
-    )
-    .unwrap()
-    .custom_batch;
-
-    let item_key = CustomPredicateBatch::predicate_ref_by_name(&batch1, "ItemKey").unwrap();
-    let nullifiers = CustomPredicateBatch::predicate_ref_by_name(&batch1, "Nullifiers").unwrap();
-    let nullifiers_empty =
-        CustomPredicateBatch::predicate_ref_by_name(&batch1, "NullifiersEmpty").unwrap();
-    let nullifiers_recursive =
-        CustomPredicateBatch::predicate_ref_by_name(&batch1, "NullifiersRecursive").unwrap();
-
-    let batch2 = pod2::lang::parse(
-        &format!(
-            r#"
-        use batch SuperSubSet, _, _, ItemDef from {:#}
-        use batch ItemKey, Nullifiers, _, _ from {:#}
 
         // ZK version of CraftedItem for committing on-chain.
         // Validator/Logger/Archiver needs to maintain 2 append-only
@@ -144,6 +112,30 @@ pub fn custom_predicates() -> CraftingPredicates {
             // Expose nullifiers for all inputs
             Nullifiers(nullifiers, inputs)
         )
+
+        "#,
+            &batch0.id()
+        ),
+        &params,
+        slice::from_ref(&batch0),
+    )
+    .unwrap()
+    .custom_batch;
+
+    let nullifiers = CustomPredicateBatch::predicate_ref_by_name(&batch1, "Nullifiers").unwrap();
+    let nullifiers_empty =
+        CustomPredicateBatch::predicate_ref_by_name(&batch1, "NullifiersEmpty").unwrap();
+    let nullifiers_recursive =
+        CustomPredicateBatch::predicate_ref_by_name(&batch1, "NullifiersRecursive").unwrap();
+    let commit_crafting =
+        CustomPredicateBatch::predicate_ref_by_name(&batch1, "CommitCrafting").unwrap();
+
+    let batch2 = pod2::lang::parse(
+        &format!(
+            r#"
+        use batch SuperSubSet, _, ItemDef, ItemKey from {:#}
+        use batch Nullifiers, _, _, _ from {:#}
+
 
         // Example of a mined item with no inputs or sequential work.
         // Copper requires working in a copper mine (blueprint="copper") and
@@ -164,15 +156,12 @@ pub fn custom_predicates() -> CraftingPredicates {
     .unwrap()
     .custom_batch;
 
-    let commit_crafting =
-        CustomPredicateBatch::predicate_ref_by_name(&batch2, "CommitCrafting").unwrap();
     let is_copper = CustomPredicateBatch::predicate_ref_by_name(&batch2, "IsCopper").unwrap();
 
     CraftingPredicates {
         batches: vec![batch0, batch1, batch2],
 
         super_sub_set,
-        super_sub_set_empty,
         super_sub_set_recursive,
         item_def,
 
@@ -287,17 +276,18 @@ mod tests {
         ))?;
 
         // Build SuperSubSet(created_items, inputs)
+        // We use builder.op() to manually specify the `super` wildcard value
+        // because it's otherwise unconstrained.  This is only relevant in
+        // the base case where `sub` is empty, which is a subset of anything.
         let st_inputs_eq_empty = builder.priv_op(Operation::eq(inputs_set.clone(), EMPTY_VALUE))?;
-        let st_created_eq_self =
-            builder.priv_op(Operation::eq(created_items.clone(), created_items.clone()))?;
-        let st_inputs_subset_empty = builder.pub_op(Operation::custom(
-            preds.super_sub_set_empty.clone(),
-            [st_inputs_eq_empty.clone(), st_created_eq_self],
-        ))?;
-        let st_inputs_subset = builder.pub_op(Operation::custom(
-            preds.super_sub_set.clone(),
-            [st_inputs_subset_empty, Statement::None],
-        ))?;
+        let st_inputs_subset = builder.op(
+            true, /*public*/
+            vec![(0, Value::from(created_items.clone()))],
+            Operation::custom(
+                preds.super_sub_set.clone(),
+                [st_inputs_eq_empty.clone(), Statement::None],
+            ),
+        )?;
 
         // Build Nullifiers(nullifiers, inputs)
         let st_nullifiers_eq_empty =
@@ -338,9 +328,9 @@ mod tests {
         // all the values.
         let query = format!(
             r#"
-            use batch SuperSubSet, _, _, ItemDef from {:#}
-            use batch ItemKey, Nullifiers, _, _ from {:#}
-            use batch CommitCrafting, IsCopper from {:#}
+            use batch SuperSubSet, _, ItemDef, ItemKey from {:#}
+            use batch Nullifiers, _, _, CommitCrafting from {:#}
+            use batch IsCopper from {:#}
 
             REQUEST(
                 ItemDef(item, ingredients, inputs, key, work)
