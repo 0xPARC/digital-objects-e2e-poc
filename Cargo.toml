@@ -3,6 +3,7 @@ members = [
     "craftlib",
     "common",
     "ad-server",
+    "pod2lib",
 ]
 resolver = "3"
 
@@ -41,3 +42,6 @@ alloy = { version = "1.0.13", features = [
     "rpc-types-beacon"
 ] }
 tokio = {version="1.45", features = ["rt-multi-thread", "macros", "sync"]}
+
+[patch."https://github.com/0xPARC/pod2"]
+pod2 = { path = "../pod2" }

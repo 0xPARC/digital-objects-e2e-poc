@@ -34,7 +34,7 @@ pub fn custom_predicates() -> CraftingPredicates {
     // unconstrained, so throw in some Equal statements
     let batch0 = pod2::lang::parse(
         r#"
-        // Generic recursive construciton confirming subset.  Relies on the Merkle
+        // Generic recursive construction confirming subset.  Relies on the Merkle
         // tree already requiring unique keys (so no inserts on super)
         SuperSubSet(super, sub) = OR(
             SuperSubSetEmpty(super, sub)
@@ -81,7 +81,7 @@ pub fn custom_predicates() -> CraftingPredicates {
     let batch1 = pod2::lang::parse(
         &format!(
             r#"
-        use SuperSubSet, _, _, ItemDef from {:#}
+        use batch SuperSubSet, _, _, ItemDef from {:#}
 
         // Helper to expose just the item and key from ItemId calculation.
         // This is just the CraftedItem pattern with some of inupts private.
@@ -128,8 +128,8 @@ pub fn custom_predicates() -> CraftingPredicates {
     let batch2 = pod2::lang::parse(
         &format!(
             r#"
-        use SuperSubSet, _, _, ItemDef from {:#}
-        use ItemKey, Nullifiers, _, _ from {:#}
+        use batch SuperSubSet, _, _, ItemDef from {:#}
+        use batch ItemKey, Nullifiers, _, _ from {:#}
 
         // ZK version of CraftedItem for committing on-chain.
         // Validator/Logger/Archiver needs to maintain 2 append-only
@@ -200,6 +200,7 @@ mod tests {
         lang::parse,
         middleware::{EMPTY_VALUE, RawValue, Statement, VDSet, Value, hash_value},
     };
+    use pod2lib::st_custom;
 
     use super::*;
     use crate::{
@@ -228,6 +229,7 @@ mod tests {
     #[test]
     fn test_build_pod_no_inputs() -> anyhow::Result<()> {
         let preds = custom_predicates();
+        let batches = &preds.batches;
         let params = Params::default();
 
         let mut builder = MainPodBuilder::new(&Default::default(), &mock_vd_set());
@@ -264,87 +266,73 @@ mod tests {
         )?;
 
         // Build ItemDef(item, ingredients, inputs, key, work)
-        let st_contains_inputs = builder.priv_op(Operation::dict_contains(
-            ingredients_dict.clone(),
-            "inputs",
-            inputs_set.clone(),
-        ))?;
-        let st_contains_key = builder.priv_op(Operation::dict_contains(
-            ingredients_dict.clone(),
-            "key",
-            ingredients_def.key,
-        ))?;
-        let st_item_hash = builder.priv_op(Operation::hash_of(
-            item_hash,
-            ingredients_dict.clone(),
-            item_def.work,
-        ))?;
-        let st_item_def = builder.pub_op(Operation::custom(
-            preds.item_def.clone(),
-            [st_contains_inputs, st_contains_key, st_item_hash],
-        ))?;
+        let st_item_def = st_custom!(
+            (builder, batches),
+            pub ItemDef(
+                DictContains(ingredients_dict, "inputs", inputs_set),
+                DictContains(ingredients_dict, "key", ingredients_def.key),
+                HashOf(item_hash, ingredients_dict, item_def.work),
+            )
+        );
 
         // Build ItemKey(item, key)
-        let _st_itemkey = builder.pub_op(Operation::custom(
-            preds.item_key.clone(),
-            [st_item_def.clone()],
-        ))?;
+        let _st_itemkey = st_custom!((builder, batches), pub ItemKey(st_item_def.clone(),));
 
+        let st_inputs_subset_empty = st_custom!(
+            (builder, batches),
+            SuperSubSetEmpty(
+                Equal(inputs_set, EMPTY_VALUE),
+                Equal(created_items, created_items),
+            )
+        );
         // Build SuperSubSet(created_items, inputs)
-        let st_inputs_eq_empty = builder.priv_op(Operation::eq(inputs_set.clone(), EMPTY_VALUE))?;
-        let st_created_eq_self =
-            builder.priv_op(Operation::eq(created_items.clone(), created_items.clone()))?;
-        let st_inputs_subset_empty = builder.pub_op(Operation::custom(
-            preds.super_sub_set_empty.clone(),
-            [st_inputs_eq_empty.clone(), st_created_eq_self],
-        ))?;
-        let st_inputs_subset = builder.pub_op(Operation::custom(
-            preds.super_sub_set.clone(),
-            [st_inputs_subset_empty, Statement::None],
-        ))?;
+        let st_inputs_subset = st_custom!(
+            (builder, batches),
+            pub SuperSubSet(st_inputs_subset_empty, Statement::None,)
+        );
 
         // Build Nullifiers(nullifiers, inputs)
-        let st_nullifiers_eq_empty =
-            builder.priv_op(Operation::eq(nullifiers.clone(), EMPTY_VALUE))?;
-        let st_nullifiers_empty = builder.pub_op(Operation::custom(
-            preds.nullifiers_empty.clone(),
-            [st_inputs_eq_empty.clone(), st_nullifiers_eq_empty],
-        ))?;
-        let st_nullifiers = builder.pub_op(Operation::custom(
-            preds.nullifiers.clone(),
-            [st_nullifiers_empty, Statement::None],
-        ))?;
+        let st_nullifiers_empty = st_custom!(
+            (builder, batches),
+            NullifiersEmpty(
+                Equal(inputs_set, EMPTY_VALUE),
+                Equal(nullifiers, EMPTY_VALUE),
+            )
+        );
+        let st_nullifiers = st_custom!(
+            (builder, batches),
+            pub Nullifiers(st_nullifiers_empty, Statement::None,)
+        );
 
         // Build CommitCrafting(item, nullifiers, created_items)
-        let _st_commit_crafting = builder.pub_op(Operation::custom(
-            preds.commit_crafting.clone(),
-            [st_item_def.clone(), st_inputs_subset, st_nullifiers],
-        ))?;
+        let _st_commit_crafting = st_custom!(
+            (builder, batches),
+            pub CommitCrafting(st_item_def.clone(), st_inputs_subset, st_nullifiers,)
+        );
 
         // Build IsCopper(item)
-        let st_contains_blueprint = builder.priv_op(Operation::dict_contains(
-            ingredients_dict.clone(),
-            "blueprint",
-            Value::from(COPPER_BLUEPRINT),
-        ))?;
-        let _st_is_copper = builder.pub_op(Operation::custom(
-            preds.is_copper.clone(),
-            [st_item_def, st_inputs_eq_empty, st_contains_blueprint],
-        ))?;
+        let _st_is_copper = st_custom!(
+            (builder, batches),
+            pub IsCopper(
+                st_item_def,
+                Equal(inputs_set, EMPTY_VALUE),
+                DictContains(ingredients_dict, "blueprint", COPPER_BLUEPRINT),
+            )
+        );
 
         // Prove MainPOD
         let main_pod = builder.prove(&MockProver {})?;
         main_pod.pod.verify()?;
-        println!("POD: {:?}", main_pod.pod);
+        println!("POD: {}", main_pod);
 
         // PODLang query to check the final statements.  There are a lot
         // more public statements than in real crafting, to allow confirming
         // all the values.
         let query = format!(
             r#"
-            use SuperSubSet, _, _, ItemDef from {:#}
-            use ItemKey, Nullifiers, _, _ from {:#}
-            use CommitCrafting, IsCopper from {:#}
+            use batch SuperSubSet, _, _, ItemDef from {:#}
+            use batch ItemKey, Nullifiers, _, _ from {:#}
+            use batch CommitCrafting, IsCopper from {:#}
 
             REQUEST(
                 ItemDef(item, ingredients, inputs, key, work)

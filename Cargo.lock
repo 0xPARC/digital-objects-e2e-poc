@@ -1497,6 +1497,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "pod2",
+ "pod2lib",
 ]
 
 [[package]]
@@ -3536,7 +3537,6 @@ source = "git+https://github.com/0xPARC/plonky2.git?rev=109d517d09c210ae4c2cee38
 [[package]]
 name = "pod2"
 version = "0.1.0"
-source = "git+https://github.com/0xPARC/pod2?rev=ffed5b4fbda9189d7452824a54978a730cb10964#ffed5b4fbda9189d7452824a54978a730cb10964"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -3587,6 +3587,14 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+]
+
+[[package]]
+name = "pod2lib"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "pod2",
 ]
 
 [[package]]

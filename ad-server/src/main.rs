@@ -53,7 +53,9 @@ impl Config {
 
 #[derive(Debug, Clone)]
 pub struct PodConfig {
+    #[allow(dead_code)] // TODO: Remove after these are put into use.
     params: Params,
+    #[allow(dead_code)] // TODO: Remove after these are put into use.
     vd_set: VDSet,
 }
 

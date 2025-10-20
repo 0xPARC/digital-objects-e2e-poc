@@ -28,7 +28,7 @@ pub fn read_elems<const N: usize>(bytes: &mut impl Read) -> Result<[F; N]> {
         bytes.read_exact(&mut elem_bytes)?;
         let n = u64::from_le_bytes(elem_bytes);
         if n >= F::ORDER {
-            return Err(anyhow!("{} >= F::ORDER", n));
+            return Err(anyhow!("{n} >= F::ORDER"));
         }
         elems[i] = F::from_canonical_u64(n);
     }
@@ -97,7 +97,7 @@ impl Payload {
             u16::from_le_bytes(buffer)
         };
         if magic != PAYLOAD_MAGIC {
-            return Err(anyhow!("Invalid payload magic: {:04x}", magic));
+            return Err(anyhow!("Invalid payload magic: {magic:04x}"));
         }
         let type_ = {
             let mut buffer = [0; 1];
@@ -107,7 +107,7 @@ impl Payload {
         Ok(match type_ {
             PAYLOAD_TYPE_CREATE => Payload::Create(PayloadCreate::from_bytes(bytes)?),
             PAYLOAD_TYPE_UPDATE => Payload::Update(PayloadUpdate::from_bytes(bytes, common_data)?),
-            t => return Err(anyhow!("Invalid payload type: {}", t)),
+            t => return Err(anyhow!("Invalid payload type: {t}")),
         })
     }
 }
@@ -179,7 +179,7 @@ impl PayloadProof {
                     &mut buffer,
                     common_data,
                 )
-                .map_err(|e| anyhow!("read_compressed_proof: {}", e))?;
+                .map_err(|e| anyhow!("read_compressed_proof: {e}"))?;
                 let len = buffer.pos();
                 (PayloadProof::Plonky2(Box::new(proof)), len)
             }
