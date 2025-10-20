@@ -28,10 +28,6 @@ pub fn custom_predicates() -> CraftingPredicates {
     // 8 arguments per predicate, at most 5 of which are public
     // 5 statements per predicate
     let params = Params::default();
-    // The statements in batch0 are substitutes for introduction statements,
-    // for testing purposes
-    // MainPodBuilder::priv_op doesn't know how to fill in the wildcards if they are
-    // unconstrained, so throw in some Equal statements
     let batch0 = pod2::lang::parse(
         r#"
         // Generic recursive construciton confirming subset.  Relies on the Merkle
@@ -42,7 +38,7 @@ pub fn custom_predicates() -> CraftingPredicates {
         )
 
         // We should be able to inline the first Equal above, but
-        // MainPodBuilder.op_statement doesn't know how to fill in a
+        // frontend::op_statement doesn't know how to fill in a
         // wildcard which isn't constrained.  The dummy Equal
         // here lets us specify the `super` value when building.
         SuperSubSetEmpty(super, sub) = AND(
