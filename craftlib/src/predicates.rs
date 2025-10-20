@@ -30,7 +30,7 @@ pub fn custom_predicates() -> CraftingPredicates {
     let params = Params::default();
     let batch0 = pod2::lang::parse(
         r#"
-        // Generic recursive construciton confirming subset.  Relies on the Merkle
+        // Generic recursive construction confirming subset.  Relies on the Merkle
         // tree already requiring unique keys (so no inserts on super)
         SuperSubSet(super, sub) = OR(
             SuperSubSetEmpty(super, sub)
