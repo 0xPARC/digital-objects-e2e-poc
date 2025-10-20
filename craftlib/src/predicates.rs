@@ -77,7 +77,7 @@ pub fn custom_predicates() -> CraftingPredicates {
     let batch1 = pod2::lang::parse(
         &format!(
             r#"
-        use SuperSubSet, _, _, ItemDef from {:#}
+        use batch SuperSubSet, _, _, ItemDef from {:#}
 
         // Helper to expose just the item and key from ItemId calculation.
         // This is just the CraftedItem pattern with some of inupts private.
@@ -124,8 +124,8 @@ pub fn custom_predicates() -> CraftingPredicates {
     let batch2 = pod2::lang::parse(
         &format!(
             r#"
-        use SuperSubSet, _, _, ItemDef from {:#}
-        use ItemKey, Nullifiers, _, _ from {:#}
+        use batch SuperSubSet, _, _, ItemDef from {:#}
+        use batch ItemKey, Nullifiers, _, _ from {:#}
 
         // ZK version of CraftedItem for committing on-chain.
         // Validator/Logger/Archiver needs to maintain 2 append-only
@@ -338,9 +338,9 @@ mod tests {
         // all the values.
         let query = format!(
             r#"
-            use SuperSubSet, _, _, ItemDef from {:#}
-            use ItemKey, Nullifiers, _, _ from {:#}
-            use CommitCrafting, IsCopper from {:#}
+            use batch SuperSubSet, _, _, ItemDef from {:#}
+            use batch ItemKey, Nullifiers, _, _ from {:#}
+            use batch CommitCrafting, IsCopper from {:#}
 
             REQUEST(
                 ItemDef(item, ingredients, inputs, key, work)
