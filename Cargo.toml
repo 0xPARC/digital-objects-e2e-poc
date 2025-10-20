@@ -2,10 +2,42 @@
 members = [
     "digital-objects",
     "craftlib",
+    "common",
+    "app",
 ]
 resolver = "3"
 
 [workspace.dependencies]
+# common
 anyhow = "1.0.56"
 itertools = "0.14.0"
+dotenvy = "0.15.7"
+
+# logging
+env_logger = { version = "0.11" }
+log = { version = "0.4.14", features = ["kv_unstable"] }
+tracing = "0.1.19"
+tracing-subscriber = { version = "0.3", features = ["registry", "env-filter" ] }
+
+# pod
 pod2 = { git="https://github.com/0xPARC/pod2", rev = "707c14db14d03485c68045a903771591e533ba59", default-features = false, features = ["backend_plonky2", "disk_cache", "zk"]}
+plonky2 = { git = "https://github.com/0xPARC/plonky2.git", rev = "109d517d09c210ae4c2cee381d3e3fbc04aa3812" }
+pod2_onchain = { git = "https://github.com/0xPARC/pod2-onchain.git", rev = "5f2047752349a0f06665bc8f6ba82f50bc5ad435", default-features=false, features = ["disk_cache"]}
+
+# eth
+alloy = { version = "1.0.13", features = [
+    "eips",
+    "full",
+    "json-rpc",
+    "hyper", #
+    "transport-http", #
+    "signer-local", #
+    "rpc-client",
+    "rpc-types-beacon"
+] }
+tokio = {version="1.45", features = ["rt-multi-thread", "macros", "sync"]}
+
+# temporarily patch pod2 version, since it is constantly updated, to avoid
+# updating pod2-onchain usage of it each time
+[patch."https://github.com/0xPARC/pod2"]
+pod2 = { git = "https://github.com/0xPARC/pod2?rev=main", rev = "707c14db14d03485c68045a903771591e533ba59" }
