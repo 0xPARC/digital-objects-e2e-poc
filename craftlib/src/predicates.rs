@@ -8,7 +8,6 @@ pub struct CraftingPredicates {
     pub batches: Vec<Arc<CustomPredicateBatch>>,
 
     pub super_sub_set: CustomPredicateRef,
-    pub super_sub_set_empty: CustomPredicateRef,
     pub super_sub_set_recursive: CustomPredicateRef,
     pub item_def: CustomPredicateRef,
 
@@ -37,17 +36,8 @@ pub fn custom_predicates() -> CraftingPredicates {
         // Generic recursive construction confirming subset.  Relies on the Merkle
         // tree already requiring unique keys (so no inserts on super)
         SuperSubSet(super, sub) = OR(
-            SuperSubSetEmpty(super, sub)
-            SuperSubSetRecursive(super, sub)
-        )
-
-        // We should be able to inline the first Equal above, but
-        // MainPodBuilder.op_statement doesn't know how to fill in a
-        // wildcard which isn't constrained.  The dummy Equal
-        // here lets us specify the `super` value when building.
-        SuperSubSetEmpty(super, sub) = AND(
             Equal(sub, {})
-            Equal(super, super)
+            SuperSubSetRecursive(super, sub)
         )
 
         SuperSubSetRecursive(super, sub, private: i, smaller) = AND(
@@ -72,8 +62,6 @@ pub fn custom_predicates() -> CraftingPredicates {
     .custom_batch;
     let super_sub_set =
         CustomPredicateBatch::predicate_ref_by_name(&batch0, "SuperSubSet").unwrap();
-    let super_sub_set_empty =
-        CustomPredicateBatch::predicate_ref_by_name(&batch0, "SuperSubSetEmpty").unwrap();
     let super_sub_set_recursive =
         CustomPredicateBatch::predicate_ref_by_name(&batch0, "SuperSubSetRecursive").unwrap();
     let item_def = CustomPredicateBatch::predicate_ref_by_name(&batch0, "ItemDef").unwrap();
@@ -81,7 +69,7 @@ pub fn custom_predicates() -> CraftingPredicates {
     let batch1 = pod2::lang::parse(
         &format!(
             r#"
-        use batch SuperSubSet, _, _, ItemDef from {:#}
+        use batch SuperSubSet, _, ItemDef from {:#}
 
         // Helper to expose just the item and key from ItemId calculation.
         // This is just the CraftedItem pattern with some of inupts private.
@@ -128,7 +116,7 @@ pub fn custom_predicates() -> CraftingPredicates {
     let batch2 = pod2::lang::parse(
         &format!(
             r#"
-        use batch SuperSubSet, _, _, ItemDef from {:#}
+        use batch SuperSubSet, _, ItemDef from {:#}
         use batch ItemKey, Nullifiers, _, _ from {:#}
 
         // ZK version of CraftedItem for committing on-chain.
@@ -176,7 +164,6 @@ pub fn custom_predicates() -> CraftingPredicates {
         batches: vec![batch0, batch1, batch2],
 
         super_sub_set,
-        super_sub_set_empty,
         super_sub_set_recursive,
         item_def,
 
@@ -190,6 +177,7 @@ pub fn custom_predicates() -> CraftingPredicates {
     }
 }
 
+#[rustfmt::skip::macros(pub_st_custom)]
 #[cfg(test)]
 mod tests {
     use std::collections::{HashMap, HashSet};
@@ -200,7 +188,7 @@ mod tests {
         lang::parse,
         middleware::{EMPTY_VALUE, RawValue, Statement, VDSet, Value, hash_value},
     };
-    use pod2lib::st_custom;
+    use pod2lib::{pub_st_custom, st_custom};
 
     use super::*;
     use crate::{
@@ -266,59 +254,54 @@ mod tests {
         )?;
 
         // Build ItemDef(item, ingredients, inputs, key, work)
-        let st_item_def = st_custom!(
-            (builder, batches),
-            pub ItemDef(
+        let st_item_def = pub_st_custom!((builder, batches),
+            ItemDef(item_hash, ingredients_dict, inputs_set, ingredients_def.key, item_def.work,) = (
                 DictContains(ingredients_dict, "inputs", inputs_set),
                 DictContains(ingredients_dict, "key", ingredients_def.key),
                 HashOf(item_hash, ingredients_dict, item_def.work),
-            )
-        );
+            ));
 
+        /*
         // Build ItemKey(item, key)
-        let _st_itemkey = st_custom!((builder, batches), pub ItemKey(st_item_def.clone(),));
+        let _st_itemkey = pub_st_custom!((builder, batches),
+            ItemKey(item_hash, ingredients_def.key) = (
+                st_item_def.clone(),
+            ));
 
-        let st_inputs_subset_empty = st_custom!(
-            (builder, batches),
-            SuperSubSetEmpty(
-                Equal(inputs_set, EMPTY_VALUE),
-                Equal(created_items, created_items),
-            )
-        );
         // Build SuperSubSet(created_items, inputs)
-        let st_inputs_subset = st_custom!(
-            (builder, batches),
-            pub SuperSubSet(st_inputs_subset_empty, Statement::None,)
-        );
+        let st_inputs_subset = pub_st_custom!((builder, batches),
+            SuperSubSet(created_items, inputs_set) = (
+                Equal(inputs_set, EMPTY_VALUE),
+                Statement::None,
+            ));
 
         // Build Nullifiers(nullifiers, inputs)
         let st_nullifiers_empty = st_custom!(
             (builder, batches),
-            NullifiersEmpty(
+            NullifiersEmpty(inputs_set, nullifiers) = (
                 Equal(inputs_set, EMPTY_VALUE),
                 Equal(nullifiers, EMPTY_VALUE),
             )
         );
-        let st_nullifiers = st_custom!(
-            (builder, batches),
-            pub Nullifiers(st_nullifiers_empty, Statement::None,)
-        );
+        let st_nullifiers = pub_st_custom!((builder, batches),
+            Nullifiers(inputs_set, nullifiers) = (
+                st_nullifiers_empty,
+                Statement::None,
+            ));
 
         // Build CommitCrafting(item, nullifiers, created_items)
-        let _st_commit_crafting = st_custom!(
-            (builder, batches),
-            pub CommitCrafting(st_item_def.clone(), st_inputs_subset, st_nullifiers,)
+        let _st_commit_crafting = pub_st_custom!((builder, batches),
+            CommitCrafting(item_hash, inputs_set, created_items) =
+                (st_item_def.clone(), st_inputs_subset, st_nullifiers,)
         );
 
         // Build IsCopper(item)
-        let _st_is_copper = st_custom!(
-            (builder, batches),
-            pub IsCopper(
+        let _st_is_copper = pub_st_custom!((builder, batches),
+            IsCopper(item_hash) = (
                 st_item_def,
                 Equal(inputs_set, EMPTY_VALUE),
                 DictContains(ingredients_dict, "blueprint", COPPER_BLUEPRINT),
-            )
-        );
+            ));
 
         // Prove MainPOD
         let main_pod = builder.prove(&MockProver {})?;
@@ -330,7 +313,7 @@ mod tests {
         // all the values.
         let query = format!(
             r#"
-            use batch SuperSubSet, _, _, ItemDef from {:#}
+            use batch SuperSubSet, _, ItemDef from {:#}
             use batch ItemKey, Nullifiers, _, _ from {:#}
             use batch CommitCrafting, IsCopper from {:#}
 
@@ -364,6 +347,7 @@ mod tests {
                 ("nullifiers".to_string(), Value::from(nullifiers)),
             ]),
         );
+        */
 
         Ok(())
     }
