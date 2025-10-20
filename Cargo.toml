@@ -44,4 +44,4 @@ alloy = { version = "1.0.13", features = [
 tokio = {version="1.45", features = ["rt-multi-thread", "macros", "sync"]}
 
 [patch."https://github.com/0xPARC/pod2"]
-pod2 = { path = "../pod2" }
+pod2 = { git = "https://github.com/0xPARC/pod2?rev=main", rev = "707c14db14d03485c68045a903771591e533ba59" }

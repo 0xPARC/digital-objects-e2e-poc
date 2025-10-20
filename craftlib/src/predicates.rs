@@ -255,13 +255,12 @@ mod tests {
 
         // Build ItemDef(item, ingredients, inputs, key, work)
         let st_item_def = pub_st_custom!((builder, batches),
-            ItemDef(item_hash, ingredients_dict, inputs_set, ingredients_def.key, item_def.work,) = (
+            ItemDef(item_hash, ingredients_dict, inputs_set, ingredients_def.key, item_def.work) = (
                 DictContains(ingredients_dict, "inputs", inputs_set),
                 DictContains(ingredients_dict, "key", ingredients_def.key),
                 HashOf(item_hash, ingredients_dict, item_def.work),
             ));
 
-        /*
         // Build ItemKey(item, key)
         let _st_itemkey = pub_st_custom!((builder, batches),
             ItemKey(item_hash, ingredients_def.key) = (
@@ -347,7 +346,6 @@ mod tests {
                 ("nullifiers".to_string(), Value::from(nullifiers)),
             ]),
         );
-        */
 
         Ok(())
     }

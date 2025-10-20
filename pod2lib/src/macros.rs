@@ -103,13 +103,16 @@ macro_rules! _st_custom_args {
 
 #[macro_export]
 macro_rules! _wildcard_values {
-    ($values:expr, $index:expr, ) => {{}};
-    ($values:expr, $index:expr, _, $($tail:expr),*) => {{
-        $crate::_wildcard_values!($values, $index+1, $($tail),*);
-    }};
-    ($values:expr, $index:expr, $value:expr, $($tail:expr),*) => {{
+    ($values:expr, $index:expr, []) => {{}};
+    // ($values:expr, $index:expr, _, $($tail:expr),*) => {{
+    //     $crate::_wildcard_values!($values, $index+1, $($tail),*);
+    // }};
+    ($values:expr, $index:expr, [$value:expr]) => {{
         $values.push(($index, pod2::middleware::Value::from($value.clone())));
-        $crate::_wildcard_values!($values, $index+1, $($tail),*);
+    }};
+    ($values:expr, $index:expr, [$value:expr, $($tail:expr),*]) => {{
+        $values.push(($index, pod2::middleware::Value::from($value.clone())));
+        $crate::_wildcard_values!($values, $index+1, [$($tail),*]);
     }};
 }
 
@@ -120,7 +123,7 @@ macro_rules! _st_custom {
         let mut input_sts = Vec::new();
         $crate::_st_custom_args!($builder, &mut input_sts, $($sts)*);
         let mut wildcard_values: Vec<(usize, pod2::middleware::Value)> = Vec::new();
-        $crate::_wildcard_values!(wildcard_values, 0, $($args),*);
+        $crate::_wildcard_values!(wildcard_values, 0, [$($args),*]);
         let op = pod2::frontend::Operation::custom(custom_pred, input_sts);
         $builder
             .op($pub, wildcard_values, op)
