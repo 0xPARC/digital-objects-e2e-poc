@@ -7,4 +7,5 @@ resolver = "3"
 
 [workspace.dependencies]
 anyhow = "1.0.56"
+itertools = "0.14.0"
 pod2 = { git="https://github.com/0xPARC/pod2", rev = "707c14db14d03485c68045a903771591e533ba59", default-features = false, features = ["backend_plonky2", "disk_cache", "zk"]}
