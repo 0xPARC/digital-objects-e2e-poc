@@ -174,6 +174,7 @@ name = "craftlib"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "itertools 0.14.0",
  "pod2",
 ]
 
@@ -799,7 +800,7 @@ source = "git+https://github.com/0xPARC/plonky2.git?rev=109d517d09c210ae4c2cee38
 [[package]]
 name = "pod2"
 version = "0.1.0"
-source = "git+https://github.com/0xPARC/pod2?rev=d355e55159dbe7ea03eb4397ecb4b1df5cb19e16#d355e55159dbe7ea03eb4397ecb4b1df5cb19e16"
+source = "git+https://github.com/0xPARC/pod2?rev=707c14db14d03485c68045a903771591e533ba59#707c14db14d03485c68045a903771591e533ba59"
 dependencies = [
  "anyhow",
  "base64",
