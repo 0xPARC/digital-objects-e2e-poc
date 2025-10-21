@@ -92,44 +92,60 @@ pub fn find_custom_pred_by_name(
 
 #[macro_export]
 macro_rules! _st_custom_args {
-    ($builder:expr, $input_sts:expr,) => {{
+    (process_st, $builder:expr, $input_sts:expr, $st:expr) => {{
+        $input_sts.push($st);
+    }};
+    (process_op, $builder:expr, $input_sts:expr, $pred:ident($($args:expr),+)) => {{
+        $input_sts.push($builder.priv_op($crate::op!($pred($($args),+))).unwrap());
+    }};
+
+    // Munch native operation
+    ($builder:expr, $input_sts:expr, $pred:ident($($args:expr),+)) => {{
+        $crate::_st_custom_args!(process_op, $builder, $input_sts, $pred($($args),+));
     }};
     ($builder:expr, $input_sts:expr, $pred:ident($($args:expr),+), $($tail:tt)*) => {{
-        $input_sts.push($builder.priv_op($crate::op!($pred($($args),+))).unwrap());
+        $crate::_st_custom_args!(process_op, $builder, $input_sts, $pred($($args),+));
         $crate::_st_custom_args!($builder, $input_sts, $($tail)*)
     }};
+    // Munch statement
+    ($builder:expr, $input_sts:expr, $st:expr) => {{
+        $crate::_st_custom_args!(process_st, $builder, $input_sts, $st);
+    }};
     ($builder:expr, $input_sts:expr, $st:expr, $($tail:tt)*) => {{
-        $input_sts.push($st);
+        $crate::_st_custom_args!(process_st, $builder, $input_sts, $st);
         $crate::_st_custom_args!($builder, $input_sts, $($tail)*)
     }};
 }
 
 #[macro_export]
 macro_rules! _wildcard_values {
-    // ($values:expr, $index:expr, []) => {{}};
-    // ($values:expr, $index:expr, _, $($tail:expr),*) => {{
-    //     $crate::_wildcard_values!($values, $index+1, $($tail),*);
-    // }};
-    (process, $values:expr, $index:expr, $value:expr) => {{
-        $values.push(($index, pod2::middleware::Value::from($value.clone())));
+    (process, $custom_pred:expr, $values:expr, $name:ident, $value:expr) => {{
+        let name = stringify!($name);
+        let predicate = &$custom_pred.batch.predicates()[$custom_pred.index];
+        let index = predicate.wildcard_names().iter().position(|wc_name| wc_name == name).expect("valid wildcard name");
+        $values.push((index, pod2::middleware::Value::from($value.clone())));
     }};
-    ($values:expr, $index:expr, [$value:expr]) => {{
-        $crate::_wildcard_values!(process, $values, $index, $value);
+
+    ($custom_pred:expr, $values:expr, []) => {{
     }};
-    ($values:expr, $index:expr, [$value:expr, $($tail:expr),*]) => {{
-        $crate::_wildcard_values!(process, $values, $index, $value);
-        $crate::_wildcard_values!($values, $index+1, [$($tail),*]);
+    // Munch value
+    ($custom_pred:expr, $values:expr, [$name:ident=$value:expr]) => {{
+        $crate::_wildcard_values!(process, $custom_pred, $values, $name, $value);
+    }};
+    ($custom_pred:expr, $values:expr, [$name:ident=$value:expr, $($tail:expr),*]) => {{
+        $crate::_wildcard_values!(process, $custom_pred, $values, $name, $value);
+        $crate::_wildcard_values!($custom_pred, $values, [$($tail),*]);
     }};
 }
 
 #[macro_export]
 macro_rules! _st_custom {
-    ($builder:expr, $batches:expr, $pub:expr, $pred:ident($($args:expr),*) = ($($sts:tt)*)) => {{
+    ($builder:expr, $batches:expr, $pub:expr, $pred:ident($($wc_name:ident=$wc_value:expr),*) = ($($sts:tt)*)) => {{
         let custom_pred = $crate::macros::find_custom_pred_by_name($batches, stringify!($pred)).unwrap();
         let mut input_sts = Vec::new();
         $crate::_st_custom_args!($builder, &mut input_sts, $($sts)*);
         let mut wildcard_values: Vec<(usize, pod2::middleware::Value)> = Vec::new();
-        $crate::_wildcard_values!(wildcard_values, 0, [$($args),*]);
+        $crate::_wildcard_values!(custom_pred, wildcard_values, [$($wc_name=$wc_value),*]);
         let op = pod2::frontend::Operation::custom(custom_pred, input_sts);
         $builder
             .op($pub, wildcard_values, op)
@@ -147,20 +163,21 @@ pub struct BuildContext<'a> {
 #[macro_export]
 #[rustfmt::skip]
 macro_rules! pub_st_custom {
-    ($ctx:expr, $pred:ident($($args:expr),*) = ($($sts:tt)*)) => {{
-        $crate::_st_custom!($ctx.builder, $ctx.batches, true, $pred($($args),*) = ($($sts)*))
+    ($ctx:expr, $pred:ident($($wc_name:ident=$wc_value:expr),*) = ($($sts:tt)*)) => {{
+        $crate::_st_custom!($ctx.builder, $ctx.batches, true, $pred($($wc_name=$wc_value),*) = ($($sts)*))
     }};
 }
 
 /// Argument types:
 /// $ctx: &mut BuildContext
 /// $pred: NativePredicate token
-/// $args: &Into<Value>
+/// $wc_name: Public wildcard name token
+/// $wc_value: &Into<Value>
 /// $sts: Operation|Statement
 #[macro_export]
 #[rustfmt::skip]
 macro_rules! st_custom {
-    ($ctx:expr, $pred:ident($($args:expr),*) = ($($sts:tt)*)) => {{
-        $crate::_st_custom!($ctx.builder, $ctx.batches, false, $pred($($args),*) = ($($sts)*))
+    ($ctx:expr, $pred:ident($($wc_name:ident=$wc_value:expr),*) = ($($sts:tt)*)) => {{
+        $crate::_st_custom!($ctx.builder, $ctx.batches, false, $pred($($wc_name=$wc_value),*) = ($($sts)*))
     }};
 }

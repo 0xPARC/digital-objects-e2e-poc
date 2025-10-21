@@ -259,50 +259,50 @@ mod tests {
 
         // Build ItemDef(item, ingredients, inputs, key, work)
         let st_item_def = pub_st_custom!(ctx,
-            ItemDef(item_hash, ingredients_dict, inputs_set, ingredients_def.key, item_def.work) = (
+            ItemDef() = (
                 DictContains(ingredients_dict, "inputs", inputs_set),
                 DictContains(ingredients_dict, "key", ingredients_def.key),
-                HashOf(item_hash, ingredients_dict, item_def.work),
+                HashOf(item_hash, ingredients_dict, item_def.work)
             ));
 
         // Build ItemKey(item, key)
         let _st_itemkey = pub_st_custom!(ctx,
-            ItemKey(item_hash, ingredients_def.key) = (
-                st_item_def.clone(),
+            ItemKey() = (
+                st_item_def.clone()
             ));
 
         // Build SuperSubSet(created_items, inputs)
         let st_inputs_subset = pub_st_custom!(ctx,
-            SuperSubSet(created_items, inputs_set) = (
+            SuperSubSet(super=created_items) = (
                 Equal(inputs_set, EMPTY_VALUE),
-                Statement::None,
+                Statement::None
             ));
 
         // Build Nullifiers(nullifiers, inputs)
         let st_nullifiers_empty = st_custom!(ctx,
-            NullifiersEmpty(inputs_set, nullifiers) = (
+            NullifiersEmpty() = (
                 Equal(inputs_set, EMPTY_VALUE),
-                Equal(nullifiers, EMPTY_VALUE),
+                Equal(nullifiers, EMPTY_VALUE)
             ));
         let st_nullifiers = pub_st_custom!(ctx,
-            Nullifiers(inputs_set, nullifiers) = (
+            Nullifiers() = (
                 st_nullifiers_empty,
-                Statement::None,
+                Statement::None
             ));
 
         // Build CommitCrafting(item, nullifiers, created_items)
         let _st_commit_crafting = pub_st_custom!(ctx,
-            CommitCrafting(item_hash, inputs_set, created_items) = (
+            CommitCrafting() = (
                 st_item_def.clone(),
-                st_inputs_subset, st_nullifiers,
+                st_inputs_subset, st_nullifiers
             ));
 
         // Build IsCopper(item)
         let _st_is_copper = pub_st_custom!(ctx,
-            IsCopper(item_hash) = (
+            IsCopper() = (
                 st_item_def,
                 Equal(inputs_set, EMPTY_VALUE),
-                DictContains(ingredients_dict, "blueprint", COPPER_BLUEPRINT),
+                DictContains(ingredients_dict, "blueprint", COPPER_BLUEPRINT)
             ));
 
         // Prove MainPOD
