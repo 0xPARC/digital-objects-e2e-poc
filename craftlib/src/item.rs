@@ -1,17 +1,20 @@
 use std::{
     collections::{HashMap, HashSet},
     ops::Range,
+    sync::Arc,
 };
 
-use commitlib::{IngredientsDef, ItemDef, build_st_item_def, predicates::CommitPredicates};
+use commitlib::{IngredientsDef, ItemDef, build_st_item_def};
 use pod2::{
-    frontend::{MainPod, MainPodBuilder, Operation},
+    frontend::{MainPod, MainPodBuilder},
     middleware::{
-        EMPTY_VALUE, Hash, MainPodProver, Params, RawValue, Statement, ToFields, VDSet, Value,
+        CustomPredicateBatch, EMPTY_VALUE, Hash, MainPodProver, Params, RawValue, Statement,
+        ToFields, VDSet, Value,
     },
 };
+use pod2utils::{macros::BuildContext, pub_st_custom};
 
-use crate::{constants::COPPER_BLUEPRINT, predicates::ItemPredicates};
+use crate::constants::COPPER_BLUEPRINT;
 
 // Reusable recipe for an item to be mined, not including the variable
 // cryptographic values.
@@ -66,32 +69,19 @@ impl MiningRecipe {
 // Builds the following public predicates: IsCopper
 // Returns the Statement object for IsCopper for use in further statements.
 fn build_st_is_copper(
-    builder: &mut MainPodBuilder,
+    ctx: &mut BuildContext,
+    params: &Params,
     item_def: ItemDef,
     st_item_def: Statement,
-    item_preds: &ItemPredicates,
-    params: &Params,
 ) -> anyhow::Result<Statement> {
     // Build IsCopper(item)
-    let st_work_empty = builder.priv_op(Operation::eq(item_def.work, EMPTY_VALUE))?;
-    let st_inputs_eq_empty = builder.priv_op(Operation::eq(
-        item_def.ingredients.inputs_set(params)?,
-        EMPTY_VALUE,
-    ))?;
-    let st_contains_blueprint = builder.priv_op(Operation::dict_contains(
-        item_def.ingredients.dict(params)?,
-        "blueprint",
-        Value::from(COPPER_BLUEPRINT),
-    ))?;
-    let st_is_copper = builder.pub_op(Operation::custom(
-        item_preds.is_copper.clone(),
-        [
+    let st_is_copper = pub_st_custom!(ctx,
+        IsCopper() = (
             st_item_def,
-            st_work_empty,
-            st_inputs_eq_empty,
-            st_contains_blueprint,
-        ],
-    ))?;
+            Equal(item_def.work, EMPTY_VALUE),
+            Equal(item_def.ingredients.inputs_set(params)?, EMPTY_VALUE),
+            DictContains(item_def.ingredients.dict(params)?, "blueprint", COPPER_BLUEPRINT)
+        ))?;
 
     Ok(st_is_copper)
 }
@@ -102,17 +92,19 @@ pub fn prove_is_copper(
     item_def: ItemDef,
 
     // TODO: All the args below might belong in a ItemBuilder object
-    commit_preds: &CommitPredicates,
-    item_preds: &ItemPredicates,
+    batches: &[Arc<CustomPredicateBatch>],
     params: &Params,
     prover: &dyn MainPodProver,
     vd_set: &VDSet,
 ) -> anyhow::Result<MainPod> {
     let mut builder = MainPodBuilder::new(&Default::default(), vd_set);
 
-    let st_item_def = build_st_item_def(&mut builder, item_def.clone(), commit_preds, params)?;
-    let _st_is_copper =
-        build_st_is_copper(&mut builder, item_def, st_item_def, item_preds, params)?;
+    let mut ctx = BuildContext {
+        builder: &mut builder,
+        batches,
+    };
+    let st_item_def = build_st_item_def(&mut ctx, params, item_def.clone())?;
+    let _st_is_copper = build_st_is_copper(&mut ctx, params, item_def, st_item_def)?;
 
     // Prove MainPOD
     Ok(builder.prove(prover)?)
@@ -123,7 +115,9 @@ mod tests {
 
     use std::collections::HashMap;
 
-    use commitlib::{prove_st_commit_crafting, util::set_from_hashes};
+    use commitlib::{
+        predicates::CommitPredicates, prove_st_commit_crafting, util::set_from_hashes,
+    };
     use pod2::{
         backends::plonky2::mock::mainpod::MockProver,
         lang::parse,
@@ -187,7 +181,9 @@ mod tests {
     fn test_mine_and_prove_copper() -> anyhow::Result<()> {
         let params = Params::default();
         let commit_preds = CommitPredicates::compile(&params);
+        let mut batches = commit_preds.defs.batches.clone();
         let item_preds = ItemPredicates::compile(&params, &commit_preds);
+        batches.extend_from_slice(&item_preds.defs.batches);
 
         let prover = &MockProver {};
         let vd_set = &mock_vd_set();
@@ -215,14 +211,7 @@ mod tests {
 
         // Prove a copper POD.  This is the private POD for the player to store
         // locally for future crafting.
-        let copper_main_pod = prove_is_copper(
-            item_def.clone(),
-            &commit_preds,
-            &item_preds,
-            &params,
-            prover,
-            vd_set,
-        )?;
+        let copper_main_pod = prove_is_copper(item_def.clone(), &batches, &params, prover, vd_set)?;
 
         copper_main_pod.pod.verify()?;
         assert_eq!(copper_main_pod.public_statements.len(), 3);
@@ -282,7 +271,7 @@ mod tests {
             item_def,
             created_items.clone(),
             copper_main_pod,
-            &commit_preds,
+            &batches,
             &params,
             prover,
             vd_set,

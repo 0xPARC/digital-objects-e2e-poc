@@ -2,3 +2,4 @@ imports_granularity = "Crate"
 reorder_imports = true # default
 group_imports = "StdExternalCrate"
 edition = "2024"
+skip_macro_invocations = ["pub_st_custom", "st_custom"]

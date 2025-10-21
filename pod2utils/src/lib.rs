@@ -1,3 +1,5 @@
+pub mod macros;
+
 use std::sync::Arc;
 
 use itertools::Itertools;
