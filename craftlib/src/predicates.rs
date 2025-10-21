@@ -1,183 +1,8 @@
-use std::{slice, sync::Arc};
+use std::slice;
 
-use itertools::Itertools;
-use pod2::middleware::{CustomPredicateBatch, CustomPredicateRef, Hash, Params};
-
-pub const CONSUMED_ITEM_EXTERNAL_NULLIFIER: &str = "consumed item external nullifier";
-
-// Generic data-drive struct for holidng a set of custom predicates built from
-// 1 or more batches.
-pub struct PredicateDefs {
-    pub batches: Vec<Arc<CustomPredicateBatch>>,
-    pub batch_ids: Vec<Hash>,
-    pub imports: String,
-}
-
-impl PredicateDefs {
-    // Builds the imports and by_name fields automatically from an array batch
-    // code in PODLang.  Later batches will import previous batches automatically,
-    // while use statements for external batches can be included using
-    // external_batches.
-    // This is meant for use on constant PODLang definitions, so it panics on
-    // errors.
-    pub fn new(params: &Params, batch_code: &[&str], external_defs: &[PredicateDefs]) -> Self {
-        let external_imports = external_defs.iter().map(|d| d.imports.clone()).join("\n");
-        let external_batches = external_defs.iter().map(|d| d.batches.clone()).concat();
-
-        let mut batches = Vec::<Arc<CustomPredicateBatch>>::new();
-        let mut imports = String::new();
-
-        for podlang_code in batch_code {
-            let batch = pod2::lang::parse(
-                &format!(
-                    "{}\n{}\n{}",
-                    external_imports,
-                    imports.clone(),
-                    podlang_code
-                ),
-                params,
-                &[external_batches.clone(), batches.clone()].concat(),
-            )
-            .unwrap()
-            .custom_batch;
-
-            imports += &format!(
-                "use batch {} from {:#}\n",
-                batch.predicates().iter().map(|p| p.name.clone()).join(", "),
-                batch.id()
-            );
-
-            batches.push(batch);
-        }
-
-        PredicateDefs {
-            batch_ids: batches.clone().iter().map(|b| b.id()).collect(),
-            batches,
-            imports,
-        }
-    }
-
-    // Finds a predicate by name in any of the included batches.
-    pub fn predicate_ref_by_name(&self, pred_name: &str) -> Option<CustomPredicateRef> {
-        for batch in self.batches.iter() {
-            let found = CustomPredicateBatch::predicate_ref_by_name(batch, pred_name);
-            if found.is_some() {
-                return found;
-            }
-        }
-
-        None
-    }
-}
-
-pub struct CommitPredicates {
-    pub defs: PredicateDefs,
-
-    pub super_sub_set: CustomPredicateRef,
-    pub super_sub_set_recursive: CustomPredicateRef,
-    pub item_def: CustomPredicateRef,
-    pub item_key: CustomPredicateRef,
-
-    pub nullifiers: CustomPredicateRef,
-    pub nullifiers_empty: CustomPredicateRef,
-    pub nullifiers_recursive: CustomPredicateRef,
-    pub commit_crafting: CustomPredicateRef,
-}
-
-impl CommitPredicates {
-    pub fn compile(params: &Params) -> Self {
-        // maximum allowed:
-        // 4 batches
-        // 4 predicates per batch
-        // 8 arguments per predicate, at most 5 of which are public
-        // 5 statements per predicate
-        let batch_defs = [
-            r#"
-            // Generic recursive construction confirming subset.  Relies on the Merkle
-            // tree already requiring unique keys (so no inserts on super)
-            SuperSubSet(super, sub) = OR(
-                Equal(sub, {})
-                SuperSubSetRecursive(super, sub)
-            )
-
-            SuperSubSetRecursive(super, sub, private: i, smaller) = AND(
-                SetContains(super, i)
-                SetInsert(sub, smaller, i)
-                SuperSubSet(super, smaller)
-            )
-
-            // Prove proper derivation of item ID from defined inputs
-            // The ingredients dict is explicitly allowed to contain more fields
-            // for use in item predicates.
-            ItemDef(item, ingredients, inputs, key, work) = AND(
-                DictContains(ingredients, "inputs", inputs)
-                DictContains(ingredients, "key", key)
-                HashOf(item, ingredients, work)
-            )
-
-            // Helper to expose just the item and key from ItemId calculation.
-            // This is just the CraftedItem pattern with some of inupts private.
-            ItemKey(item, key, private: ingredients, inputs, work) = AND(
-                ItemDef(item, ingredients, inputs, key, work)
-            )
-            "#,
-            r#"
-            // Derive nullifiers from items (using a recursive foreach construction)
-            // This proves the relationship between an item and its key before using
-            // the key to calculate a nullifier.
-            Nullifiers(nullifiers, inputs) = OR(
-                NullifiersEmpty(nullifiers, inputs)
-                NullifiersRecursive(nullifiers, inputs)
-            )
-
-            NullifiersEmpty(nullifiers, inputs) = AND(
-                Equal(nullifiers, {})
-                Equal(inputs, {})
-            )
-
-            NullifiersRecursive(nullifiers, inputs, private: i, n, k, ns, is) = AND(
-                ItemKey(i, k)
-                HashOf(n, k, "consumed item external nullifier")
-                SetInsert(nullifiers, ns, n)
-                SetInsert(inputs, is, i)
-                Nullifiers(ns, is)
-            )
-
-            // ZK version of CraftedItem for committing on-chain.
-            // Validator/Logger/Archiver needs to maintain 2 append-only
-            // sets of items and nullifiers.  New crafting is
-            // accepted iff:
-            // - item is not already in item set
-            // - all nullifiers are not already in nullifier set
-            // - createdItems is one of the historical item set roots
-            CommitCrafting(item, nullifiers, created_items, private: ingredients, inputs, key, work) = AND(
-                // Prove the item hash includes all of its committed properties
-                ItemDef(item, ingredients, inputs, key, work)
-
-                // Prove all inputs are in the created set
-                SuperSubSet(created_items, inputs)
-
-                // Expose nullifiers for all inputs
-                Nullifiers(nullifiers, inputs)
-            )
-            "#,
-        ];
-
-        let defs = PredicateDefs::new(params, &batch_defs, &[]);
-
-        CommitPredicates {
-            super_sub_set: defs.predicate_ref_by_name("SuperSubSet").unwrap(),
-            super_sub_set_recursive: defs.predicate_ref_by_name("SuperSubSetRecursive").unwrap(),
-            item_def: defs.predicate_ref_by_name("ItemDef").unwrap(),
-            item_key: defs.predicate_ref_by_name("ItemKey").unwrap(),
-            nullifiers: defs.predicate_ref_by_name("Nullifiers").unwrap(),
-            nullifiers_empty: defs.predicate_ref_by_name("NullifiersEmpty").unwrap(),
-            nullifiers_recursive: defs.predicate_ref_by_name("NullifiersRecursive").unwrap(),
-            commit_crafting: defs.predicate_ref_by_name("CommitCrafting").unwrap(),
-            defs,
-        }
-    }
-}
+use commitlib::predicates::CommitPredicates;
+use pod2::middleware::{CustomPredicateRef, Params};
+use pod2utils::PredicateDefs;
 
 pub struct ItemPredicates {
     pub defs: PredicateDefs,
@@ -219,6 +44,7 @@ impl ItemPredicates {
 mod tests {
     use std::collections::{HashMap, HashSet};
 
+    use commitlib::{IngredientsDef, ItemDef, util::set_from_hashes};
     use pod2::{
         backends::plonky2::mock::mainpod::MockProver,
         frontend::{MainPodBuilder, Operation},
@@ -229,9 +55,7 @@ mod tests {
     use super::*;
     use crate::{
         constants::COPPER_BLUEPRINT,
-        item::{IngredientsDef, ItemDef},
         test_util::test::{check_matched_wildcards, mock_vd_set},
-        util::set_from_hashes,
     };
 
     #[test]
@@ -253,17 +77,19 @@ mod tests {
         let mut builder = MainPodBuilder::new(&Default::default(), &mock_vd_set());
 
         // Item recipe constants
-        let seed = 0xA34;
+        let seed: i64 = 0xA34;
         let key = 0xBADC0DE;
         let work: RawValue = EMPTY_VALUE;
         // TODO: Real mining and sequential work.
 
         // Pre-calculate hashes and intermediate values.
         let ingredients_def: IngredientsDef = IngredientsDef {
-            blueprint: COPPER_BLUEPRINT.to_string(),
             inputs: HashSet::new(),
-            seed: RawValue::from(seed),
             key: RawValue::from(key),
+            app_layer: HashMap::from([
+                ("blueprint".to_string(), Value::from(COPPER_BLUEPRINT)),
+                ("seed".to_string(), Value::from(seed)),
+            ]),
         };
         let ingredients_dict = ingredients_def.dict(&params)?;
         let inputs_set = ingredients_def.inputs_set(&params)?;

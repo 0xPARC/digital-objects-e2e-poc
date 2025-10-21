@@ -1,80 +1,17 @@
-use std::{collections::HashSet, ops::Range};
+use std::{
+    collections::{HashMap, HashSet},
+    ops::Range,
+};
 
+use commitlib::{IngredientsDef, ItemDef, build_st_item_def, predicates::CommitPredicates};
 use pod2::{
-    dict,
     frontend::{MainPod, MainPodBuilder, Operation},
     middleware::{
-        EMPTY_HASH, EMPTY_VALUE, Hash, MainPodProver, Params, RawValue, Statement, ToFields, VDSet,
-        Value,
-        containers::{Dictionary, Set},
-        hash_values,
+        EMPTY_VALUE, Hash, MainPodProver, Params, RawValue, Statement, ToFields, VDSet, Value,
     },
 };
 
-use crate::{
-    constants::COPPER_BLUEPRINT,
-    predicates::{CONSUMED_ITEM_EXTERNAL_NULLIFIER, CommitPredicates, ItemPredicates},
-    util::set_from_hashes,
-};
-
-// Rust-level definition of the ingredients of an item, used to derive the
-// ingredients hash (dict root) before doing sequential work on it.
-#[derive(Debug, Clone)]
-pub struct IngredientsDef {
-    // These properties are committed on-chain
-    pub inputs: HashSet<Hash>,
-    pub key: RawValue,
-
-    // These properties are used only by item predicates
-    pub blueprint: String,
-    pub seed: RawValue,
-}
-
-impl IngredientsDef {
-    pub fn dict(&self, params: &Params) -> pod2::middleware::Result<Dictionary> {
-        dict!(params.max_depth_mt_containers, {
-            "inputs" => self.inputs_set(params)?,
-            "key" => self.key,
-            "blueprint" => self.blueprint.clone(),
-            "seed" => self.seed,
-        })
-    }
-
-    pub fn hash(&self, params: &Params) -> pod2::middleware::Result<Hash> {
-        Ok(self.dict(params)?.commitment())
-    }
-
-    pub fn inputs_set(&self, params: &Params) -> pod2::middleware::Result<Set> {
-        set_from_hashes(params, &self.inputs)
-    }
-}
-
-// Rust-level definition of an item, used to derive its ID (hash).
-#[derive(Debug, Clone)]
-pub struct ItemDef {
-    pub ingredients: IngredientsDef,
-    pub work: RawValue,
-}
-
-impl ItemDef {
-    pub fn item_hash(&self, params: &Params) -> pod2::middleware::Result<Hash> {
-        Ok(hash_values(&[
-            Value::from(self.ingredients.dict(params)?),
-            Value::from(self.work),
-        ]))
-    }
-
-    pub fn nullifier(&self, params: &Params) -> pod2::middleware::Result<Hash> {
-        Ok(hash_values(&[
-            Value::from(self.item_hash(params)?),
-            Value::from(CONSUMED_ITEM_EXTERNAL_NULLIFIER),
-        ]))
-    }
-
-    pub fn new(ingredients: IngredientsDef, work: RawValue) -> Self {
-        Self { ingredients, work }
-    }
-}
+use crate::{constants::COPPER_BLUEPRINT, predicates::ItemPredicates};
 
 // Reusable recipe for an item to be mined, not including the variable
 // cryptographic values.
@@ -86,11 +23,14 @@ pub struct MiningRecipe {
 
 impl MiningRecipe {
     pub fn prep_ingredients(&self, key: RawValue, seed: i64) -> IngredientsDef {
+        let app_layer = HashMap::from([
+            ("blueprint".to_string(), Value::from(self.blueprint.clone())),
+            ("seed".to_string(), Value::from(seed)),
+        ]);
         IngredientsDef {
             inputs: self.inputs.clone(),
             key,
-            blueprint: self.blueprint.clone(),
-            seed: RawValue::from(seed),
+            app_layer,
         }
     }
 
@@ -121,54 +61,11 @@ impl MiningRecipe {
     }
 }
 
-// Adds statements to MainPodBilder to represent a generic item based on the
-// ItemDef.  Includes the following public predicates: ItemDef, ItemKey
-// Returns the Statement object for ItemDef for use in further statements.
-fn build_generic_item(
-    builder: &mut MainPodBuilder,
-    item_def: ItemDef,
-    commit_preds: &CommitPredicates,
-    params: &Params,
-) -> anyhow::Result<Statement> {
-    let ingredients_dict = item_def.ingredients.dict(params)?;
-    let inputs_set = item_def.ingredients.inputs_set(params)?;
-    let item_hash = item_def.item_hash(params)?;
-
-    // Build ItemDef(item, ingredients, inputs, key, work)
-    let st_contains_inputs = builder.priv_op(Operation::dict_contains(
-        ingredients_dict.clone(),
-        "inputs",
-        inputs_set.clone(),
-    ))?;
-    let st_contains_key = builder.priv_op(Operation::dict_contains(
-        ingredients_dict.clone(),
-        "key",
-        item_def.ingredients.key,
-    ))?;
-    let st_item_hash = builder.priv_op(Operation::hash_of(
-        item_hash,
-        ingredients_dict.clone(),
-        item_def.work,
-    ))?;
-    let st_item_def = builder.pub_op(Operation::custom(
-        commit_preds.item_def.clone(),
-        [st_contains_inputs, st_contains_key, st_item_hash],
-    ))?;
-
-    // Build ItemKey(item, key)
-    let _st_itemkey = builder.pub_op(Operation::custom(
-        commit_preds.item_key.clone(),
-        [st_item_def.clone()],
-    ))?;
-
-    Ok(st_item_def)
-}
-
 // Adds statements to MainPodBilder to represent Copper as additions to
 // already-existing generic item statements.
 // Builds the following public predicates: IsCopper
 // Returns the Statement object for IsCopper for use in further statements.
-fn build_copper(
+fn build_st_is_copper(
     builder: &mut MainPodBuilder,
     item_def: ItemDef,
     st_item_def: Statement,
@@ -201,7 +98,7 @@ fn build_copper(
 
 // Builds the private POD to store locally for use in further crafting.
 // Contains the following public predicates: ItemDef, ItemKey, IsCopper
-pub fn prove_copper(
+pub fn prove_is_copper(
     item_def: ItemDef,
 
     // TODO: All the args below might belong in a ItemBuilder object
@@ -213,109 +110,9 @@ pub fn prove_copper(
 ) -> anyhow::Result<MainPod> {
     let mut builder = MainPodBuilder::new(&Default::default(), vd_set);
 
-    let st_item_def = build_generic_item(&mut builder, item_def.clone(), commit_preds, params)?;
-    let _st_is_copper = build_copper(&mut builder, item_def, st_item_def, item_preds, params)?;
-
-    // Prove MainPOD
-    Ok(builder.prove(prover)?)
-}
-
-// Adds statements to MainPodBilder to prove inclusion of input_set in
-// created_items_set.  Returns the private SuperSubSet statement.
-fn build_created_items_subset(
-    builder: &mut MainPodBuilder,
-    inputs_set: Set,
-    created_items: Set,
-    commit_preds: &CommitPredicates,
-) -> anyhow::Result<Statement> {
-    // TODO: Needs a real impl.  This only works for 0 inputs.
-    assert!(inputs_set.commitment() == EMPTY_HASH);
-
-    // Build SuperSubSet(created_items, inputs)
-    // We use builder.op() to manually specify the `super` wildcard value
-    // because it's otherwise unconstrained.  This is only relevant in
-    // the base case where `sub` is empty, which is a subset of anything.
-    let st_inputs_eq_empty = builder.priv_op(Operation::eq(inputs_set, EMPTY_VALUE))?;
-    let st_inputs_subset = builder.op(
-        false, /*public*/
-        vec![(0, Value::from(created_items))],
-        Operation::custom(
-            commit_preds.super_sub_set.clone(),
-            [st_inputs_eq_empty.clone(), Statement::None],
-        ),
-    )?;
-
-    Ok(st_inputs_subset)
-}
-
-// Adds statements to MainPodBilder to prove correct nullifiers for a set of
-// inputs.  Returns the private Nullifiers.
-fn build_nullifiers(
-    builder: &mut MainPodBuilder,
-    inputs_set: Set,
-    nullifiers: Set,
-    commit_preds: &CommitPredicates,
-) -> anyhow::Result<Statement> {
-    // TODO: Needs a real impl.  This only works for 0 inputs.
-    assert!(inputs_set.commitment() == EMPTY_HASH);
-    assert!(nullifiers.commitment() == EMPTY_HASH);
-
-    // Build Nullifiers(nullifiers, inputs)
-    let st_inputs_eq_empty = builder.priv_op(Operation::eq(inputs_set, EMPTY_VALUE))?;
-    let st_nullifiers_eq_empty = builder.priv_op(Operation::eq(nullifiers.clone(), EMPTY_VALUE))?;
-    let st_nullifiers_empty = builder.priv_op(Operation::custom(
-        commit_preds.nullifiers_empty.clone(),
-        [st_inputs_eq_empty.clone(), st_nullifiers_eq_empty],
-    ))?;
-    let st_nullifiers = builder.priv_op(Operation::custom(
-        commit_preds.nullifiers.clone(),
-        [st_nullifiers_empty, Statement::None],
-    ))?;
-
-    Ok(st_nullifiers)
-}
-
-// Builds the public POD to commit a crafting operation on-chain, with the only
-// public predicate being CommitCrafting.  Uses a given created_items_set as
-// the root to prove that inputs were previously crafted.
-pub fn prove_commit_crafting(
-    item_def: ItemDef,
-    created_items: Set,
-    item_main_pod: MainPod,
-
-    // TODO: All the args below might belong in a ItemBuilder object
-    commit_preds: &CommitPredicates,
-    params: &Params,
-    prover: &dyn MainPodProver,
-    vd_set: &VDSet,
-) -> anyhow::Result<MainPod> {
-    let mut builder = MainPodBuilder::new(&Default::default(), vd_set);
-
-    // TODO: Consider a more robust lookup for this which doesn't depend on index.
-    let st_item_def = item_main_pod.public_statements[0].clone();
-    builder.add_pod(item_main_pod);
-
-    let st_inputs_subset = build_created_items_subset(
-        &mut builder,
-        item_def.ingredients.inputs_set(params)?,
-        created_items.clone(),
-        commit_preds,
-    )?;
-
-    // TODO: Calculate real nullifiers for non-empty inputs.
-    let nullifiers = set_from_hashes(params, &HashSet::new())?;
-    let st_nullifiers = build_nullifiers(
-        &mut builder,
-        item_def.ingredients.inputs_set(params)?,
-        nullifiers,
-        commit_preds,
-    )?;
-
-    // Build CommitCrafting(item, nullifiers, created_items)
-    let _st_commit_crafting = builder.pub_op(Operation::custom(
-        commit_preds.commit_crafting.clone(),
-        [st_item_def, st_inputs_subset, st_nullifiers],
-    ))?;
+    let st_item_def = build_st_item_def(&mut builder, item_def.clone(), commit_preds, params)?;
+    let _st_is_copper =
+        build_st_is_copper(&mut builder, item_def, st_item_def, item_preds, params)?;
 
     // Prove MainPOD
     Ok(builder.prove(prover)?)
@@ -326,6 +123,7 @@ mod tests {
 
     use std::collections::HashMap;
 
+    use commitlib::{prove_st_commit_crafting, util::set_from_hashes};
     use pod2::{
         backends::plonky2::mock::mainpod::MockProver,
         lang::parse,
@@ -335,7 +133,7 @@ mod tests {
     use super::*;
     use crate::{
         constants::{COPPER_BLUEPRINT, COPPER_MINING_RANGE, COPPER_WORK},
-        predicates::{CommitPredicates, ItemPredicates},
+        predicates::ItemPredicates,
         test_util::test::mock_vd_set,
     };
 
@@ -417,7 +215,7 @@ mod tests {
 
         // Prove a copper POD.  This is the private POD for the player to store
         // locally for future crafting.
-        let copper_main_pod = prove_copper(
+        let copper_main_pod = prove_is_copper(
             item_def.clone(),
             &commit_preds,
             &item_preds,
@@ -480,7 +278,7 @@ mod tests {
 
         // TODO Prove a commitment POD to send on-chain.  This intentionally doesn't
         // expose any public statements other than CommitCrafting.
-        let commit_main_pod = prove_commit_crafting(
+        let commit_main_pod = prove_st_commit_crafting(
             item_def,
             created_items.clone(),
             copper_main_pod,

@@ -1,5 +1,5 @@
 [package]
-name = "app"
+name = "commitlib"
 version = "0.1.0"
 edition = "2024"
 
@@ -17,3 +17,4 @@ tracing-subscriber = { workspace = true }
 clap = { version = "4.5.47", features = ["derive"] }
 
 common = { path = "../common" }
+pod2utils = { path = "../pod2utils" }
