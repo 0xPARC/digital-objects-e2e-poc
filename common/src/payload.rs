@@ -157,11 +157,135 @@ impl PayloadProof {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
+    use plonky2::plonk::proof::CompressedProofWithPublicInputs;
+    use pod2::{
+        backends::plonky2::{
+            basetypes::DEFAULT_VD_SET,
+            mainpod::{Prover, calculate_statements_hash},
+        },
+        frontend::{MainPodBuilder, Operation},
+        middleware::{Params, Statement, Value, containers::Set},
+    };
+
     use super::*;
+    use crate::shrink::{ShrunkMainPodSetup, shrink_compress_pod};
 
     #[test]
-    fn test_payload_roundtrip() -> Result<()> {
-        // TODO
-        Ok(())
+    fn test_payload_roundtrip() {
+        let test_groth = false;
+
+        let params = Params::default();
+        let vd_set = &*DEFAULT_VD_SET;
+        let vds_root = vd_set.root();
+
+        let input = r#"
+        DummyCommitCrafting(item, nullifiers, created_items) = AND(
+            Equal(0, 0)
+        )
+        "#;
+        let batch = pod2::lang::parse(input, &params, &[]).unwrap().custom_batch;
+        let pred = batch.predicate_ref_by_name("DummyCommitCrafting").unwrap();
+
+        println!("ShrunkMainPod setup");
+        let shrunk_main_pod_build = ShrunkMainPodSetup::new(&params).build().unwrap();
+        let common_data = &shrunk_main_pod_build.circuit_data.common;
+
+        let payload = {
+            let mut builder = MainPodBuilder::new(&params, vd_set);
+            let item = Value::from("dummy_item");
+            let nullifiers = vec![
+                Value::from(1).raw(),
+                Value::from(2).raw(),
+                Value::from(3).raw(),
+            ];
+            let nullifiers_set = Value::from(
+                Set::new(
+                    params.max_depth_mt_containers,
+                    HashSet::from_iter(nullifiers.iter().map(|r| Value::from(*r))),
+                )
+                .unwrap(),
+            );
+            let created_items = Value::from("dummy_created_items");
+            let st0 = builder.priv_op(Operation::eq(0, 0)).unwrap();
+            let st_commit_crafting = builder
+                .op(
+                    true,
+                    vec![
+                        (0, item.clone()),
+                        (1, nullifiers_set.clone()),
+                        (2, created_items.clone()),
+                    ],
+                    Operation::custom(pred.clone(), [st0]),
+                )
+                .unwrap();
+            println!("st: {st_commit_crafting:?}");
+
+            println!("MainPod prove");
+            let prover = Prover {};
+            let pod = builder.prove(&prover).unwrap();
+            pod.pod.verify().unwrap();
+
+            println!("MainPod shrink & compress");
+            let shrunk_main_pod_proof =
+                shrink_compress_pod(&shrunk_main_pod_build, pod.clone()).unwrap();
+
+            if test_groth {
+                todo!();
+            }
+
+            Payload {
+                proof: PayloadProof::Plonky2(Box::new(shrunk_main_pod_proof.clone())),
+                item: item.raw(),
+                created_items_root: created_items.raw(),
+                nullifiers,
+            }
+        };
+
+        println!("PayloadU roundtrip");
+        let payload_bytes = payload.to_bytes();
+        let payload_decoded = Payload::from_bytes(&payload_bytes, common_data).unwrap();
+        assert_eq!(payload, payload_decoded);
+
+        println!("Verify shrunk mainPod");
+
+        let nullifiers_set = Value::from(
+            Set::new(
+                params.max_depth_mt_containers,
+                HashSet::from_iter(payload.nullifiers.iter().map(|r| Value::from(*r))),
+            )
+            .unwrap(),
+        );
+        let st = Statement::Custom(
+            pred,
+            vec![
+                Value::from(payload.item),
+                Value::from(nullifiers_set),
+                Value::from(payload.created_items_root),
+            ],
+        );
+        println!("st: {st:?}");
+
+        let sts_hash = calculate_statements_hash(&[st.clone().into()], &params);
+        let public_inputs = [sts_hash.0, vds_root.0].concat();
+        let shrunk_main_pod_proof = match payload.proof {
+            PayloadProof::Plonky2(proof) => proof,
+            PayloadProof::Groth16(_) => todo!(),
+        };
+        let proof_with_pis = CompressedProofWithPublicInputs {
+            proof: *shrunk_main_pod_proof,
+            public_inputs,
+        };
+        let proof = proof_with_pis
+            .decompress(
+                &shrunk_main_pod_build
+                    .circuit_data
+                    .verifier_only
+                    .circuit_digest,
+                &shrunk_main_pod_build.circuit_data.common,
+            )
+            .unwrap();
+        shrunk_main_pod_build.circuit_data.verify(proof).unwrap();
     }
 }
