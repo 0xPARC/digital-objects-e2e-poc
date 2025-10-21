@@ -1,8 +1,10 @@
 [workspace]
 members = [
-    "digital-objects",
     "craftlib",
+    "commitlib",
+    "synchronizer",
     "common",
+    "pod2utils",
     "app",
 ]
 resolver = "3"
@@ -18,6 +20,7 @@ env_logger = { version = "0.11" }
 log = { version = "0.4.14", features = ["kv_unstable"] }
 tracing = "0.1.19"
 tracing-subscriber = { version = "0.3", features = ["registry", "env-filter" ] }
+tracing-log = "0.1.1"
 
 # pod
 pod2 = { git="https://github.com/0xPARC/pod2", rev = "707c14db14d03485c68045a903771591e533ba59", default-features = false, features = ["backend_plonky2", "disk_cache", "zk"]}
@@ -36,6 +39,10 @@ alloy = { version = "1.0.13", features = [
     "rpc-types-beacon"
 ] }
 tokio = {version="1.45", features = ["rt-multi-thread", "macros", "sync"]}
+
+hex = "0.4.3"
+minicbor-serde = { version = "0.6.1", features = ["std"] }
+warp = "0.3"
 
 # temporarily patch pod2 version, since it is constantly updated, to avoid
 # updating pod2-onchain usage of it each time

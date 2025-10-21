@@ -1,7 +1,9 @@
 [package]
-name = "digital-objects"
+name = "pod2utils"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+anyhow = { workspace = true }
+itertools = { workspace = true }
 pod2 = { workspace = true }

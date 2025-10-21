@@ -1,0 +1,38 @@
+[package]
+name = "synchronizer"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+alloy = { workspace = true }
+pod2 = { workspace = true }
+plonky2 = { workspace = true }
+serde_json = "1.0.143"
+tokio = { workspace = true }
+dotenvy = { workspace = true }
+anyhow = { workspace = true }
+log = { workspace = true }
+warp = { workspace = true }
+hex = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-log = { workspace = true }
+minicbor-serde = { workspace = true }
+
+common = { path = "../common" }
+
+serde = { version = "1.0.150", features = ["derive"] }
+reqwest = { version = "0.11.13", features = ["json"] }
+async-trait = "0.1.80"
+backoff = { version = "0.4.0", features = ["tokio"] }
+reqwest-eventsource = "0.5.0"
+thiserror = "1.0.40"
+url = { version = "2.3.1", features = ["serde"] }
+# alloy-provider = { version = "1.0.30" }
+# alloy-eips = { version = "1.0.30" }
+# alloy-network = { version = "1.0.30" }
+
+
+chrono = "0.4.42"
+
+pod2_onchain = { workspace = true }

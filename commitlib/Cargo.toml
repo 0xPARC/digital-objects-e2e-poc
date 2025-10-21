@@ -1,11 +1,12 @@
 [package]
-name = "craftlib"
+name = "commitlib"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 anyhow = { workspace = true }
-itertools.workspace = true
+log = { workspace = true }
 pod2 = { workspace = true }
+
+common = { path = "../common" }
 pod2utils = { path = "../pod2utils" }
-commitlib = { path = "../commitlib" }

@@ -9,6 +9,7 @@
 ///     Groth16 circuit.
 ///     Then compute a Groth16 proof which verifies the last plonky2 proof
 pub mod groth;
+pub mod payload;
 ///   B) "shrink":
 ///     first shrinks the given MainPod's proof, and then compresses it,
 ///     returning the compressed proof (without public inputs)
