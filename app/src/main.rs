@@ -38,13 +38,13 @@ fn main() {
 
     match &cli.command {
         Some(Commands::Craft { output }) => {
-            println!("TODO: craft item and store at {:?}", output);
+            println!("TODO: craft item and store at {output:?}");
         }
         Some(Commands::Commit { input }) => {
-            println!("TODO: commit item found at {:?}", input);
+            println!("TODO: commit item found at {input:?}");
         }
         Some(Commands::Verify { input }) => {
-            println!("TODO: verify item found at {:?}", input);
+            println!("TODO: verify item found at {input:?}");
         }
         None => {}
     }
