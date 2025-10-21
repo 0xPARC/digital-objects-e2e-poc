@@ -71,7 +71,7 @@ impl CommitPredicates {
 
             NullifiersRecursive(nullifiers, inputs, private: i, n, k, ns, is) = AND(
                 ItemKey(i, k)
-                HashOf(n, k, {CONSUMED_ITEM_EXTERNAL_NULLIFIER})
+                HashOf(n, k, "{CONSUMED_ITEM_EXTERNAL_NULLIFIER}")
                 SetInsert(nullifiers, ns, n)
                 SetInsert(inputs, is, i)
                 Nullifiers(ns, is)
