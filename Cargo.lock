@@ -1456,19 +1456,11 @@ checksum = "b05b61dc5112cbb17e4b6cd61790d9845d13888356391624cbe7e41efeac1e75"
 name = "commitlib"
 version = "0.1.0"
 dependencies = [
- "alloy",
  "anyhow",
- "clap",
  "common",
- "dotenvy",
- "itertools 0.14.0",
  "log",
- "plonky2",
  "pod2",
  "pod2utils",
- "tokio",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]

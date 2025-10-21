@@ -243,3 +243,70 @@ pub fn prove_st_commit_crafting(
     // Prove MainPOD
     Ok(builder.prove(prover)?)
 }
+
+#[cfg(test)]
+mod tests {
+    use pod2::{
+        backends::plonky2::{
+            basetypes::DEFAULT_VD_SET, mainpod::Prover, mock::mainpod::MockProver,
+        },
+        middleware::hash_value,
+    };
+
+    use super::*;
+
+    #[test]
+    fn test_prove_st_commit_crafting() {
+        let mock = true;
+
+        let mock_prover = MockProver {};
+        let real_prover = Prover {};
+        let (vd_set, prover): (_, &dyn MainPodProver) = if mock {
+            (&VDSet::new(6, &[]).unwrap(), &mock_prover)
+        } else {
+            let vd_set = &*DEFAULT_VD_SET;
+            (vd_set, &real_prover)
+        };
+
+        let params = Params::default();
+
+        let commit_preds = CommitPredicates::compile(&params);
+
+        let mut builder = MainPodBuilder::new(&Default::default(), vd_set);
+
+        let ingredients_def = IngredientsDef {
+            inputs: HashSet::new(),
+            key: Value::from(33).raw(),
+            app_layer: HashMap::from([("foo".to_string(), Value::from("bar"))]),
+        };
+        let item_def = ItemDef {
+            ingredients: ingredients_def,
+            work: Value::from(42).raw(),
+        };
+        let st_item_def =
+            build_st_item_def(&mut builder, item_def.clone(), &commit_preds, &params).unwrap();
+
+        let created_items = set_from_hashes(
+            &params,
+            &HashSet::from([
+                hash_value(&Value::from("dummy1").raw()),
+                hash_value(&Value::from("dummy2").raw()),
+            ]),
+        )
+        .unwrap();
+
+        let _st_commit_crafting = build_st_commit_crafting(
+            &mut builder,
+            item_def,
+            created_items,
+            st_item_def,
+            &commit_preds,
+            &params,
+        )
+        .unwrap();
+
+        let main_pod = builder.prove(prover).unwrap();
+
+        main_pod.pod.verify().unwrap();
+    }
+}
