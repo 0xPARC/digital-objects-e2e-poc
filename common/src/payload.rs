@@ -261,7 +261,7 @@ mod tests {
             pred,
             vec![
                 Value::from(payload.item),
-                Value::from(nullifiers_set),
+                nullifiers_set,
                 Value::from(payload.created_items_root),
             ],
         );
