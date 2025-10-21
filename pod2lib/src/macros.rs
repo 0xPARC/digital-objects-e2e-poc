@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use pod2::middleware::{CustomPredicateBatch, CustomPredicateRef};
+use pod2::{
+    frontend::MainPodBuilder,
+    middleware::{CustomPredicateBatch, CustomPredicateRef},
+};
 
 #[macro_export]
 macro_rules! set {
@@ -103,22 +106,25 @@ macro_rules! _st_custom_args {
 
 #[macro_export]
 macro_rules! _wildcard_values {
-    ($values:expr, $index:expr, []) => {{}};
+    // ($values:expr, $index:expr, []) => {{}};
     // ($values:expr, $index:expr, _, $($tail:expr),*) => {{
     //     $crate::_wildcard_values!($values, $index+1, $($tail),*);
     // }};
-    ($values:expr, $index:expr, [$value:expr]) => {{
+    (process, $values:expr, $index:expr, $value:expr) => {{
         $values.push(($index, pod2::middleware::Value::from($value.clone())));
     }};
+    ($values:expr, $index:expr, [$value:expr]) => {{
+        $crate::_wildcard_values!(process, $values, $index, $value);
+    }};
     ($values:expr, $index:expr, [$value:expr, $($tail:expr),*]) => {{
-        $values.push(($index, pod2::middleware::Value::from($value.clone())));
+        $crate::_wildcard_values!(process, $values, $index, $value);
         $crate::_wildcard_values!($values, $index+1, [$($tail),*]);
     }};
 }
 
 #[macro_export]
 macro_rules! _st_custom {
-    (($builder:expr, $batches:expr), $pub:expr, $pred:ident($($args:expr),*) = ($($sts:tt)*)) => {{
+    ($builder:expr, $batches:expr, $pub:expr, $pred:ident($($args:expr),*) = ($($sts:tt)*)) => {{
         let custom_pred = $crate::macros::find_custom_pred_by_name($batches, stringify!($pred)).unwrap();
         let mut input_sts = Vec::new();
         $crate::_st_custom_args!($builder, &mut input_sts, $($sts)*);
@@ -131,26 +137,30 @@ macro_rules! _st_custom {
     }};
 }
 
+pub struct BuildContext<'a> {
+    pub builder: &'a mut MainPodBuilder,
+    pub batches: &'a [Arc<CustomPredicateBatch>],
+}
+
 /// Argument types:
-/// $builder: &mut MainPodBuilder
-/// $batches: &[Arc<CustomPredicateBatch]
-/// $args: Operation|Statement
+/// Same as `st_custom!`
 #[macro_export]
 #[rustfmt::skip]
 macro_rules! pub_st_custom {
-    (($builder:expr, $batches:expr), $pred:ident($($args:expr),*) = ($($sts:tt)*)) => {{
-        $crate::_st_custom!(($builder, $batches), true, $pred($($args),*) = ($($sts)*))
+    ($ctx:expr, $pred:ident($($args:expr),*) = ($($sts:tt)*)) => {{
+        $crate::_st_custom!($ctx.builder, $ctx.batches, true, $pred($($args),*) = ($($sts)*))
     }};
 }
 
 /// Argument types:
-/// $builder: &mut MainPodBuilder
-/// $batches: &[Arc<CustomPredicateBatch]
-/// $args: Operation|Statement
+/// $ctx: &mut BuildContext
+/// $pred: NativePredicate token
+/// $args: &Into<Value>
+/// $sts: Operation|Statement
 #[macro_export]
 #[rustfmt::skip]
 macro_rules! st_custom {
-    (($builder:expr, $batches:expr), $pred:ident($($args:expr),*) = ($($sts:tt)*)) => {{
-        $crate::_st_custom!(($builder, $batches), false, $pred($($args),*) = ($($sts)*))
+    ($ctx:expr, $pred:ident($($args:expr),*) = ($($sts:tt)*)) => {{
+        $crate::_st_custom!($ctx.builder, $ctx.batches, false, $pred($($args),*) = ($($sts)*))
     }};
 }

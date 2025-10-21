@@ -177,7 +177,7 @@ pub fn custom_predicates() -> CraftingPredicates {
     }
 }
 
-#[rustfmt::skip::macros(pub_st_custom)]
+#[rustfmt::skip::macros(pub_st_custom, st_custom)]
 #[cfg(test)]
 mod tests {
     use std::collections::{HashMap, HashSet};
@@ -188,7 +188,7 @@ mod tests {
         lang::parse,
         middleware::{EMPTY_VALUE, RawValue, Statement, VDSet, Value, hash_value},
     };
-    use pod2lib::{pub_st_custom, st_custom};
+    use pod2lib::{macros::BuildContext, pub_st_custom, st_custom};
 
     use super::*;
     use crate::{
@@ -221,6 +221,10 @@ mod tests {
         let params = Params::default();
 
         let mut builder = MainPodBuilder::new(&Default::default(), &mock_vd_set());
+        let ctx = BuildContext {
+            builder: &mut builder,
+            batches,
+        };
 
         // Item recipe constants
         let seed = 0xA34;
@@ -254,7 +258,7 @@ mod tests {
         )?;
 
         // Build ItemDef(item, ingredients, inputs, key, work)
-        let st_item_def = pub_st_custom!((builder, batches),
+        let st_item_def = pub_st_custom!(ctx,
             ItemDef(item_hash, ingredients_dict, inputs_set, ingredients_def.key, item_def.work) = (
                 DictContains(ingredients_dict, "inputs", inputs_set),
                 DictContains(ingredients_dict, "key", ingredients_def.key),
@@ -262,40 +266,39 @@ mod tests {
             ));
 
         // Build ItemKey(item, key)
-        let _st_itemkey = pub_st_custom!((builder, batches),
+        let _st_itemkey = pub_st_custom!(ctx,
             ItemKey(item_hash, ingredients_def.key) = (
                 st_item_def.clone(),
             ));
 
         // Build SuperSubSet(created_items, inputs)
-        let st_inputs_subset = pub_st_custom!((builder, batches),
+        let st_inputs_subset = pub_st_custom!(ctx,
             SuperSubSet(created_items, inputs_set) = (
                 Equal(inputs_set, EMPTY_VALUE),
                 Statement::None,
             ));
 
         // Build Nullifiers(nullifiers, inputs)
-        let st_nullifiers_empty = st_custom!(
-            (builder, batches),
+        let st_nullifiers_empty = st_custom!(ctx,
             NullifiersEmpty(inputs_set, nullifiers) = (
                 Equal(inputs_set, EMPTY_VALUE),
                 Equal(nullifiers, EMPTY_VALUE),
-            )
-        );
-        let st_nullifiers = pub_st_custom!((builder, batches),
+            ));
+        let st_nullifiers = pub_st_custom!(ctx,
             Nullifiers(inputs_set, nullifiers) = (
                 st_nullifiers_empty,
                 Statement::None,
             ));
 
         // Build CommitCrafting(item, nullifiers, created_items)
-        let _st_commit_crafting = pub_st_custom!((builder, batches),
-            CommitCrafting(item_hash, inputs_set, created_items) =
-                (st_item_def.clone(), st_inputs_subset, st_nullifiers,)
-        );
+        let _st_commit_crafting = pub_st_custom!(ctx,
+            CommitCrafting(item_hash, inputs_set, created_items) = (
+                st_item_def.clone(),
+                st_inputs_subset, st_nullifiers,
+            ));
 
         // Build IsCopper(item)
-        let _st_is_copper = pub_st_custom!((builder, batches),
+        let _st_is_copper = pub_st_custom!(ctx,
             IsCopper(item_hash) = (
                 st_item_def,
                 Equal(inputs_set, EMPTY_VALUE),
