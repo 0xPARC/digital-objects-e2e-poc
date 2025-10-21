@@ -2,3 +2,4 @@
 .env
 tmp
 *.pprof
+predicates.md

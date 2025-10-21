@@ -35,6 +35,10 @@ fn main() {
     let cli = Cli::parse();
 
     // TODO: Read config from env file
+    // NOTE from @arnaucube: this is already available at the main branch at the common crate:
+    // https://github.com/0xPARC/digital-objects-e2e-poc/blob/main/common/src/lib.rs#L22 (and used
+    // at the eth test), for the synchronizer would be mainly porting the Config struct from the
+    // blob-e2e-poc (removing unused fields like dbpath)
 
     match &cli.command {
         Some(Commands::Craft { output }) => {

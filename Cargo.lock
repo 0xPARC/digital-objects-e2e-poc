@@ -3734,18 +3734,9 @@ dependencies = [
 name = "pod2utils"
 version = "0.1.0"
 dependencies = [
- "alloy",
  "anyhow",
- "clap",
- "common",
- "dotenvy",
  "itertools 0.14.0",
- "log",
- "plonky2",
  "pod2",
- "tokio",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
