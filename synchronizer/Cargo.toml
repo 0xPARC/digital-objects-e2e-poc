@@ -20,6 +20,7 @@ tracing-log = { workspace = true }
 minicbor-serde = { workspace = true }
 
 common = { path = "../common" }
+commitlib = { path = "../commitlib" }
 
 serde = { workspace = true }
 reqwest = { version = "0.11.13", features = ["json"] }
