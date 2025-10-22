@@ -1,19 +1,23 @@
 pub mod predicates;
 pub mod util;
 
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use pod2::{
-    frontend::{MainPod, MainPodBuilder, Operation},
+    frontend::{MainPod, MainPodBuilder},
     middleware::{
-        EMPTY_HASH, EMPTY_VALUE, Hash, Key, MainPodProver, Params, RawValue, Statement, VDSet,
-        Value,
+        CustomPredicateBatch, EMPTY_HASH, EMPTY_VALUE, Hash, Key, MainPodProver, Params, RawValue,
+        Statement, VDSet, Value,
         containers::{Dictionary, Set},
         hash_values,
     },
 };
+use pod2utils::{macros::BuildContext, pub_st_custom, st_custom};
 
-use crate::{predicates::CommitPredicates, util::set_from_hashes};
+use crate::util::set_from_hashes;
 
 pub const CONSUMED_ITEM_EXTERNAL_NULLIFIER: &str = "consumed item external nullifier";
 
@@ -80,41 +84,27 @@ impl ItemDef {
 // ItemDef.  Includes the following public predicates: ItemDef, ItemKey
 // Returns the Statement object for ItemDef for use in further statements.
 pub fn build_st_item_def(
-    builder: &mut MainPodBuilder,
-    item_def: ItemDef,
-    commit_preds: &CommitPredicates,
+    ctx: &mut BuildContext,
     params: &Params,
+    item_def: ItemDef,
 ) -> anyhow::Result<Statement> {
     let ingredients_dict = item_def.ingredients.dict(params)?;
     let inputs_set = item_def.ingredients.inputs_set(params)?;
     let item_hash = item_def.item_hash(params)?;
 
     // Build ItemDef(item, ingredients, inputs, key, work)
-    let st_contains_inputs = builder.priv_op(Operation::dict_contains(
-        ingredients_dict.clone(),
-        "inputs",
-        inputs_set.clone(),
-    ))?;
-    let st_contains_key = builder.priv_op(Operation::dict_contains(
-        ingredients_dict.clone(),
-        "key",
-        item_def.ingredients.key,
-    ))?;
-    let st_item_hash = builder.priv_op(Operation::hash_of(
-        item_hash,
-        ingredients_dict.clone(),
-        item_def.work,
-    ))?;
-    let st_item_def = builder.pub_op(Operation::custom(
-        commit_preds.item_def.clone(),
-        [st_contains_inputs, st_contains_key, st_item_hash],
-    ))?;
+    let st_item_def = pub_st_custom!(ctx,
+        ItemDef() = (
+            DictContains(ingredients_dict, "inputs", inputs_set),
+            DictContains(ingredients_dict, "key", item_def.ingredients.key),
+            HashOf(item_hash, ingredients_dict, item_def.work)
+        ))?;
 
     // Build ItemKey(item, key)
-    let _st_itemkey = builder.pub_op(Operation::custom(
-        commit_preds.item_key.clone(),
-        [st_item_def.clone()],
-    ))?;
+    let _st_itemkey = pub_st_custom!(ctx,
+        ItemKey() = (
+            st_item_def.clone()
+        ))?;
 
     Ok(st_item_def)
 }
@@ -122,27 +112,21 @@ pub fn build_st_item_def(
 // Adds statements to MainPodBuilder to prove inclusion of input_set in
 // created_items_set.  Returns the private SuperSubSet statement.
 fn build_st_super_sub_set(
-    builder: &mut MainPodBuilder,
+    ctx: &mut BuildContext,
     inputs_set: Set,
     created_items: Set,
-    commit_preds: &CommitPredicates,
 ) -> anyhow::Result<Statement> {
     // TODO: Needs a real impl.  This only works for 0 inputs.
     assert!(inputs_set.commitment() == EMPTY_HASH);
 
     // Build SuperSubSet(created_items, inputs)
-    // We use builder.op() to manually specify the `super` wildcard value
-    // because it's otherwise unconstrained.  This is only relevant in
-    // the base case where `sub` is empty, which is a subset of anything.
-    let st_inputs_eq_empty = builder.priv_op(Operation::eq(inputs_set, EMPTY_VALUE))?;
-    let st_inputs_subset = builder.op(
-        false, /*public*/
-        vec![(0, Value::from(created_items))],
-        Operation::custom(
-            commit_preds.super_sub_set.clone(),
-            [st_inputs_eq_empty.clone(), Statement::None],
-        ),
-    )?;
+    // We manually specify the `super` wildcard value because it's otherwise unconstrained.  This
+    // is only relevant in the base case where `sub` is empty, which is a subset of anything.
+    let st_inputs_subset = st_custom!(ctx,
+        SuperSubSet(super=created_items) = (
+            Equal(inputs_set, EMPTY_VALUE),
+            Statement::None
+        ))?;
 
     Ok(st_inputs_subset)
 }
@@ -150,26 +134,25 @@ fn build_st_super_sub_set(
 // Adds statements to MainPodBilder to prove correct nullifiers for a set of
 // inputs.  Returns the private Nullifiers.
 fn build_st_nullifiers(
-    builder: &mut MainPodBuilder,
+    ctx: &mut BuildContext,
     inputs_set: Set,
     nullifiers: Set,
-    commit_preds: &CommitPredicates,
 ) -> anyhow::Result<Statement> {
     // TODO: Needs a real impl.  This only works for 0 inputs.
     assert!(inputs_set.commitment() == EMPTY_HASH);
     assert!(nullifiers.commitment() == EMPTY_HASH);
 
     // Build Nullifiers(nullifiers, inputs)
-    let st_inputs_eq_empty = builder.priv_op(Operation::eq(inputs_set, EMPTY_VALUE))?;
-    let st_nullifiers_eq_empty = builder.priv_op(Operation::eq(nullifiers.clone(), EMPTY_VALUE))?;
-    let st_nullifiers_empty = builder.priv_op(Operation::custom(
-        commit_preds.nullifiers_empty.clone(),
-        [st_inputs_eq_empty.clone(), st_nullifiers_eq_empty],
-    ))?;
-    let st_nullifiers = builder.priv_op(Operation::custom(
-        commit_preds.nullifiers.clone(),
-        [st_nullifiers_empty, Statement::None],
-    ))?;
+    let st_nullifiers_empty = st_custom!(ctx,
+        NullifiersEmpty() = (
+            Equal(inputs_set, EMPTY_VALUE),
+            Equal(nullifiers, EMPTY_VALUE)
+        ))?;
+    let st_nullifiers = st_custom!(ctx,
+        Nullifiers() = (
+            st_nullifiers_empty,
+            Statement::None
+        ))?;
 
     Ok(st_nullifiers)
 }
@@ -178,35 +161,30 @@ fn build_st_nullifiers(
 // public predicate being CommitCrafting.  Uses a given created_items_set as
 // the root to prove that inputs were previously crafted.
 pub fn build_st_commit_crafting(
-    builder: &mut MainPodBuilder,
+    ctx: &mut BuildContext,
+    params: &Params, // TODO: This argument might belong in a ItemBuilder object
     item_def: ItemDef,
     created_items: Set,
     st_item_def: Statement,
-    // TODO: All the args below might belong in a ItemBuilder object
-    commit_preds: &CommitPredicates,
-    params: &Params,
 ) -> anyhow::Result<Statement> {
     let st_inputs_subset = build_st_super_sub_set(
-        builder,
+        ctx,
         item_def.ingredients.inputs_set(params)?,
         created_items.clone(),
-        commit_preds,
     )?;
 
     // TODO: Calculate real nullifiers for non-empty inputs.
     let nullifiers = set_from_hashes(params, &HashSet::new())?;
-    let st_nullifiers = build_st_nullifiers(
-        builder,
-        item_def.ingredients.inputs_set(params)?,
-        nullifiers,
-        commit_preds,
-    )?;
+    let st_nullifiers =
+        build_st_nullifiers(ctx, item_def.ingredients.inputs_set(params)?, nullifiers)?;
 
     // Build CommitCrafting(item, nullifiers, created_items)
-    let st_commit_crafting = builder.pub_op(Operation::custom(
-        commit_preds.commit_crafting.clone(),
-        [st_item_def, st_inputs_subset, st_nullifiers],
-    ))?;
+    let st_commit_crafting = pub_st_custom!(ctx,
+        CommitCrafting() = (
+            st_item_def.clone(),
+            st_inputs_subset,
+            st_nullifiers
+        ))?;
 
     Ok(st_commit_crafting)
 }
@@ -220,7 +198,7 @@ pub fn prove_st_commit_crafting(
     item_main_pod: MainPod,
 
     // TODO: All the args below might belong in a ItemBuilder object
-    commit_preds: &CommitPredicates,
+    batches: &[Arc<CustomPredicateBatch>],
     params: &Params,
     prover: &dyn MainPodProver,
     vd_set: &VDSet,
@@ -231,14 +209,12 @@ pub fn prove_st_commit_crafting(
     let st_item_def = item_main_pod.public_statements[0].clone();
     builder.add_pod(item_main_pod);
 
-    let _st_commit_crafting = build_st_commit_crafting(
-        &mut builder,
-        item_def,
-        created_items,
-        st_item_def,
-        commit_preds,
-        params,
-    )?;
+    let mut ctx = BuildContext {
+        builder: &mut builder,
+        batches,
+    };
+    let _st_commit_crafting =
+        build_st_commit_crafting(&mut ctx, params, item_def, created_items, st_item_def)?;
 
     // Prove MainPOD
     Ok(builder.prove(prover)?)
@@ -254,6 +230,7 @@ mod tests {
     };
 
     use super::*;
+    use crate::predicates::CommitPredicates;
 
     #[test]
     fn test_prove_st_commit_crafting() {
@@ -271,8 +248,13 @@ mod tests {
         let params = Params::default();
 
         let commit_preds = CommitPredicates::compile(&params);
+        let batches = &commit_preds.defs.batches;
 
         let mut builder = MainPodBuilder::new(&Default::default(), vd_set);
+        let mut ctx = BuildContext {
+            builder: &mut builder,
+            batches,
+        };
 
         let ingredients_def = IngredientsDef {
             inputs: HashSet::new(),
@@ -283,8 +265,7 @@ mod tests {
             ingredients: ingredients_def,
             work: Value::from(42).raw(),
         };
-        let st_item_def =
-            build_st_item_def(&mut builder, item_def.clone(), &commit_preds, &params).unwrap();
+        let st_item_def = build_st_item_def(&mut ctx, &params, item_def.clone()).unwrap();
 
         let created_items = set_from_hashes(
             &params,
@@ -295,15 +276,9 @@ mod tests {
         )
         .unwrap();
 
-        let _st_commit_crafting = build_st_commit_crafting(
-            &mut builder,
-            item_def,
-            created_items,
-            st_item_def,
-            &commit_preds,
-            &params,
-        )
-        .unwrap();
+        let _st_commit_crafting =
+            build_st_commit_crafting(&mut ctx, &params, item_def, created_items, st_item_def)
+                .unwrap();
 
         let main_pod = builder.prove(prover).unwrap();
 
