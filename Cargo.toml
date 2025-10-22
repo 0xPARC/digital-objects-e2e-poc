@@ -41,6 +41,8 @@ alloy = { version = "1.0.13", features = [
 tokio = {version="1.45", features = ["rt-multi-thread", "macros", "sync"]}
 
 hex = "0.4.3"
+serde = { version = "1.0.150", features = ["derive"] }
+serde_json = "1.0.143"
 minicbor-serde = { version = "0.6.1", features = ["std"] }
 warp = "0.3"
 
