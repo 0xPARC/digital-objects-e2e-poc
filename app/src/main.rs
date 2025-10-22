@@ -98,7 +98,7 @@ fn craft_item(params: &Params, key: Value, recipe: &str, output: &Path) -> anyho
                 work: COPPER_WORK,
             }
         }
-        unknwon => bail!("Unknwon recipe for \"{unknwon}\""),
+        unknown => bail!("Unknown recipe for \"{unknown}\""),
     };
 
     let commit_preds = CommitPredicates::compile(params);
@@ -113,7 +113,7 @@ fn craft_item(params: &Params, key: Value, recipe: &str, output: &Path) -> anyho
 
     let crafting_pod = match recipe {
         "copper" => prove_copper(item_def, &batches, params, prover, vd_set)?,
-        unknwon => unreachable!("recipe {unknwon}"),
+        unknown => unreachable!("recipe {unknown}"),
     };
 
     let serialised_item_pod = serde_json::to_string(&crafting_pod)?;
