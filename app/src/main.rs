@@ -1,12 +1,11 @@
 use std::{
-    io::{Read, Write},
-    ops::Range,
+    io::Write,
     path::{Path, PathBuf},
 };
 
 use anyhow::bail;
 use clap::{Parser, Subcommand};
-use commitlib::{ItemDef, build_st_item_def, predicates::CommitPredicates};
+use commitlib::{ItemDef, predicates::CommitPredicates};
 use craftlib::{
     constants::{COPPER_BLUEPRINT, COPPER_MINING_MAX, COPPER_WORK},
     item::{MiningRecipe, prove_copper},
@@ -14,10 +13,9 @@ use craftlib::{
 };
 use pod2::{
     backends::plonky2::mainpod::Prover,
-    frontend::{MainPod, MainPodBuilder},
+    frontend::MainPod,
     middleware::{DEFAULT_VD_SET, Params, Value},
 };
-use pod2utils::macros::BuildContext;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -77,6 +75,7 @@ fn main() -> anyhow::Result<()> {
             let crafting_pod: MainPod = serde_json::from_reader(&mut file)?;
             crafting_pod.pod.verify()?;
             println!("Item at {input:?} successfully verified!");
+            // TODO: Verify that the item exists on-chain
         }
         None => {}
     }
@@ -86,7 +85,7 @@ fn main() -> anyhow::Result<()> {
 
 fn craft_item(params: &Params, key: Value, recipe: &str, output: &Path) -> anyhow::Result<()> {
     let key = key.raw();
-    println!("About to mine for \"{}\"", recipe);
+    println!("About to mine \"{}\"", recipe);
     let item_def = match recipe {
         "copper" => {
             let mining_recipe = MiningRecipe::new_no_inputs(COPPER_BLUEPRINT.to_string());
