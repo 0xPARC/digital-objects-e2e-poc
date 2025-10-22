@@ -177,7 +177,6 @@ pub fn build_st_commit_creation(
     let st_nullifiers =
         build_st_nullifiers(ctx, item_def.ingredients.inputs_set(params)?, nullifiers)?;
 
-    // TODO: Don't use `pub_st_custom` and instead reveal when necessary
     // Build CommitCreation(item, nullifiers, created_items)
     Ok(st_custom!(ctx,
         CommitCreation() = (
