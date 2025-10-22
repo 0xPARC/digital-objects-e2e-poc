@@ -15,7 +15,7 @@ use pod2::{
         hash_values,
     },
 };
-use pod2utils::{macros::BuildContext, pub_st_custom, st_custom};
+use pod2utils::{macros::BuildContext, st_custom};
 
 use crate::util::set_from_hashes;
 

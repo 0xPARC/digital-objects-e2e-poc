@@ -85,7 +85,7 @@ fn main() -> anyhow::Result<()> {
 
 fn craft_item(params: &Params, key: Value, recipe: &str, output: &Path) -> anyhow::Result<()> {
     let key = key.raw();
-    println!("About to mine \"{}\"", recipe);
+    println!("About to mine \"{recipe}\"");
     let item_def = match recipe {
         "copper" => {
             let mining_recipe = MiningRecipe::new_no_inputs(COPPER_BLUEPRINT.to_string());
@@ -98,7 +98,7 @@ fn craft_item(params: &Params, key: Value, recipe: &str, output: &Path) -> anyho
                 work: COPPER_WORK,
             }
         }
-        unknwon => bail!("Unknwon recipe for \"{}\"", unknwon),
+        unknwon => bail!("Unknwon recipe for \"{unknwon}\""),
     };
 
     let commit_preds = CommitPredicates::compile(params);
@@ -113,11 +113,11 @@ fn craft_item(params: &Params, key: Value, recipe: &str, output: &Path) -> anyho
 
     let crafting_pod = match recipe {
         "copper" => prove_copper(item_def, &batches, params, prover, vd_set)?,
-        unknwon => unreachable!("recipe {}", unknwon),
+        unknwon => unreachable!("recipe {unknwon}"),
     };
 
     let serialised_item_pod = serde_json::to_string(&crafting_pod)?;
-    let mut file = std::fs::File::create(&output)?;
+    let mut file = std::fs::File::create(output)?;
     file.write_all(serialised_item_pod.as_bytes())?;
     println!("Wrote item with recipe {recipe} to {output:?}!");
 
