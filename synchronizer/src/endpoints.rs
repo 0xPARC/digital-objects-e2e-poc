@@ -28,6 +28,14 @@ pub(crate) async fn handler_get_created_item(
     Ok(warp::reply::json(&mtp))
 }
 
+// GET /created_items
+pub(crate) async fn handler_get_created_items(
+    node: Arc<Node>,
+) -> Result<impl warp::Reply, warp::Rejection> {
+    let created_items = node.created_items.read().unwrap().clone();
+    Ok(warp::reply::json(&created_items))
+}
+
 // GET /nullifier/{nullifier}
 pub(crate) async fn handler_get_nullifier(
     nullifier_str: String,
@@ -46,7 +54,9 @@ pub(crate) async fn handler_get_nullifier(
 pub(crate) fn routes(
     node: Arc<Node>,
 ) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
-    get_created_item(node.clone()).or(get_nullifier(node))
+    get_created_item(node.clone())
+        .or(get_created_items(node.clone()))
+        .or(get_nullifier(node))
 }
 
 fn get_created_item(
@@ -58,6 +68,17 @@ fn get_created_item(
         .and(warp::get())
         .and(node_filter)
         .and_then(handler_get_created_item)
+}
+
+fn get_created_items(
+    node: Arc<Node>,
+) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
+    let node_filter = warp::any().map(move || node.clone());
+
+    warp::path!("created_items")
+        .and(warp::get())
+        .and(node_filter)
+        .and_then(handler_get_created_items)
 }
 
 fn get_nullifier(

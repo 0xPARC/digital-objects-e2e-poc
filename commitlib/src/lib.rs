@@ -16,6 +16,7 @@ use pod2::{
     },
 };
 use pod2utils::{macros::BuildContext, st_custom};
+use serde::{Deserialize, Serialize};
 
 use crate::util::set_from_hashes;
 
@@ -23,7 +24,7 @@ pub const CONSUMED_ITEM_EXTERNAL_NULLIFIER: &str = "consumed item external nulli
 
 // Rust-level definition of the ingredients of an item, used to derive the
 // ingredients hash (dict root) before doing sequential work on it.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IngredientsDef {
     // These properties are committed on-chain
     pub inputs: HashSet<Hash>,
@@ -54,7 +55,7 @@ impl IngredientsDef {
 }
 
 // Rust-level definition of an item, used to derive its ID (hash).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ItemDef {
     pub ingredients: IngredientsDef,
     pub work: RawValue,
