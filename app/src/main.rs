@@ -1,12 +1,17 @@
 use std::{
     io::{Read, Write},
     ops::Range,
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
+use anyhow::bail;
 use clap::{Parser, Subcommand};
 use commitlib::{ItemDef, build_st_item_def, predicates::CommitPredicates};
-use craftlib::{item::MiningRecipe, predicates::ItemPredicates};
+use craftlib::{
+    constants::{COPPER_BLUEPRINT, COPPER_MINING_MAX, COPPER_WORK},
+    item::{MiningRecipe, prove_copper},
+    predicates::ItemPredicates,
+};
 use pod2::{
     backends::plonky2::mainpod::Prover,
     frontend::{MainPod, MainPodBuilder},
@@ -28,12 +33,7 @@ enum Commands {
         #[arg(long, value_name = "FILE")]
         output: PathBuf,
         key: Value,
-        blueprint: String,
-        start_seed: i64,
-        end_seed: i64,
-        mining_range_min: u64,
-        mining_range_max: u64,
-        work: Value, // TODO: Add more flags to define the crafting
+        recipe: String,
     },
     /// Commit a crafted item on-chain
     Commit {
@@ -65,36 +65,17 @@ fn main() -> anyhow::Result<()> {
         Some(Commands::Craft {
             output,
             key,
-            blueprint,
-            start_seed,
-            end_seed,
-            mining_range_min,
-            mining_range_max,
-            work,
+            recipe,
         }) => {
-            let item_pod = craft_item(
-                &params,
-                key,
-                &blueprint,
-                start_seed,
-                end_seed,
-                mining_range_min..mining_range_max,
-                work,
-            )?;
-            let serialised_item_pod = serde_json::to_string(&item_pod)?;
-            let mut file = std::fs::File::create(&output)?;
-            file.write_all(serialised_item_pod.as_bytes())?;
-            println!("Wrote item with blueprint {blueprint} to {output:?}!");
+            craft_item(&params, key, &recipe, &output)?;
         }
         Some(Commands::Commit { input }) => {
             println!("TODO: commit item found at {input:?}");
         }
         Some(Commands::Verify { input }) => {
             let mut file = std::fs::File::open(&input)?;
-            let mut serialised_item_pod = String::new();
-            file.read_to_string(&mut serialised_item_pod)?;
-            let item_pod: MainPod = serde_json::from_str(&serialised_item_pod)?;
-            item_pod.pod.verify()?;
+            let crafting_pod: MainPod = serde_json::from_reader(&mut file)?;
+            crafting_pod.pod.verify()?;
             println!("Item at {input:?} successfully verified!");
         }
         None => {}
@@ -103,15 +84,24 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn craft_item(
-    params: &Params,
-    key: Value,
-    blueprint: &str,
-    start_seed: i64,
-    end_seed: i64,
-    mining_range: Range<u64>,
-    work: Value,
-) -> anyhow::Result<MainPod> {
+fn craft_item(params: &Params, key: Value, recipe: &str, output: &Path) -> anyhow::Result<()> {
+    let key = key.raw();
+    println!("About to mine for \"{}\"", recipe);
+    let item_def = match recipe {
+        "copper" => {
+            let mining_recipe = MiningRecipe::new_no_inputs(COPPER_BLUEPRINT.to_string());
+            let ingredients_def = mining_recipe
+                .do_mining(params, key, 0, COPPER_MINING_MAX)?
+                .unwrap();
+
+            ItemDef {
+                ingredients: ingredients_def.clone(),
+                work: COPPER_WORK,
+            }
+        }
+        unknwon => bail!("Unknwon recipe for \"{}\"", unknwon),
+    };
+
     let commit_preds = CommitPredicates::compile(params);
     let mut batches = commit_preds.defs.batches.clone();
     let item_preds = ItemPredicates::compile(params, &commit_preds);
@@ -122,24 +112,15 @@ fn craft_item(
     // TODO
     let vd_set = &*DEFAULT_VD_SET;
 
-    // Mine with selected key.
-    let key = key.raw();
-    let mining_recipe = MiningRecipe::new_no_inputs(blueprint.to_string());
-    let ingredients_def = mining_recipe
-        .do_mining(params, key, start_seed..end_seed, mining_range)?
-        .unwrap();
-
-    let item_def = ItemDef {
-        ingredients: ingredients_def.clone(),
-        work: work.raw(),
+    let crafting_pod = match recipe {
+        "copper" => prove_copper(item_def, &batches, params, prover, vd_set)?,
+        unknwon => unreachable!("recipe {}", unknwon),
     };
 
-    // Create a POD with a single item definition.
-    let mut builder = MainPodBuilder::new(&Default::default(), vd_set);
-    let mut ctx = BuildContext {
-        builder: &mut builder,
-        batches: &batches,
-    };
-    build_st_item_def(&mut ctx, params, item_def.clone())?;
-    Ok(builder.prove(prover)?)
+    let serialised_item_pod = serde_json::to_string(&crafting_pod)?;
+    let mut file = std::fs::File::create(&output)?;
+    file.write_all(serialised_item_pod.as_bytes())?;
+    println!("Wrote item with recipe {recipe} to {output:?}!");
+
+    Ok(())
 }

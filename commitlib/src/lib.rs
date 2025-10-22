@@ -93,20 +93,23 @@ pub fn build_st_item_def(
     let item_hash = item_def.item_hash(params)?;
 
     // Build ItemDef(item, ingredients, inputs, key, work)
-    let st_item_def = pub_st_custom!(ctx,
+    Ok(st_custom!(ctx,
         ItemDef() = (
             DictContains(ingredients_dict, "inputs", inputs_set),
             DictContains(ingredients_dict, "key", item_def.ingredients.key),
             HashOf(item_hash, ingredients_dict, item_def.work)
-        ))?;
+        ))?)
+}
 
+pub fn build_st_item_key(
+    ctx: &mut BuildContext,
+    st_item_def: Statement,
+) -> anyhow::Result<Statement> {
     // Build ItemKey(item, key)
-    let _st_itemkey = pub_st_custom!(ctx,
+    Ok(st_custom!(ctx,
         ItemKey() = (
-            st_item_def.clone()
-        ))?;
-
-    Ok(st_item_def)
+            st_item_def
+        ))?)
 }
 
 // Adds statements to MainPodBuilder to prove inclusion of input_set in
@@ -122,13 +125,11 @@ fn build_st_super_sub_set(
     // Build SuperSubSet(created_items, inputs)
     // We manually specify the `super` wildcard value because it's otherwise unconstrained.  This
     // is only relevant in the base case where `sub` is empty, which is a subset of anything.
-    let st_inputs_subset = st_custom!(ctx,
+    Ok(st_custom!(ctx,
         SuperSubSet(super=created_items) = (
             Equal(inputs_set, EMPTY_VALUE),
             Statement::None
-        ))?;
-
-    Ok(st_inputs_subset)
+        ))?)
 }
 
 // Adds statements to MainPodBilder to prove correct nullifiers for a set of
@@ -148,19 +149,17 @@ fn build_st_nullifiers(
             Equal(inputs_set, EMPTY_VALUE),
             Equal(nullifiers, EMPTY_VALUE)
         ))?;
-    let st_nullifiers = st_custom!(ctx,
+    Ok(st_custom!(ctx,
         Nullifiers() = (
             st_nullifiers_empty,
             Statement::None
-        ))?;
-
-    Ok(st_nullifiers)
+        ))?)
 }
 
-// Builds the public POD to commit a crafting operation on-chain, with the only
-// public predicate being CommitCrafting.  Uses a given created_items_set as
-// the root to prove that inputs were previously crafted.
-pub fn build_st_commit_crafting(
+// Builds the public POD to commit a creation operation on-chain, with the only
+// public predicate being CommitCreation.  Uses a given created_items_set as
+// the root to prove that inputs were previously created.
+pub fn build_st_commit_creation(
     ctx: &mut BuildContext,
     params: &Params, // TODO: This argument might belong in a ItemBuilder object
     item_def: ItemDef,
@@ -178,21 +177,20 @@ pub fn build_st_commit_crafting(
     let st_nullifiers =
         build_st_nullifiers(ctx, item_def.ingredients.inputs_set(params)?, nullifiers)?;
 
-    // Build CommitCrafting(item, nullifiers, created_items)
-    let st_commit_crafting = pub_st_custom!(ctx,
-        CommitCrafting() = (
+    // TODO: Don't use `pub_st_custom` and instead reveal when necessary
+    // Build CommitCreation(item, nullifiers, created_items)
+    Ok(st_custom!(ctx,
+        CommitCreation() = (
             st_item_def.clone(),
             st_inputs_subset,
             st_nullifiers
-        ))?;
-
-    Ok(st_commit_crafting)
+        ))?)
 }
 
-// Builds the public POD to commit a crafting operation on-chain, with the only
-// public predicate being CommitCrafting.  Uses a given created_items_set as
-// the root to prove that inputs were previously crafted.
-pub fn prove_st_commit_crafting(
+// Builds the public POD to commit a creation operation on-chain, with the only
+// public predicate being CommitCreation.  Uses a given created_items_set as
+// the root to prove that inputs were previously created.
+pub fn prove_st_commit_creation(
     item_def: ItemDef,
     created_items: Set,
     item_main_pod: MainPod,
@@ -213,8 +211,9 @@ pub fn prove_st_commit_crafting(
         builder: &mut builder,
         batches,
     };
-    let _st_commit_crafting =
-        build_st_commit_crafting(&mut ctx, params, item_def, created_items, st_item_def)?;
+    let st_commit_creation =
+        build_st_commit_creation(&mut ctx, params, item_def, created_items, st_item_def)?;
+    ctx.builder.reveal(&st_commit_creation);
 
     // Prove MainPOD
     Ok(builder.prove(prover)?)
@@ -233,7 +232,7 @@ mod tests {
     use crate::predicates::CommitPredicates;
 
     #[test]
-    fn test_prove_st_commit_crafting() {
+    fn test_prove_st_commit_creation() {
         let mock = true;
 
         let mock_prover = MockProver {};
@@ -276,8 +275,8 @@ mod tests {
         )
         .unwrap();
 
-        let _st_commit_crafting =
-            build_st_commit_crafting(&mut ctx, &params, item_def, created_items, st_item_def)
+        let _st_commit_creation =
+            build_st_commit_creation(&mut ctx, &params, item_def, created_items, st_item_def)
                 .unwrap();
 
         let main_pod = builder.prove(prover).unwrap();

@@ -181,12 +181,12 @@ mod tests {
         let vds_root = vd_set.root();
 
         let input = r#"
-        DummyCommitCrafting(item, nullifiers, created_items) = AND(
+        DummyCommitCreation(item, nullifiers, created_items) = AND(
             Equal(0, 0)
         )
         "#;
         let batch = pod2::lang::parse(input, &params, &[]).unwrap().custom_batch;
-        let pred = batch.predicate_ref_by_name("DummyCommitCrafting").unwrap();
+        let pred = batch.predicate_ref_by_name("DummyCommitCreation").unwrap();
 
         println!("ShrunkMainPod setup");
         let shrunk_main_pod_build = ShrunkMainPodSetup::new(&params).build().unwrap();

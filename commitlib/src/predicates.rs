@@ -14,7 +14,7 @@ pub struct CommitPredicates {
     pub nullifiers: CustomPredicateRef,
     pub nullifiers_empty: CustomPredicateRef,
     pub nullifiers_recursive: CustomPredicateRef,
-    pub commit_crafting: CustomPredicateRef,
+    pub commit_creation: CustomPredicateRef,
 }
 
 impl CommitPredicates {
@@ -49,7 +49,7 @@ impl CommitPredicates {
             )
 
             // Helper to expose just the item and key from ItemId calculation.
-            // This is just the CraftedItem pattern with some of inupts private.
+            // This is just the CreatedItem pattern with some of inupts private.
             ItemKey(item, key, private: ingredients, inputs, work) = AND(
                 ItemDef(item, ingredients, inputs, key, work)
             )
@@ -77,14 +77,14 @@ impl CommitPredicates {
                 Nullifiers(ns, is)
             )
 
-            // ZK version of CraftedItem for committing on-chain.
+            // ZK version of CreatedItem for committing on-chain.
             // Validator/Logger/Archiver needs to maintain 2 append-only
-            // sets of items and nullifiers.  New crafting is
+            // sets of items and nullifiers.  New creating is
             // accepted iff:
             // - item is not already in item set
             // - all nullifiers are not already in nullifier set
             // - createdItems is one of the historical item set roots
-            CommitCrafting(item, nullifiers, created_items, private: ingredients, inputs, key, work) = AND(
+            CommitCreation(item, nullifiers, created_items, private: ingredients, inputs, key, work) = AND(
                 // Prove the item hash includes all of its committed properties
                 ItemDef(item, ingredients, inputs, key, work)
 
@@ -108,7 +108,7 @@ impl CommitPredicates {
             nullifiers: defs.predicate_ref_by_name("Nullifiers").unwrap(),
             nullifiers_empty: defs.predicate_ref_by_name("NullifiersEmpty").unwrap(),
             nullifiers_recursive: defs.predicate_ref_by_name("NullifiersRecursive").unwrap(),
-            commit_crafting: defs.predicate_ref_by_name("CommitCrafting").unwrap(),
+            commit_creation: defs.predicate_ref_by_name("CommitCreation").unwrap(),
             defs,
         }
     }
