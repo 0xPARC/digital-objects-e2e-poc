@@ -6,7 +6,7 @@ use std::{
     io::{Read, Write},
     path::PathBuf,
     str::FromStr,
-    sync::{Arc, RwLock},
+    sync::{Arc, Mutex, RwLock},
     time::Duration,
 };
 
@@ -20,17 +20,28 @@ use alloy::{
 };
 use alloy_network::Ethereum;
 use alloy_provider::{Provider, RootProvider};
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
 use backoff::ExponentialBackoffBuilder;
 use chrono::{DateTime, Utc};
-use common::{ProofType, load_dotenv, payload::Payload, shrink::ShrunkMainPodSetup};
+use commitlib::predicates::CommitPredicates;
+use common::{
+    ProofType, load_dotenv,
+    payload::{Payload, PayloadProof},
+    shrink::ShrunkMainPodSetup,
+};
+use plonky2::plonk::proof::CompressedProofWithPublicInputs;
 use pod2::{
-    backends::plonky2::serialization::{
-        CommonCircuitDataSerializer, VerifierCircuitDataSerializer,
+    backends::plonky2::{
+        basetypes::DEFAULT_VD_SET,
+        mainpod::calculate_statements_hash,
+        serialization::{CommonCircuitDataSerializer, VerifierCircuitDataSerializer},
     },
     cache,
     cache::CacheEntry,
-    middleware::{CommonCircuitData, Params, RawValue, VerifierCircuitData, containers::Set},
+    middleware::{
+        CommonCircuitData, CustomPredicateRef, Hash, Params, RawValue, Statement, Value,
+        VerifierCircuitData, containers::Set,
+    },
 };
 use synchronizer::{
     bytes_from_simple_blob,
@@ -103,11 +114,15 @@ struct Node {
     cfg: Config,
     #[allow(dead_code)]
     params: Params,
+    vds_root: Hash,
     beacon_cli: BeaconClient,
     rpc_cli: RootProvider,
     common_circuit_data: CommonCircuitData,
-    _verifier_circuit_data: VerifierCircuitData,
+    verifier_circuit_data: VerifierCircuitData,
+    pred_commit_creation: CustomPredicateRef,
     // Mutable state
+    epoch: Mutex<u64>,
+    created_items_roots: Mutex<Vec<RawValue>>,
     created_items: RwLock<Set>,
     nullifiers: RwLock<HashSet<RawValue>>,
 }
@@ -127,6 +142,8 @@ impl Node {
         let rpc_cli = RootProvider::<Ethereum>::new_http(cfg.rpc_url.parse()?);
 
         let params = Params::default();
+        let commit_predicates = CommitPredicates::compile(&params);
+        let vds_root = DEFAULT_VD_SET.root();
         info!("Loading circuit data...");
         let (common_circuit_data, verifier_circuit_data) =
             &*cache_get_shrunk_main_pod_circuit_data(&params);
@@ -138,8 +155,12 @@ impl Node {
             beacon_cli,
             rpc_cli,
             params,
+            vds_root,
             common_circuit_data: (**common_circuit_data).clone(),
-            _verifier_circuit_data: (**verifier_circuit_data).clone(),
+            verifier_circuit_data: (**verifier_circuit_data).clone(),
+            pred_commit_creation: commit_predicates.commit_creation,
+            epoch: Mutex::new(0),
+            created_items_roots: Mutex::new(Vec::new()),
             created_items: RwLock::new(created_items),
             nullifiers: RwLock::new(nullifiers),
         })
@@ -360,9 +381,98 @@ impl Node {
     async fn process_do_blob(&self, blob: &Blob) -> Result<()> {
         let bytes =
             bytes_from_simple_blob(blob.blob.inner()).context("Invalid byte encoding in blob")?;
-        let _payload = Payload::from_bytes(&bytes, &self.common_circuit_data)?;
+        let payload = Payload::from_bytes(&bytes, &self.common_circuit_data)?;
 
-        todo!()
+        let mut epoch = self.epoch.lock().expect("lock");
+        let mut created_items_roots = self.created_items_roots.lock().expect("lock");
+
+        // Check the proof is using an official createdItems set
+        if !created_items_roots.contains(&payload.created_items_root) {
+            bail!(
+                "created_items_root {} not in created_items_roots",
+                payload.created_items_root
+            );
+        }
+
+        // Check that output is unique
+        if self
+            .created_items
+            .read()
+            .expect("rlock")
+            .contains(&Value::from(payload.item))
+        {
+            bail!("item {} exists in created_items", payload.item);
+        }
+
+        // Check that inputs are unique
+        {
+            // The nullifiers read lock is dropped at the end of this block
+            let nullifiers = self.nullifiers.read().expect("rlock");
+            for nullifier in &payload.nullifiers {
+                if nullifiers.contains(nullifier) {
+                    bail!("nullifier {} exists in nullifiers", nullifier);
+                }
+            }
+        }
+
+        let nullifiers_set = Value::from(
+            Set::new(
+                self.params.max_depth_mt_containers,
+                HashSet::from_iter(payload.nullifiers.iter().map(|r| Value::from(*r))),
+            )
+            .unwrap(),
+        );
+        let st_commit_creation = Statement::Custom(
+            self.pred_commit_creation.clone(),
+            vec![
+                Value::from(payload.item),
+                nullifiers_set,
+                Value::from(payload.created_items_root),
+            ],
+        );
+
+        // Check the proof and ignore invalid ones
+        self.verify_shrunk_main_pod(payload.proof, st_commit_creation)?;
+
+        // Register nullifiers
+        {
+            let mut nullifiers = self.nullifiers.write().expect("wlock");
+            for nullifier in &payload.nullifiers {
+                nullifiers.insert(*nullifier);
+            }
+        }
+        // Register item
+        self.created_items
+            .write()
+            .expect("wlock")
+            .insert(&Value::from(payload.item))
+            .unwrap();
+
+        *epoch += 1;
+        created_items_roots.push(RawValue::from(
+            self.created_items.read().expect("rlock").commitment(),
+        ));
+        Ok(())
+    }
+
+    fn verify_shrunk_main_pod(&self, proof: PayloadProof, st: Statement) -> Result<()> {
+        let sts_hash = calculate_statements_hash(&[st.into()], &self.params);
+        let public_inputs = [sts_hash.0, self.vds_root.0].concat();
+        let shrunk_main_pod_proof = match proof {
+            PayloadProof::Plonky2(proof) => proof,
+            PayloadProof::Groth16(_) => todo!(),
+        };
+        let proof_with_pis = CompressedProofWithPublicInputs {
+            proof: *shrunk_main_pod_proof,
+            public_inputs,
+        };
+        let proof = proof_with_pis
+            .decompress(
+                &self.verifier_circuit_data.verifier_only.circuit_digest,
+                &self.common_circuit_data,
+            )
+            .unwrap();
+        self.verifier_circuit_data.verify(proof)
     }
 }
 
