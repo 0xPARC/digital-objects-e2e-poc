@@ -28,7 +28,7 @@ plonky2 = { git = "https://github.com/0xPARC/plonky2.git", rev = "109d517d09c210
 pod2_onchain = { git = "https://github.com/0xPARC/pod2-onchain.git", rev = "5f2047752349a0f06665bc8f6ba82f50bc5ad435", default-features=false, features = ["disk_cache"]}
 
 # eth
-alloy = { version = "1.0.13", features = [
+alloy = { version = "1.0.41", features = [
     "eips",
     "full",
     "json-rpc",

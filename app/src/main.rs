@@ -1,3 +1,10 @@
+//! Examples of usage
+//!
+//! - craft new copper item:
+//!   RUST_LOG=app=debug cargo run --release -p app -- craft --output ./item0 --key key0 --recipe copper
+//! - commit the crafted item:
+//!   RUST_LOG=app=debug cargo run --release -p app -- commit --input ./item0
+
 use std::path::{Path, PathBuf};
 
 use anyhow::bail;
