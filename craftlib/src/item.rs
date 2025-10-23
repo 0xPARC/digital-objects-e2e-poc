@@ -1,10 +1,9 @@
 use std::{
     collections::{HashMap, HashSet},
-    ops::Range,
     sync::Arc,
 };
 
-use commitlib::{IngredientsDef, ItemDef, build_st_item_def};
+use commitlib::{IngredientsDef, ItemDef, build_st_item_def, build_st_item_key};
 use pod2::{
     frontend::{MainPod, MainPodBuilder},
     middleware::{
@@ -12,7 +11,7 @@ use pod2::{
         ToFields, VDSet, Value,
     },
 };
-use pod2utils::{macros::BuildContext, pub_st_custom};
+use pod2utils::{macros::BuildContext, st_custom};
 
 use crate::constants::COPPER_BLUEPRINT;
 
@@ -41,14 +40,14 @@ impl MiningRecipe {
         &self,
         params: &Params,
         key: RawValue,
-        seed_range: Range<i64>,
-        mine_range: Range<u64>,
+        start_seed: i64,
+        mine_max: u64,
     ) -> pod2::middleware::Result<Option<IngredientsDef>> {
-        for seed in seed_range {
+        for seed in start_seed..=i64::MAX {
             let ingredients = self.prep_ingredients(key, seed);
             let ingredients_hash = ingredients.hash(params)?;
             let mining_val = ingredients_hash.to_fields(params)[0];
-            if mine_range.contains(&mining_val.0) {
+            if mining_val.0 <= mine_max {
                 return Ok(Some(ingredients));
             }
         }
@@ -75,7 +74,7 @@ fn build_st_is_copper(
     st_item_def: Statement,
 ) -> anyhow::Result<Statement> {
     // Build IsCopper(item)
-    let st_is_copper = pub_st_custom!(ctx,
+    let st_is_copper = st_custom!(ctx,
         IsCopper() = (
             st_item_def,
             Equal(item_def.work, EMPTY_VALUE),
@@ -88,7 +87,7 @@ fn build_st_is_copper(
 
 // Builds the private POD to store locally for use in further crafting.
 // Contains the following public predicates: ItemDef, ItemKey, IsCopper
-pub fn prove_is_copper(
+pub fn prove_copper(
     item_def: ItemDef,
 
     // TODO: All the args below might belong in a ItemBuilder object
@@ -104,7 +103,11 @@ pub fn prove_is_copper(
         batches,
     };
     let st_item_def = build_st_item_def(&mut ctx, params, item_def.clone())?;
-    let _st_is_copper = build_st_is_copper(&mut ctx, params, item_def, st_item_def)?;
+    ctx.builder.reveal(&st_item_def);
+    let st_item_key = build_st_item_key(&mut ctx, st_item_def.clone())?;
+    ctx.builder.reveal(&st_item_key);
+    let st_is_copper = build_st_is_copper(&mut ctx, params, item_def, st_item_def)?;
+    ctx.builder.reveal(&st_is_copper);
 
     // Prove MainPOD
     Ok(builder.prove(prover)?)
@@ -116,7 +119,7 @@ mod tests {
     use std::collections::HashMap;
 
     use commitlib::{
-        predicates::CommitPredicates, prove_st_commit_crafting, util::set_from_hashes,
+        predicates::CommitPredicates, prove_st_commit_creation, util::set_from_hashes,
     };
     use pod2::{
         backends::plonky2::mock::mainpod::MockProver,
@@ -126,14 +129,13 @@ mod tests {
 
     use super::*;
     use crate::{
-        constants::{COPPER_BLUEPRINT, COPPER_MINING_RANGE, COPPER_WORK},
+        constants::{COPPER_BLUEPRINT, COPPER_MINING_MAX, COPPER_WORK},
         predicates::ItemPredicates,
         test_util::test::mock_vd_set,
     };
 
     // Seed of 2612=0xA34 is a match with hash 6647892930992163=0x000A7EE9D427E832.
     const COPPER_START_SEED: i64 = 0x9C4;
-    const COPPER_END_SEED: i64 = 0x19C4;
 
     fn check_matched_wildcards(matched: HashMap<String, Value>, expected: HashMap<String, Value>) {
         assert_eq!(matched.len(), expected.len(), "len");
@@ -148,21 +150,11 @@ mod tests {
         let mining_recipe = MiningRecipe::new_no_inputs(COPPER_BLUEPRINT.to_string());
         let key = RawValue::from(0xBADC0DE);
 
-        let mine_nothing = mining_recipe.do_mining(&params, key, 0..0, COPPER_MINING_RANGE)?;
-        assert!(mine_nothing.is_none());
-
-        let mine_fail = mining_recipe.do_mining(&params, key, 0..3, COPPER_MINING_RANGE)?;
-        assert!(mine_fail.is_none());
-
         // Seed of 2612=0xA34 is a match with hash 6647892930992163=0x000A7EE9D427E832.
         // TODO: This test is going to get slower (~2s) whenever the ingredient
         // dict definition changes.  Need a better approach to testing mining.
-        let mine_success = mining_recipe.do_mining(
-            &params,
-            key,
-            COPPER_START_SEED..COPPER_END_SEED,
-            COPPER_MINING_RANGE,
-        )?;
+        let mine_success =
+            mining_recipe.do_mining(&params, key, COPPER_START_SEED, COPPER_MINING_MAX)?;
         assert!(mine_success.is_some());
 
         let ingredients_def = mine_success.unwrap();
@@ -192,12 +184,7 @@ mod tests {
         let key = RawValue::from(0xBADC0DE);
         let mining_recipe = MiningRecipe::new_no_inputs(COPPER_BLUEPRINT.to_string());
         let ingredients_def = mining_recipe
-            .do_mining(
-                &params,
-                key,
-                COPPER_START_SEED..COPPER_END_SEED,
-                COPPER_MINING_RANGE,
-            )?
+            .do_mining(&params, key, COPPER_START_SEED, COPPER_MINING_MAX)?
             .unwrap();
 
         // Pre-calculate hashes and intermediate values.
@@ -211,7 +198,7 @@ mod tests {
 
         // Prove a copper POD.  This is the private POD for the player to store
         // locally for future crafting.
-        let copper_main_pod = prove_is_copper(item_def.clone(), &batches, &params, prover, vd_set)?;
+        let copper_main_pod = prove_copper(item_def.clone(), &batches, &params, prover, vd_set)?;
 
         copper_main_pod.pod.verify()?;
         assert_eq!(copper_main_pod.public_statements.len(), 3);
@@ -266,8 +253,8 @@ mod tests {
         )?;
 
         // TODO Prove a commitment POD to send on-chain.  This intentionally doesn't
-        // expose any public statements other than CommitCrafting.
-        let commit_main_pod = prove_st_commit_crafting(
+        // expose any public statements other than CommitCreation.
+        let commit_main_pod = prove_st_commit_creation(
             item_def,
             created_items.clone(),
             copper_main_pod,
@@ -287,7 +274,7 @@ mod tests {
             {}
 
             REQUEST(
-                CommitCrafting(item, nullifiers, created_items)
+                CommitCreation(item, nullifiers, created_items)
             )
             "#,
             &commit_preds.defs.imports,

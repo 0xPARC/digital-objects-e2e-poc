@@ -162,9 +162,9 @@ mod tests {
             [st_nullifiers_empty, Statement::None],
         ))?;
 
-        // Build CommitCrafting(item, nullifiers, created_items)
+        // Build CommitCreation(item, nullifiers, created_items)
         let _st_commit_crafting = builder.pub_op(Operation::custom(
-            commit_preds.commit_crafting.clone(),
+            commit_preds.commit_creation.clone(),
             [st_item_def.clone(), st_inputs_subset, st_nullifiers],
         ))?;
 
@@ -203,7 +203,7 @@ mod tests {
                 ItemKey(item, key)
                 SuperSubSet(created_items, inputs)
                 Nullifiers(nullifiers, inputs)
-                CommitCrafting(item, nullifiers, created_items)
+                CommitCreation(item, nullifiers, created_items)
                 IsCopper(item)
             )
             "#,
