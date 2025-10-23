@@ -1,21 +1,29 @@
-use std::{
-    io::Write,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 use anyhow::bail;
+use app::{Config, eth::send_payload, log_init};
 use clap::{Parser, Subcommand};
-use commitlib::{ItemDef, predicates::CommitPredicates};
+use commitlib::{
+    ItemDef, build_st_commit_creation, build_st_item_def, predicates::CommitPredicates,
+};
+use common::{
+    load_dotenv,
+    payload::{Payload, PayloadProof},
+    shrink::{ShrunkMainPodSetup, shrink_compress_pod},
+};
 use craftlib::{
     constants::{COPPER_BLUEPRINT, COPPER_MINING_MAX, COPPER_WORK},
-    item::{MiningRecipe, prove_copper},
+    item::{MiningRecipe, build_st_is_copper},
     predicates::ItemPredicates,
 };
 use pod2::{
     backends::plonky2::mainpod::Prover,
-    frontend::MainPod,
-    middleware::{DEFAULT_VD_SET, Params, Value},
+    frontend::{MainPod, MainPodBuilder},
+    middleware::{DEFAULT_VD_SET, Params, RawValue, Value, containers::Set},
 };
+use pod2utils::macros::BuildContext;
+use serde::{Deserialize, Serialize};
+use tracing::info;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -28,10 +36,12 @@ struct Cli {
 enum Commands {
     /// Craft an item locally
     Craft {
+        #[arg(long, value_name = "VALUE")]
+        key: Value,
+        #[arg(long, value_name = "RECIPE")]
+        recipe: String,
         #[arg(long, value_name = "FILE")]
         output: PathBuf,
-        key: Value,
-        recipe: String,
     },
     /// Commit a crafted item on-chain
     Commit {
@@ -47,16 +57,15 @@ enum Commands {
     },
 }
 
-fn main() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
-    // TODO: Read config from env file
-    // NOTE from @arnaucube: this is already available at the main branch at the common crate:
-    // https://github.com/0xPARC/digital-objects-e2e-poc/blob/main/common/src/lib.rs#L22 (and used
-    // at the eth test), for the synchronizer would be mainly porting the Config struct from the
-    // blob-e2e-poc (removing unused fields like dbpath)
+    log_init();
+    load_dotenv()?;
+    let cfg = Config::from_env()?;
+    info!(?cfg, "Loaded config");
 
-    // TODO
     let params = Params::default();
 
     match cli.command {
@@ -68,19 +77,25 @@ fn main() -> anyhow::Result<()> {
             craft_item(&params, key, &recipe, &output)?;
         }
         Some(Commands::Commit { input }) => {
-            println!("TODO: commit item found at {input:?}");
+            commit_item(&params, &cfg, &input).await?;
         }
         Some(Commands::Verify { input }) => {
             let mut file = std::fs::File::open(&input)?;
-            let crafting_pod: MainPod = serde_json::from_reader(&mut file)?;
-            crafting_pod.pod.verify()?;
-            println!("Item at {input:?} successfully verified!");
+            let crafted_item: CraftedItem = serde_json::from_reader(&mut file)?;
+            crafted_item.pod.pod.verify()?;
+            println!("Crafted item at {input:?} successfully verified!");
             // TODO: Verify that the item exists on-chain
         }
         None => {}
     }
 
     Ok(())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CraftedItem {
+    pub pod: MainPod,
+    pub def: ItemDef,
 }
 
 fn craft_item(params: &Params, key: Value, recipe: &str, output: &Path) -> anyhow::Result<()> {
@@ -106,20 +121,82 @@ fn craft_item(params: &Params, key: Value, recipe: &str, output: &Path) -> anyho
     let item_preds = ItemPredicates::compile(params, &commit_preds);
     batches.extend_from_slice(&item_preds.defs.batches);
 
-    let prover = &Prover {};
-
     // TODO
     let vd_set = &*DEFAULT_VD_SET;
 
-    let crafting_pod = match recipe {
-        "copper" => prove_copper(item_def, &batches, params, prover, vd_set)?,
+    let mut builder = MainPodBuilder::new(&Default::default(), vd_set);
+
+    let mut ctx = BuildContext {
+        builder: &mut builder,
+        batches: &batches,
+    };
+    let st_item_def = build_st_item_def(&mut ctx, params, item_def.clone())?;
+
+    let st_craft = match recipe {
+        "copper" => build_st_is_copper(&mut ctx, params, item_def.clone(), st_item_def)?,
         unknown => unreachable!("recipe {unknown}"),
     };
+    ctx.builder.reveal(&st_craft);
+    let prover = &Prover {};
+    let pod = ctx.builder.prove(prover)?;
+    pod.pod.verify().unwrap();
 
-    let serialised_item_pod = serde_json::to_string(&crafting_pod)?;
+    let crafted_item = CraftedItem { pod, def: item_def };
     let mut file = std::fs::File::create(output)?;
-    file.write_all(serialised_item_pod.as_bytes())?;
-    println!("Wrote item with recipe {recipe} to {output:?}!");
+    serde_json::to_writer(&mut file, &crafted_item)?;
+    println!("Stored crafted item mined with recipe {recipe} to {output:?}");
+
+    Ok(())
+}
+
+async fn commit_item(params: &Params, cfg: &Config, input: &Path) -> anyhow::Result<()> {
+    let mut file = std::fs::File::open(input)?;
+    let crafted_item: CraftedItem = serde_json::from_reader(&mut file)?;
+
+    let created_items: Set =
+        reqwest::blocking::get(format!("{}/created_items", cfg.sync_url))?.json()?;
+
+    let commit_preds = CommitPredicates::compile(params);
+    let batches = &commit_preds.defs.batches;
+    // TODO
+    let vd_set = &*DEFAULT_VD_SET;
+
+    let mut builder = MainPodBuilder::new(&Default::default(), vd_set);
+
+    let mut ctx = BuildContext {
+        builder: &mut builder,
+        batches,
+    };
+    let st_item_def = build_st_item_def(&mut ctx, params, crafted_item.def.clone())?;
+    let st_commit_creation = build_st_commit_creation(
+        &mut ctx,
+        params,
+        crafted_item.def.clone(),
+        created_items.clone(),
+        st_item_def,
+    )?;
+    ctx.builder.reveal(&st_commit_creation);
+    let prover = &Prover {};
+    let pod = ctx.builder.prove(prover)?;
+    pod.pod.verify().unwrap();
+
+    let shrunk_main_pod_build = ShrunkMainPodSetup::new(params)
+        .build()
+        .expect("successful build");
+    let shrunk_main_pod_proof = shrink_compress_pod(&shrunk_main_pod_build, pod.clone()).unwrap();
+
+    let nullifiers = vec![]; // TODO
+    let payload_bytes = Payload {
+        proof: PayloadProof::Plonky2(Box::new(shrunk_main_pod_proof.clone())),
+        item: RawValue::from(crafted_item.def.item_hash(params)?),
+        created_items_root: RawValue::from(created_items.commitment()),
+        nullifiers,
+    }
+    .to_bytes();
+
+    let tx_hash = send_payload(cfg, payload_bytes).await?;
+
+    println!("Committed item in tx={tx_hash}");
 
     Ok(())
 }

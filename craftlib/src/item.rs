@@ -67,7 +67,7 @@ impl MiningRecipe {
 // already-existing generic item statements.
 // Builds the following public predicates: IsCopper
 // Returns the Statement object for IsCopper for use in further statements.
-fn build_st_is_copper(
+pub fn build_st_is_copper(
     ctx: &mut BuildContext,
     params: &Params,
     item_def: ItemDef,

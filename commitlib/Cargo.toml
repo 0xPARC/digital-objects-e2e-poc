@@ -7,6 +7,7 @@ edition = "2024"
 anyhow = { workspace = true }
 log = { workspace = true }
 pod2 = { workspace = true }
+serde = { workspace = true }
 
 common = { path = "../common" }
 pod2utils = { path = "../pod2utils" }
