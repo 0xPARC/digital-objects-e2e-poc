@@ -1,11 +1,6 @@
-use std::{
-    io::Write,
-    path::{Path, PathBuf},
-    str::FromStr,
-};
+use std::path::{Path, PathBuf};
 
-use alloy::primitives::Address;
-use anyhow::{Context, Result, bail};
+use anyhow::bail;
 use app::{Config, eth::send_payload, log_init};
 use clap::{Parser, Subcommand};
 use commitlib::{
@@ -29,7 +24,6 @@ use pod2::{
 use pod2utils::macros::BuildContext;
 use serde::{Deserialize, Serialize};
 use tracing::info;
-use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -202,7 +196,7 @@ async fn commit_item(params: &Params, cfg: &Config, input: &Path) -> anyhow::Res
 
     let tx_hash = send_payload(cfg, payload_bytes).await?;
 
-    println!("Committed item in tx={}", tx_hash);
+    println!("Committed item in tx={tx_hash}");
 
     Ok(())
 }

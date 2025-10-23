@@ -2,7 +2,6 @@ use std::str::FromStr;
 
 use alloy::primitives::Address;
 use anyhow::{Context as _, Result};
-use common::ProofType;
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 pub mod eth;
