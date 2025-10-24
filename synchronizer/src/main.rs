@@ -39,8 +39,8 @@ use pod2::{
     cache,
     cache::CacheEntry,
     middleware::{
-        CommonCircuitData, CustomPredicateRef, Hash, Params, RawValue, Statement, Value,
-        VerifierCircuitData, containers::Set,
+        CommonCircuitData, CustomPredicateRef, EMPTY_VALUE, Hash, Params, RawValue, Statement,
+        Value, VerifierCircuitData, containers::Set,
     },
 };
 use synchronizer::{
@@ -160,7 +160,12 @@ impl Node {
             verifier_circuit_data: (**verifier_circuit_data).clone(),
             pred_commit_creation: commit_predicates.commit_creation,
             epoch: Mutex::new(0),
-            created_items_roots: Mutex::new(Vec::new()),
+            // initialize the `created_items_root` with 0x00... root, so that
+            // when new items are crafted from scratch, their
+            // `payload.created_items_root` (which is 0x00... since it is a
+            // from-scratch item) is accepted as a "valid" one, since it appears
+            // at the `created_items_root`.
+            created_items_roots: Mutex::new(vec![EMPTY_VALUE]),
             created_items: RwLock::new(created_items),
             nullifiers: RwLock::new(nullifiers),
         })
