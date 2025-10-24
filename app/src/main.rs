@@ -1,3 +1,10 @@
+//! Examples of usage
+//!
+//! - craft new copper item:
+//!   RUST_LOG=app=debug cargo run --release -p app -- craft --output ./item0 --key key0 --recipe copper
+//! - commit the crafted item:
+//!   RUST_LOG=app=debug cargo run --release -p app -- commit --input ./item0
+
 use std::path::{Path, PathBuf};
 
 use anyhow::bail;
@@ -17,7 +24,7 @@ use craftlib::{
     predicates::ItemPredicates,
 };
 use pod2::{
-    backends::plonky2::mainpod::Prover,
+    backends::plonky2::{mainpod::Prover, primitives::merkletree::MerkleProof},
     frontend::{MainPod, MainPodBuilder},
     middleware::{DEFAULT_VD_SET, Params, RawValue, Value, containers::Set},
 };
@@ -83,8 +90,22 @@ async fn main() -> anyhow::Result<()> {
             let mut file = std::fs::File::open(&input)?;
             let crafted_item: CraftedItem = serde_json::from_reader(&mut file)?;
             crafted_item.pod.pod.verify()?;
+
+            // Verify that the item exists on-blob-space:
+            // first get the merkle proof of item existence from the Synchronizer
+            let item = RawValue::from(crafted_item.def.item_hash(&params)?);
+            let item_hex: String = format!("{item:#}");
+            let mtp: MerkleProof = reqwest::blocking::get(format!(
+                "{}/created_item/{}",
+                cfg.sync_url,
+                &item_hex[2..]
+            ))?
+            .json()?;
+            println!("mtp: {mtp:?}");
+            // verify the obtained merkle proof
+            // TODO: get the root to verify against it
+
             println!("Crafted item at {input:?} successfully verified!");
-            // TODO: Verify that the item exists on-chain
         }
         None => {}
     }
