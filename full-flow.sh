@@ -28,6 +28,8 @@ $tmux send-keys -t fullflow:0.0 'RUST_LOG=synchronizer=debug cargo run --release
 $tmux send-keys -t fullflow:0.1 'RUST_LOG=app=debug cargo run --release -p app -- craft --output ./tmp/item-copper --key key0 --recipe copper' C-m
 # commit the crafted item
 $tmux send-keys -t fullflow:0.1 'RUST_LOG=app=debug cargo run --release -p app -- commit --input ./tmp/item-copper' C-m
+# verify the crafted item
+$tmux send-keys -t fullflow:0.1 'RUST_LOG=app=debug cargo run --release -p app -- verify --input ./tmp/item-copper' C-m
 
 $tmux select-pane -t fullflow:0.1
 
