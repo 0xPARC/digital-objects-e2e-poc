@@ -1574,6 +1574,7 @@ dependencies = [
  "anyhow",
  "commitlib",
  "itertools 0.14.0",
+ "plonky2",
  "pod2",
  "pod2utils",
 ]
