@@ -33,7 +33,7 @@ pub async fn send_payload(cfg: &Config, b: Vec<u8>) -> Result<TxHash> {
     info!("Latest block number: {latest_block}");
 
     let sender = signer.address();
-    let receiver = Address::from([0x43; 20]);
+    let receiver = cfg.to_addr;
     debug!("{}", sender);
     debug!("{}", receiver);
 
@@ -114,7 +114,6 @@ async fn send_tx<F: TxFiller, P: Provider>(
         // Send the raw transaction to the network.
         let send_tx_result = provider.send_raw_transaction(&encoded_tx).await;
 
-        // let send_tx_result = provider.send_transaction(tx).await;
         let pending_tx_result = match send_tx_result {
             Ok(pending_tx_result) => pending_tx_result,
             Err(e) => {
