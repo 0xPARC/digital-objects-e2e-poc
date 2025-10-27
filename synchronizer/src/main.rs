@@ -121,8 +121,8 @@ struct Node {
     verifier_circuit_data: VerifierCircuitData,
     pred_commit_creation: CustomPredicateRef,
     // Mutable state
-    epoch: Mutex<u64>,
-    created_items_roots: Mutex<Vec<RawValue>>,
+    // Pair consisting of the current epoch and hitherto created item roots.
+    created_item_roots_pair: Mutex<(u64, Vec<RawValue>)>,
     created_items: RwLock<Set>,
     nullifiers: RwLock<HashSet<RawValue>>,
 }
@@ -159,13 +159,15 @@ impl Node {
             common_circuit_data: (**common_circuit_data).clone(),
             verifier_circuit_data: (**verifier_circuit_data).clone(),
             pred_commit_creation: commit_predicates.commit_creation,
-            epoch: Mutex::new(0),
             // initialize the `created_items_root` (which is an empty root
             // (0x00...), so that when new items are crafted from scratch, their
             // `payload.created_items_root` (which is 0x00... since it is a
             // from-scratch item) is accepted as a "valid" one, since it appears
             // at the `created_items_root`.
-            created_items_roots: Mutex::new(vec![RawValue::from(created_items.commitment())]),
+            created_item_roots_pair: Mutex::new((
+                0,
+                vec![RawValue::from(created_items.commitment())],
+            )),
             created_items: RwLock::new(created_items),
             nullifiers: RwLock::new(nullifiers),
         })
@@ -388,11 +390,10 @@ impl Node {
             bytes_from_simple_blob(blob.blob.inner()).context("Invalid byte encoding in blob")?;
         let payload = Payload::from_bytes(&bytes, &self.common_circuit_data)?;
 
-        let mut epoch = self.epoch.lock().expect("lock");
-        let mut created_items_roots = self.created_items_roots.lock().expect("lock");
+        let mut created_items_roots = self.created_item_roots_pair.lock().expect("lock");
 
         // Check the proof is using an official createdItems set
-        if !created_items_roots.contains(&payload.created_items_root) {
+        if !created_items_roots.1.contains(&payload.created_items_root) {
             bail!(
                 "created_items_root {} not in created_items_roots",
                 payload.created_items_root
@@ -453,8 +454,8 @@ impl Node {
             .insert(&Value::from(payload.item))
             .unwrap();
 
-        *epoch += 1;
-        created_items_roots.push(RawValue::from(
+        created_items_roots.0 += 1;
+        created_items_roots.1.push(RawValue::from(
             self.created_items.read().expect("rlock").commitment(),
         ));
         Ok(())
