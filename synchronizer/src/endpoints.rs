@@ -21,11 +21,12 @@ pub(crate) async fn handler_get_created_item(
 ) -> Result<impl warp::Reply, warp::Rejection> {
     let item = RawValue::from_hex(&item_str).map_err(|e| CustomError(e.to_string()))?;
     let created_items = node.created_items.read().unwrap();
+    let epoch = node.created_item_roots_pair.lock().unwrap().0;
     let mtp = created_items
         .prove(&Value::from(item))
         .map_err(|e| CustomError(e.to_string()))?;
     drop(created_items);
-    Ok(warp::reply::json(&mtp))
+    Ok(warp::reply::json(&(epoch, mtp)))
 }
 
 // GET /created_items
