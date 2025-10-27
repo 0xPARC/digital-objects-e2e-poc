@@ -36,6 +36,14 @@ pub(crate) async fn handler_get_created_items(
     Ok(warp::reply::json(&created_items))
 }
 
+// GET /created_items_root
+pub(crate) async fn handler_get_latest_created_items_root(
+    node: Arc<Node>,
+) -> Result<impl warp::Reply, warp::Rejection> {
+    let cir_pair = node.created_item_roots_pair.lock().unwrap();
+    Ok(warp::reply::json(&(cir_pair.0, cir_pair.1[0])))
+}
+
 // GET /nullifier/{nullifier}
 pub(crate) async fn handler_get_nullifier(
     nullifier_str: String,
@@ -56,6 +64,7 @@ pub(crate) fn routes(
 ) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
     get_created_item(node.clone())
         .or(get_created_items(node.clone()))
+        .or(get_created_items_root(node.clone()))
         .or(get_nullifier(node))
 }
 
@@ -79,6 +88,17 @@ fn get_created_items(
         .and(warp::get())
         .and(node_filter)
         .and_then(handler_get_created_items)
+}
+
+fn get_created_items_root(
+    node: Arc<Node>,
+) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
+    let node_filter = warp::any().map(move || node.clone());
+
+    warp::path!("created_items_root")
+        .and(warp::get())
+        .and(node_filter)
+        .and_then(handler_get_latest_created_items_root)
 }
 
 fn get_nullifier(
