@@ -19,7 +19,7 @@ impl ItemPredicates {
         // 5 statements per predicate
         let batch_defs = [r#"
             // Example of a mined item with no inputs or sequential work.
-            // Copper requ`ires working in a copper mine (blueprint="copper") and
+            // Copper requires working in a copper mine (blueprint="copper") and
             // 10 leading 0s.
             IsCopper(item, private: ingredients, inputs, key, work) = AND(
                 ItemDef(item, ingredients, inputs, key, work)
