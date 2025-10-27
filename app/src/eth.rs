@@ -1,9 +1,14 @@
 use alloy::{
-    consensus::{SidecarBuilder, SimpleCoder},
-    eips::eip4844::DATA_GAS_PER_BLOB,
+    consensus::{
+        EnvKzgSettings, EthereumTxEnvelope, SidecarBuilder, SimpleCoder, TxEip4844WithSidecar,
+    },
+    eips::{Encodable2718, eip4844::DATA_GAS_PER_BLOB, eip7594::BlobTransactionSidecarEip7594},
     network::{TransactionBuilder, TransactionBuilder4844},
     primitives::{Address, TxHash},
-    providers::{Provider, ProviderBuilder},
+    providers::{
+        Provider, ProviderBuilder,
+        fillers::{FillProvider, TxFiller},
+    },
     rpc::types::{TransactionReceipt, TransactionRequest},
     signers::local::PrivateKeySigner,
 };
@@ -28,7 +33,7 @@ pub async fn send_payload(cfg: &Config, b: Vec<u8>) -> Result<TxHash> {
     info!("Latest block number: {latest_block}");
 
     let sender = signer.address();
-    let receiver = Address::from([0x42; 20]);
+    let receiver = cfg.to_addr;
     debug!("{}", sender);
     debug!("{}", receiver);
 
@@ -66,9 +71,9 @@ pub async fn send_payload(cfg: &Config, b: Vec<u8>) -> Result<TxHash> {
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn send_tx(
+async fn send_tx<F: TxFiller, P: Provider>(
     cfg: &Config,
-    provider: impl alloy::providers::Provider + 'static,
+    provider: FillProvider<F, P>,
     sender: Address,
     receiver: Address,
     sidecar: alloy::eips::eip4844::BlobTransactionSidecar,
@@ -82,7 +87,7 @@ async fn send_tx(
     let nonce = provider.get_transaction_count(sender).latest().await?;
     let mut tx_hash_prev = None;
     let tx_hash = loop {
-        let tx = TransactionRequest::default()
+        let tx_request = TransactionRequest::default()
             .with_max_fee_per_gas(fees.max_fee_per_gas * fee_percentage / 100)
             .with_max_priority_fee_per_gas(fees.max_priority_fee_per_gas * fee_percentage / 100)
             .with_max_fee_per_blob_gas(blob_base_fee * fee_percentage / 100)
@@ -91,12 +96,24 @@ async fn send_tx(
             .with_blob_sidecar(sidecar.clone());
 
         debug!(
-            max_fee_per_gas = tx.max_fee_per_gas.unwrap(),
-            max_priority_fee_per_gas = tx.max_priority_fee_per_gas.unwrap(),
-            max_fee_per_blob_gas = tx.max_fee_per_blob_gas.unwrap()
+            max_fee_per_gas = tx_request.max_fee_per_gas.unwrap(),
+            max_priority_fee_per_gas = tx_request.max_priority_fee_per_gas.unwrap(),
+            max_fee_per_blob_gas = tx_request.max_fee_per_blob_gas.unwrap()
         );
 
-        let send_tx_result = provider.send_transaction(tx).await;
+        // Fill the transaction (e.g., nonce, gas, etc.) using the provider and convert it to an
+        // envelope.
+        let envelope = provider.fill(tx_request).await?.try_into_envelope()?;
+
+        // Convert the envelope into an EIP-7594 transaction by converting the sidecar.
+        let tx: EthereumTxEnvelope<TxEip4844WithSidecar<BlobTransactionSidecarEip7594>> =
+            envelope.try_into_pooled()?.try_map_eip4844(|tx| {
+                tx.try_map_sidecar(|sidecar| sidecar.try_into_7594(EnvKzgSettings::Default.get()))
+            })?;
+        let encoded_tx = tx.encoded_2718();
+        // Send the raw transaction to the network.
+        let send_tx_result = provider.send_raw_transaction(&encoded_tx).await;
+
         let pending_tx_result = match send_tx_result {
             Ok(pending_tx_result) => pending_tx_result,
             Err(e) => {
@@ -157,7 +174,7 @@ mod tests {
     // this test is mostly to check the send_payload method isolated from the
     // rest of the AD server logic.
     // To run it:
-    // RUST_LOG=debug cargo test --release -p ad-server test_tx -- --nocapture --ignored
+    // RUST_LOG=app=debug cargo test --release -p ad-server test_tx -- --nocapture --ignored
     #[ignore]
     #[tokio::test]
     async fn test_tx() -> anyhow::Result<()> {
