@@ -29,6 +29,35 @@ impl ItemPredicates {
 
                 // TODO input POD: HashInRange(0, 1<<10, ingredients)
             )
+
+            // Example of a mined item which is more common but takes more work to
+            // extract.
+            IsTin(item, private: ingredients, inputs, key, work) = AND(
+                ItemDef(item, ingredients, inputs, key, work)
+                Equal(inputs, {})
+                DictContains(ingredients, "blueprint", "tin")
+                // TODO input POD: SequentialWork(ingredients, work, 5)
+                // TODO input POD: HashInRange(0, 1<<5, ingredients)
+            )
+
+            BronzeInputs(inputs, private: s1, tin, copper) = AND(
+                // 2 ingredients
+                SetInsert(s1, {}, tin)
+                SetInsert(inputs, s1, copper)
+
+                // Recursively prove the ingredients are correct.
+                IsTin(tin)
+                IsCopper(copper)
+            )
+
+            // Combining Copper and Tin to get Bronze is easy (no sequential work).
+            // TODO: Require a smelter as a tool
+            IsBronze(item, private: ingredients, inputs, key, work) = AND(
+                ItemDef(item, ingredients, inputs, key, work)
+                DictContains(ingredients, "blueprint", "bronze")
+
+                BronzeInputs(inputs)
+            )
             "#];
 
         let defs = PredicateDefs::new(params, &batch_defs, slice::from_ref(&commit_preds.defs));

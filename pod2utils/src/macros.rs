@@ -5,6 +5,21 @@ use pod2::{
     middleware::{CustomPredicateBatch, CustomPredicateRef},
 };
 
+#[macro_export]
+macro_rules! set {
+    ($max_depth:expr) => ({
+        pod2::middleware::containers::Set::new($max_depth, std::collections::HashSet::new()).unwrap()
+    });
+    ($max_depth:expr, $($val:expr),* ,) => (
+        $crate::set!($($val.clone()),*)
+    );
+    ($max_depth:expr, $($val:expr),*) => ({
+        let mut set = std::collections::HashSet::new();
+        $( set.insert(pod2::middleware::Value::from($val.clone())); )*
+        pod2::middleware::containers::Set::new($max_depth, set)
+    });
+}
+
 /// Argument types: `&Into<StatementArg>`
 #[macro_export]
 macro_rules! op {
@@ -35,6 +50,9 @@ macro_rules! op {
     };
     (DictDelete($dict:expr, $old_dict:expr, $key:expr)) => {
         pod2::frontend::Operation::dict_delete($dict.clone(), $old_dict.clone(), $key.clone())
+    };
+    (SetContains($set:expr, $value:expr)) => {
+        pod2::frontend::Operation::set_contains($set.clone(), $value.clone())
     };
     (SetInsert($set:expr, $old_set:expr, $value:expr)) => {
         pod2::frontend::Operation::set_insert($set.clone(), $old_set.clone(), $value.clone())

@@ -81,110 +81,127 @@ impl ItemDef {
     }
 }
 
-// Adds statements to MainPodBilder to represent a generic item based on the
-// ItemDef.  Includes the following public predicates: ItemDef, ItemKey
-// Returns the Statement object for ItemDef for use in further statements.
-pub fn build_st_item_def(
-    ctx: &mut BuildContext,
-    params: &Params,
-    item_def: ItemDef,
-) -> anyhow::Result<Statement> {
-    let ingredients_dict = item_def.ingredients.dict(params)?;
-    let inputs_set = item_def.ingredients.inputs_set(params)?;
-    let item_hash = item_def.item_hash(params)?;
+pub struct ItemBuilder<'a> {
+    pub ctx: BuildContext<'a>,
+    pub params: &'a Params,
+}
 
-    // Build ItemDef(item, ingredients, inputs, key, work)
-    Ok(st_custom!(ctx,
+impl<'a> ItemBuilder<'a> {
+    pub fn new(ctx: BuildContext<'a>, params: &'a Params) -> Self {
+        Self { ctx, params }
+    }
+
+    // Adds statements to MainPodBilder to represent a generic item based on the
+    // ItemDef.  Includes the following public predicates: ItemDef, ItemKey
+    // Returns the Statement object for ItemDef for use in further statements.
+    pub fn st_item_def(&mut self, item_def: ItemDef) -> anyhow::Result<Statement> {
+        let ingredients_dict = item_def.ingredients.dict(self.params)?;
+        let inputs_set = item_def.ingredients.inputs_set(self.params)?;
+        let item_hash = item_def.item_hash(self.params)?;
+
+        // Build ItemDef(item, ingredients, inputs, key, work)
+        Ok(st_custom!(self.ctx,
         ItemDef() = (
             DictContains(ingredients_dict, "inputs", inputs_set),
             DictContains(ingredients_dict, "key", item_def.ingredients.key),
             HashOf(item_hash, ingredients_dict, item_def.work)
         ))?)
-}
+    }
 
-pub fn build_st_item_key(
-    ctx: &mut BuildContext,
-    st_item_def: Statement,
-) -> anyhow::Result<Statement> {
-    // Build ItemKey(item, key)
-    Ok(st_custom!(ctx,
+    pub fn st_item_key(&mut self, st_item_def: Statement) -> anyhow::Result<Statement> {
+        // Build ItemKey(item, key)
+        Ok(st_custom!(self.ctx,
         ItemKey() = (
             st_item_def
         ))?)
-}
+    }
 
-// Adds statements to MainPodBuilder to prove inclusion of input_set in
-// created_items_set.  Returns the private SuperSubSet statement.
-fn build_st_super_sub_set(
-    ctx: &mut BuildContext,
-    inputs_set: Set,
-    created_items: Set,
-) -> anyhow::Result<Statement> {
-    // TODO: Needs a real impl.  This only works for 0 inputs.
-    assert!(inputs_set.commitment() == EMPTY_HASH);
+    fn st_super_sub_set_recursive(
+        &mut self,
+        st_super_sub_set: Statement,
+    ) -> anyhow::Result<Statement> {
+        let super_set: Set = todo!();
+        let i: Value = todo!();
+        let sub: Set = todo!();
+        let smaller: Set = todo!();
+        // Build SuperSubSetRecursive(super, sub)
+        Ok(st_custom!(self.ctx,
+            SuperSubSetRecursive() = (
+                SetContains(super_set, i),
+                SetInsert(sub, smaller, i),
+                st_super_sub_set
+            ))?)
+    }
 
-    // Build SuperSubSet(created_items, inputs)
-    // We manually specify the `super` wildcard value because it's otherwise unconstrained.  This
-    // is only relevant in the base case where `sub` is empty, which is a subset of anything.
-    Ok(st_custom!(ctx,
-        SuperSubSet(super=created_items) = (
-            Equal(inputs_set, EMPTY_VALUE),
-            Statement::None
-        ))?)
-}
+    // Adds statements to MainPodBuilder to prove inclusion of input_set in
+    // created_items_set.  Returns the private SuperSubSet statement.
+    fn st_super_sub_set(
+        &mut self,
+        inputs_set: Set,
+        created_items: Set,
+    ) -> anyhow::Result<Statement> {
+        // Build SuperSubSet(created_items, inputs)
+        if inputs_set.commitment() == EMPTY_HASH {
+            // We manually specify the `super` wildcard value because it's otherwise unconstrained.  This
+            // is only relevant in the base case where `sub` is empty, which is a subset of anything.
+            Ok(st_custom!(self.ctx,
+                SuperSubSet(super=created_items) = (
+                    Equal(inputs_set, EMPTY_VALUE),
+                    Statement::None
+                ))?)
+        } else {
+            // TODO: take one element out, call st_super_sub_set_recursive and recurse
+            todo!()
+        }
+    }
 
-// Adds statements to MainPodBilder to prove correct nullifiers for a set of
-// inputs.  Returns the private Nullifiers.
-fn build_st_nullifiers(
-    ctx: &mut BuildContext,
-    inputs_set: Set,
-    nullifiers: Set,
-) -> anyhow::Result<Statement> {
-    // TODO: Needs a real impl.  This only works for 0 inputs.
-    assert!(inputs_set.commitment() == EMPTY_HASH);
-    assert!(nullifiers.commitment() == EMPTY_HASH);
+    // Adds statements to MainPodBilder to prove correct nullifiers for a set of
+    // inputs.  Returns the private Nullifiers.
+    fn st_nullifiers(&mut self, inputs_set: Set, nullifiers: Set) -> anyhow::Result<Statement> {
+        // TODO: Needs a real impl.  This only works for 0 inputs.
+        assert!(inputs_set.commitment() == EMPTY_HASH);
+        assert!(nullifiers.commitment() == EMPTY_HASH);
 
-    // Build Nullifiers(nullifiers, inputs)
-    let st_nullifiers_empty = st_custom!(ctx,
-        NullifiersEmpty() = (
-            Equal(inputs_set, EMPTY_VALUE),
-            Equal(nullifiers, EMPTY_VALUE)
-        ))?;
-    Ok(st_custom!(ctx,
-        Nullifiers() = (
-            st_nullifiers_empty,
-            Statement::None
-        ))?)
-}
+        // Build Nullifiers(nullifiers, inputs)
+        let st_nullifiers_empty = st_custom!(self.ctx,
+            NullifiersEmpty() = (
+                Equal(inputs_set, EMPTY_VALUE),
+                Equal(nullifiers, EMPTY_VALUE)
+            ))?;
+        Ok(st_custom!(self.ctx,
+            Nullifiers() = (
+                st_nullifiers_empty,
+                Statement::None
+            ))?)
+    }
 
-// Builds the public POD to commit a creation operation on-chain, with the only
-// public predicate being CommitCreation.  Uses a given created_items_set as
-// the root to prove that inputs were previously created.
-pub fn build_st_commit_creation(
-    ctx: &mut BuildContext,
-    params: &Params, // TODO: This argument might belong in a ItemBuilder object
-    item_def: ItemDef,
-    created_items: Set,
-    st_item_def: Statement,
-) -> anyhow::Result<Statement> {
-    let st_inputs_subset = build_st_super_sub_set(
-        ctx,
-        item_def.ingredients.inputs_set(params)?,
-        created_items.clone(),
-    )?;
+    // Builds the public POD to commit a creation operation on-chain, with the only
+    // public predicate being CommitCreation.  Uses a given created_items_set as
+    // the root to prove that inputs were previously created.
+    pub fn st_commit_creation(
+        &mut self,
+        item_def: ItemDef,
+        created_items: Set,
+        st_item_def: Statement,
+    ) -> anyhow::Result<Statement> {
+        let st_inputs_subset = self.st_super_sub_set(
+            item_def.ingredients.inputs_set(self.params)?,
+            created_items.clone(),
+        )?;
 
-    // TODO: Calculate real nullifiers for non-empty inputs.
-    let nullifiers = set_from_hashes(params, &HashSet::new())?;
-    let st_nullifiers =
-        build_st_nullifiers(ctx, item_def.ingredients.inputs_set(params)?, nullifiers)?;
+        // TODO: Calculate real nullifiers for non-empty inputs.
+        let nullifiers = set_from_hashes(self.params, &HashSet::new())?;
+        let st_nullifiers =
+            self.st_nullifiers(item_def.ingredients.inputs_set(self.params)?, nullifiers)?;
 
-    // Build CommitCreation(item, nullifiers, created_items)
-    Ok(st_custom!(ctx,
-        CommitCreation() = (
-            st_item_def.clone(),
-            st_inputs_subset,
-            st_nullifiers
-        ))?)
+        // Build CommitCreation(item, nullifiers, created_items)
+        Ok(st_custom!(self.ctx,
+            CommitCreation() = (
+                st_item_def.clone(),
+                st_inputs_subset,
+                st_nullifiers
+            ))?)
+    }
 }
 
 // Builds the public POD to commit a creation operation on-chain, with the only
@@ -207,12 +224,14 @@ pub fn prove_st_commit_creation(
     let st_item_def = item_main_pod.public_statements[0].clone();
     builder.add_pod(item_main_pod);
 
-    let mut ctx = BuildContext {
+    let ctx = BuildContext {
         builder: &mut builder,
         batches,
     };
+    let mut item_builder = ItemBuilder::new(ctx, params);
     let st_commit_creation =
-        build_st_commit_creation(&mut ctx, params, item_def, created_items, st_item_def)?;
+        item_builder.st_commit_creation(item_def, created_items, st_item_def)?;
+    let ItemBuilder { ctx, .. } = item_builder;
     ctx.builder.reveal(&st_commit_creation);
 
     // Prove MainPOD
