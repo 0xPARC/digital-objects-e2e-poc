@@ -53,10 +53,7 @@ pub(crate) async fn handler_get_created_items_root(
     let cir_pair = node.created_item_roots_pair.lock().unwrap();
     let cur_epoch = cir_pair.0;
     (cur_epoch >= epoch)
-        .then(|| {
-            let requested_index = cur_epoch - epoch;
-            warp::reply::json(&cir_pair.1[requested_index as usize])
-        })
+        .then(|| warp::reply::json(&cir_pair.1[epoch as usize]))
         .ok_or(CustomError(format!("Invalid epoch: {}", epoch)).into())
 }
 

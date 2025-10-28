@@ -95,15 +95,26 @@ async fn main() -> anyhow::Result<()> {
             // first get the merkle proof of item existence from the Synchronizer
             let item = RawValue::from(crafted_item.def.item_hash(&params)?);
             let item_hex: String = format!("{item:#}");
-            let mtp: MerkleProof = reqwest::blocking::get(format!(
+            let (epoch, mtp): (u64, MerkleProof) = reqwest::blocking::get(format!(
                 "{}/created_item/{}",
                 cfg.sync_url,
                 &item_hex[2..]
             ))?
             .json()?;
-            println!("mtp: {mtp:?}");
+            println!("mtp at epoch {epoch}: {mtp:?}");
+
+            // fetch the associated Merkle root
+            let merkle_root: RawValue =
+                reqwest::blocking::get(format!("{}/created_items_root/{}", cfg.sync_url, &epoch))?
+                    .json()?;
+
             // verify the obtained merkle proof
-            // TODO: get the root to verify against it
+            Set::verify(
+                params.max_depth_mt_containers,
+                merkle_root.into(),
+                &mtp,
+                &item.into(),
+            )?;
 
             println!("Crafted item at {input:?} successfully verified!");
         }
