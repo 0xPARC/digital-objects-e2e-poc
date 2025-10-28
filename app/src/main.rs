@@ -156,15 +156,10 @@ fn craft_item(params: &Params, key: Value, recipe: &str, output: &Path) -> anyho
 
     let mut builder = MainPodBuilder::new(&Default::default(), vd_set);
 
-    let ctx = BuildContext {
-        builder: &mut builder,
-        batches: &batches,
-    };
-    let mut item_builder = ItemBuilder::new(ctx, params);
+    let mut item_builder = ItemBuilder::new(BuildContext::new(&mut builder, &batches), params);
     let st_item_def = item_builder.st_item_def(item_def.clone())?;
-    let ItemBuilder { ctx, .. } = item_builder;
 
-    let mut craft_builder = CraftBuilder::new(ctx, params);
+    let mut craft_builder = CraftBuilder::new(BuildContext::new(&mut builder, &batches), params);
     let st_craft = match recipe {
         "copper" => craft_builder.st_is_copper(item_def.clone(), st_item_def)?,
         unknown => unreachable!("recipe {unknown}"),
@@ -197,22 +192,18 @@ async fn commit_item(params: &Params, cfg: &Config, input: &Path) -> anyhow::Res
 
     let mut builder = MainPodBuilder::new(&Default::default(), vd_set);
 
-    let ctx = BuildContext {
-        builder: &mut builder,
-        batches,
-    };
-    let mut item_builder = ItemBuilder::new(ctx, params);
+    let mut item_builder = ItemBuilder::new(BuildContext::new(&mut builder, batches), params);
     let st_item_def = item_builder.st_item_def(crafted_item.def.clone())?;
-    let (st_commit_creation, _nullifiers) = item_builder.st_commit_creation(
+    let (st_nullifier, _) = item_builder.st_nullifiers(vec![])?;
+    let st_commit_creation = item_builder.st_commit_creation(
         crafted_item.def.clone(),
-        vec![],
+        st_nullifier,
         created_items.clone(),
         st_item_def,
     )?;
-    let ItemBuilder { ctx, .. } = item_builder;
-    ctx.builder.reveal(&st_commit_creation);
+    builder.reveal(&st_commit_creation);
     let prover = &Prover {};
-    let pod = ctx.builder.prove(prover)?;
+    let pod = builder.prove(prover)?;
     pod.pod.verify().unwrap();
 
     let shrunk_main_pod_build = ShrunkMainPodSetup::new(params)

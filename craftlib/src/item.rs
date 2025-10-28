@@ -1,16 +1,7 @@
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::collections::{HashMap, HashSet};
 
-use commitlib::{IngredientsDef, ItemBuilder, ItemDef};
-use pod2::{
-    frontend::{MainPod, MainPodBuilder},
-    middleware::{
-        CustomPredicateBatch, EMPTY_VALUE, Hash, MainPodProver, Params, RawValue, Statement,
-        ToFields, VDSet, Value, containers::Set,
-    },
-};
+use commitlib::{IngredientsDef, ItemDef};
+use pod2::middleware::{EMPTY_VALUE, Hash, Params, RawValue, Statement, ToFields, Value};
 use pod2utils::{macros::BuildContext, set, st_custom};
 
 use crate::constants::{BRONZE_BLUEPRINT, COPPER_BLUEPRINT, TIN_BLUEPRINT};
@@ -146,13 +137,17 @@ impl<'a> CraftBuilder<'a> {
 #[cfg(test)]
 mod tests {
 
-    use std::collections::HashMap;
+    use std::{collections::HashMap, sync::Arc};
 
-    use commitlib::{ItemBuilder, predicates::CommitPredicates, util::set_from_hashes};
+    use commitlib::{ItemBuilder, ItemDef, predicates::CommitPredicates, util::set_from_hashes};
     use pod2::{
         backends::plonky2::mock::mainpod::MockProver,
+        frontend::{MainPod, MainPodBuilder},
         lang::parse,
-        middleware::{RawValue, hash_value},
+        middleware::{
+            CustomPredicateBatch, EMPTY_VALUE, MainPodProver, Params, RawValue, VDSet, Value,
+            containers::Set, hash_value,
+        },
     };
 
     use super::*;
@@ -177,18 +172,13 @@ mod tests {
         vd_set: &VDSet,
     ) -> anyhow::Result<MainPod> {
         let mut builder = MainPodBuilder::new(&Default::default(), vd_set);
-        let ctx = BuildContext {
-            builder: &mut builder,
-            batches,
-        };
-        let mut item_builder = ItemBuilder::new(ctx, params);
+        let mut item_builder = ItemBuilder::new(BuildContext::new(&mut builder, batches), params);
         let st_item_def = item_builder.st_item_def(item_def.clone())?;
         item_builder.ctx.builder.reveal(&st_item_def);
         let st_item_key = item_builder.st_item_key(st_item_def.clone())?;
         item_builder.ctx.builder.reveal(&st_item_key);
-        let ItemBuilder { ctx, .. } = item_builder;
 
-        let mut craft_builder = CraftBuilder::new(ctx, params);
+        let mut craft_builder = CraftBuilder::new(BuildContext::new(&mut builder, batches), params);
         let st_is_copper = craft_builder.st_is_copper(item_def, st_item_def)?;
         craft_builder.ctx.builder.reveal(&st_is_copper);
 
@@ -216,15 +206,11 @@ mod tests {
         let st_item_def = item_main_pod.public_statements[0].clone();
         builder.add_pod(item_main_pod);
 
-        let ctx = BuildContext {
-            builder: &mut builder,
-            batches,
-        };
-        let mut item_builder = ItemBuilder::new(ctx, params);
-        let (st_commit_creation, _nullifiers) =
-            item_builder.st_commit_creation(item_def, vec![], created_items, st_item_def)?;
-        let ItemBuilder { ctx, .. } = item_builder;
-        ctx.builder.reveal(&st_commit_creation);
+        let mut item_builder = ItemBuilder::new(BuildContext::new(&mut builder, batches), params);
+        let (st_nullifier, _) = item_builder.st_nullifiers(vec![])?;
+        let st_commit_creation =
+            item_builder.st_commit_creation(item_def, st_nullifier, created_items, st_item_def)?;
+        builder.reveal(&st_commit_creation);
 
         // Prove MainPOD
         Ok(builder.prove(prover)?)
