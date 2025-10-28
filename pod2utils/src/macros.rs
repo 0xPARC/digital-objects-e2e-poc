@@ -8,13 +8,13 @@ use pod2::{
 #[macro_export]
 macro_rules! set {
     ($max_depth:expr) => ({
-        pod2::middleware::containers::Set::new($max_depth, std::collections::HashSet::new()).unwrap()
+        pod2::middleware::containers::Set::new($max_depth, std::collections::HashSet::new())
     });
     ($max_depth:expr, $($val:expr),* ,) => (
         $crate::set!($($val.clone()),*)
     );
     ($max_depth:expr, $($val:expr),*) => ({
-        let mut set = std::collections::HashSet::new();
+        let mut set = std::collections::HashSet::<pod2::middleware::Value>::new();
         $( set.insert(pod2::middleware::Value::from($val.clone())); )*
         pod2::middleware::containers::Set::new($max_depth, set)
     });
@@ -160,6 +160,12 @@ macro_rules! _st_custom {
 pub struct BuildContext<'a> {
     pub builder: &'a mut MainPodBuilder,
     pub batches: &'a [Arc<CustomPredicateBatch>],
+}
+
+impl<'a> BuildContext<'a> {
+    pub fn new(builder: &'a mut MainPodBuilder, batches: &'a [Arc<CustomPredicateBatch>]) -> Self {
+        Self { builder, batches }
+    }
 }
 
 /// Argument types:

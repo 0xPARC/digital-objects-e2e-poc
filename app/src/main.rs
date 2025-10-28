@@ -171,8 +171,9 @@ async fn commit_item(params: &Params, cfg: &Config, input: &Path) -> anyhow::Res
     };
     let mut item_builder = ItemBuilder::new(ctx, params);
     let st_item_def = item_builder.st_item_def(crafted_item.def.clone())?;
-    let st_commit_creation = item_builder.st_commit_creation(
+    let (st_commit_creation, _nullifiers) = item_builder.st_commit_creation(
         crafted_item.def.clone(),
+        vec![],
         created_items.clone(),
         st_item_def,
     )?;

@@ -148,9 +148,7 @@ mod tests {
 
     use std::collections::HashMap;
 
-    use commitlib::{
-        ItemBuilder, predicates::CommitPredicates, prove_st_commit_creation, util::set_from_hashes,
-    };
+    use commitlib::{ItemBuilder, predicates::CommitPredicates, util::set_from_hashes};
     use pod2::{
         backends::plonky2::mock::mainpod::MockProver,
         lang::parse,
@@ -193,6 +191,40 @@ mod tests {
         let mut craft_builder = CraftBuilder::new(ctx, params);
         let st_is_copper = craft_builder.st_is_copper(item_def, st_item_def)?;
         craft_builder.ctx.builder.reveal(&st_is_copper);
+
+        // Prove MainPOD
+        Ok(builder.prove(prover)?)
+    }
+
+    // Builds the public POD to commit a creation operation on-chain, with the only
+    // public predicate being CommitCreation.  Uses a given created_items_set as
+    // the root to prove that inputs were previously created.
+    fn prove_st_commit_creation(
+        item_def: ItemDef,
+        created_items: Set,
+        item_main_pod: MainPod,
+
+        // TODO: All the args below might belong in a ItemBuilder object
+        batches: &[Arc<CustomPredicateBatch>],
+        params: &Params,
+        prover: &dyn MainPodProver,
+        vd_set: &VDSet,
+    ) -> anyhow::Result<MainPod> {
+        let mut builder = MainPodBuilder::new(&Default::default(), vd_set);
+
+        // TODO: Consider a more robust lookup for this which doesn't depend on index.
+        let st_item_def = item_main_pod.public_statements[0].clone();
+        builder.add_pod(item_main_pod);
+
+        let ctx = BuildContext {
+            builder: &mut builder,
+            batches,
+        };
+        let mut item_builder = ItemBuilder::new(ctx, params);
+        let (st_commit_creation, _nullifiers) =
+            item_builder.st_commit_creation(item_def, vec![], created_items, st_item_def)?;
+        let ItemBuilder { ctx, .. } = item_builder;
+        ctx.builder.reveal(&st_commit_creation);
 
         // Prove MainPOD
         Ok(builder.prove(prover)?)

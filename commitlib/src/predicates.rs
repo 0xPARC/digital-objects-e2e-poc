@@ -69,12 +69,13 @@ impl CommitPredicates {
                 Equal(inputs, {{}})
             )
 
-            NullifiersRecursive(nullifiers, inputs, private: i, n, k, ns, is) = AND(
-                ItemKey(i, k)
-                HashOf(n, k, "{CONSUMED_ITEM_EXTERNAL_NULLIFIER}")
-                SetInsert(nullifiers, ns, n)
-                SetInsert(inputs, is, i)
-                Nullifiers(ns, is)
+            NullifiersRecursive(nullifiers, inputs,
+                    private: input, nullifier, key, nullifiers_prev, inputs_prev) = AND(
+                ItemKey(input, key)
+                HashOf(nullifier, key, "{CONSUMED_ITEM_EXTERNAL_NULLIFIER}")
+                SetInsert(nullifiers, nullifiers_prev, nullifier)
+                SetInsert(inputs, inputs_prev, input)
+                Nullifiers(nullifiers_prev, inputs_prev)
             )
 
             // ZK version of CreatedItem for committing on-chain.
@@ -84,7 +85,8 @@ impl CommitPredicates {
             // - item is not already in item set
             // - all nullifiers are not already in nullifier set
             // - createdItems is one of the historical item set roots
-            CommitCreation(item, nullifiers, created_items, private: ingredients, inputs, key, work) = AND(
+            CommitCreation(item, nullifiers, created_items,
+                    private: ingredients, inputs, key, work) = AND(
                 // Prove the item hash includes all of its committed properties
                 ItemDef(item, ingredients, inputs, key, work)
 
