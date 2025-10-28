@@ -5,26 +5,39 @@
 //! - commit the crafted item:
 //!   RUST_LOG=app=debug cargo run --release -p app -- commit --input ./item0
 
-use std::path::{Path, PathBuf};
+use std::{
+    collections::{HashMap, HashSet},
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
+use alloy::network::any;
 use anyhow::bail;
 use app::{Config, eth::send_payload, log_init};
 use clap::{Parser, Subcommand};
-use commitlib::{ItemBuilder, ItemDef, predicates::CommitPredicates};
+use commitlib::{IngredientsDef, ItemBuilder, ItemDef, predicates::CommitPredicates};
 use common::{
     load_dotenv,
     payload::{Payload, PayloadProof},
     shrink::{ShrunkMainPodSetup, shrink_compress_pod},
 };
 use craftlib::{
-    constants::{COPPER_BLUEPRINT, COPPER_MINING_MAX, COPPER_WORK},
+    constants::{
+        BRONZE_BLUEPRINT, BRONZE_MINING_MAX, BRONZE_WORK, COPPER_BLUEPRINT, COPPER_MINING_MAX,
+        COPPER_WORK, TIN_BLUEPRINT, TIN_MINING_MAX, TIN_WORK,
+    },
     item::{CraftBuilder, MiningRecipe},
     predicates::ItemPredicates,
 };
 use pod2::{
-    backends::plonky2::{mainpod::Prover, primitives::merkletree::MerkleProof},
+    backends::plonky2::{
+        mainpod::Prover, mock::mainpod::MockProver, primitives::merkletree::MerkleProof,
+    },
     frontend::{MainPod, MainPodBuilder},
-    middleware::{DEFAULT_VD_SET, Params, RawValue, Value, containers::Set},
+    middleware::{
+        CustomPredicateBatch, DEFAULT_VD_SET, MainPodProver, Params, RawValue, VDSet, Value,
+        containers::Set,
+    },
 };
 use pod2utils::macros::BuildContext;
 use serde::{Deserialize, Serialize};
@@ -47,6 +60,8 @@ enum Commands {
         recipe: String,
         #[arg(long, value_name = "FILE")]
         output: PathBuf,
+        #[arg(long = "input", value_name = "FILE")]
+        inputs: Vec<PathBuf>,
     },
     /// Commit a crafted item on-chain
     Commit {
@@ -75,19 +90,18 @@ async fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Some(Commands::Craft {
-            output,
             key,
             recipe,
+            output,
+            inputs,
         }) => {
-            craft_item(&params, key, &recipe, &output)?;
+            craft_item(&params, key, &recipe, &output, &inputs)?;
         }
         Some(Commands::Commit { input }) => {
             commit_item(&params, &cfg, &input).await?;
         }
         Some(Commands::Verify { input }) => {
-            let mut file = std::fs::File::open(&input)?;
-            let crafted_item: CraftedItem = serde_json::from_reader(&mut file)?;
-            crafted_item.pod.pod.verify()?;
+            let crafted_item = load_item(&input)?;
 
             // Verify that the item exists on-blob-space:
             // first get the merkle proof of item existence from the Synchronizer
@@ -128,23 +142,160 @@ struct CraftedItem {
     pub def: ItemDef,
 }
 
-fn craft_item(params: &Params, key: Value, recipe: &str, output: &Path) -> anyhow::Result<()> {
+struct Helper {
+    params: Params,
+    vd_set: VDSet,
+    batches: Vec<Arc<CustomPredicateBatch>>,
+}
+
+impl Helper {
+    fn new(params: Params, vd_set: VDSet) -> Self {
+        let commit_preds = CommitPredicates::compile(&params);
+        let mut batches = commit_preds.defs.batches.clone();
+        let item_preds = ItemPredicates::compile(&params, &commit_preds);
+        batches.extend_from_slice(&item_preds.defs.batches);
+        Self {
+            params,
+            vd_set,
+            batches,
+        }
+    }
+
+    fn make_item_pod(
+        &self,
+        ingredients_def: IngredientsDef,
+        input_item_key_pods: Vec<MainPod>,
+    ) -> anyhow::Result<MainPod> {
+        let prover = &Prover {};
+        let mut builder = MainPodBuilder::new(&self.params, &self.vd_set);
+        let mut item_builder =
+            ItemBuilder::new(BuildContext::new(&mut builder, &self.batches), &self.params);
+
+        let mut sts_item_key = Vec::new();
+        for input_item_key_pod in input_item_key_pods {
+            let st_item_key = input_item_key_pod.pod.pub_statements()[0].clone();
+            sts_item_key.push(st_item_key);
+            item_builder.ctx.builder.add_pod(input_item_key_pod);
+        }
+
+        let item_def = ItemDef {
+            ingredients: ingredients_def,
+            work: Value::from(42).raw(),
+        };
+        let (st_nullifiers, _nullifiers) = if sts_item_key.is_empty() {
+            item_builder.st_nullifiers(sts_item_key).unwrap()
+        } else {
+            // The default params don't have enough custom statement verifications to fit
+            // everything in a single pod, so we split it in two.
+            let (st_nullifiers, nullifiers) = item_builder.st_nullifiers(sts_item_key).unwrap();
+            item_builder.ctx.builder.reveal(&st_nullifiers);
+
+            println!("Proving nullifiers_pod...");
+            let nullifiers_pod = builder.prove(prover).unwrap();
+            nullifiers_pod.pod.verify().unwrap();
+            builder = MainPodBuilder::new(&self.params, &self.vd_set);
+            item_builder =
+                ItemBuilder::new(BuildContext::new(&mut builder, &self.batches), &self.params);
+            item_builder.ctx.builder.add_pod(nullifiers_pod);
+            (st_nullifiers, nullifiers)
+        };
+
+        // TODO: expose the statements required for latter committing and consuming.  For example
+        // expose:
+        // - IsCopper
+        // - ItemKey
+        let mut builder = MainPodBuilder::new(&self.params, &self.vd_set);
+        let mut item_builder =
+            ItemBuilder::new(BuildContext::new(&mut builder, &self.batches), &self.params);
+        let st_item_def = item_builder.st_item_def(item_def).unwrap();
+        let st_item_key = item_builder.st_item_key(st_item_def).unwrap();
+        item_builder.ctx.builder.reveal(&st_item_key);
+
+        println!("Proving item_key_pod for...");
+        let item_key_pod = builder.prove(prover).unwrap();
+        item_key_pod.pod.verify().unwrap();
+
+        Ok(item_key_pod)
+    }
+}
+
+fn load_item(input: &Path) -> anyhow::Result<CraftedItem> {
+    let mut file = std::fs::File::open(&input)?;
+    let crafted_item: CraftedItem = serde_json::from_reader(&mut file)?;
+    crafted_item.pod.pod.verify()?;
+    Ok(crafted_item)
+}
+
+fn craft_item(
+    params: &Params,
+    key: Value,
+    recipe: &str,
+    output: &Path,
+    inputs: &[PathBuf],
+) -> anyhow::Result<()> {
+    println!("inputs: {:?}", inputs);
     let key = key.raw();
     println!("About to mine \"{recipe}\"");
-    let item_def = match recipe {
+    let (item_def, input_items) = match recipe {
         "copper" => {
-            let mining_recipe = MiningRecipe::new_no_inputs(COPPER_BLUEPRINT.to_string());
+            if inputs.len() != 0 {
+                bail!("{recipe} takes 0 inputs");
+            }
+            let mining_recipe = MiningRecipe::new(COPPER_BLUEPRINT.to_string(), &[]);
             let ingredients_def = mining_recipe
                 .do_mining(params, key, 0, COPPER_MINING_MAX)?
                 .unwrap();
-
-            ItemDef {
-                ingredients: ingredients_def.clone(),
-                work: COPPER_WORK,
+            (
+                ItemDef {
+                    ingredients: ingredients_def.clone(),
+                    work: COPPER_WORK,
+                },
+                vec![],
+            )
+        }
+        "tin" => {
+            if inputs.len() != 0 {
+                bail!("{recipe} takes 0 inputs");
             }
+            let mining_recipe = MiningRecipe::new(TIN_BLUEPRINT.to_string(), &[]);
+            let ingredients_def = mining_recipe
+                .do_mining(params, key, 0, TIN_MINING_MAX)?
+                .unwrap();
+            (
+                ItemDef {
+                    ingredients: ingredients_def.clone(),
+                    work: TIN_WORK,
+                },
+                vec![],
+            )
+        }
+        "bronze" => {
+            if inputs.len() != 2 {
+                bail!("{recipe} takes 2 inputs");
+            }
+            let tin = load_item(&inputs[0])?;
+            let copper = load_item(&inputs[1])?;
+            let mining_recipe = MiningRecipe::new(
+                BRONZE_BLUEPRINT.to_string(),
+                &[tin.def.item_hash(params)?, copper.def.item_hash(params)?],
+            );
+            let ingredients_def = mining_recipe
+                .do_mining(params, key, 0, BRONZE_MINING_MAX)?
+                .unwrap();
+            (
+                ItemDef {
+                    ingredients: ingredients_def.clone(),
+                    work: BRONZE_WORK,
+                },
+                vec![tin, copper],
+            )
         }
         unknown => bail!("Unknown recipe for \"{unknown}\""),
     };
+
+    let helper = Helper::new(params.clone(), *DEFAULT_VD_SET);
+    let input_item_pods: Vec<_> = input_items.iter().map(|item| &item.pod).cloned().collect();
+    let item_pod = helper.make_item_pod(item_def.ingredients, input_item_pods)?;
 
     let commit_preds = CommitPredicates::compile(params);
     let mut batches = commit_preds.defs.batches.clone();
@@ -164,12 +315,14 @@ fn craft_item(params: &Params, key: Value, recipe: &str, output: &Path) -> anyho
         "copper" => craft_builder.st_is_copper(item_def.clone(), st_item_def)?,
         unknown => unreachable!("recipe {unknown}"),
     };
-    let CraftBuilder { ctx, .. } = craft_builder;
-    ctx.builder.reveal(&st_craft);
+    builder.reveal(&st_craft);
     let prover = &Prover {};
-    let pod = ctx.builder.prove(prover)?;
+    let pod = builder.prove(prover)?;
     pod.pod.verify().unwrap();
 
+    // TODO: In CraftedItem we should store everything required to
+    // - Commit the item
+    // - Craft a new item that consumes is so that the crafted item can later be committed
     let crafted_item = CraftedItem { pod, def: item_def };
     let mut file = std::fs::File::create(output)?;
     serde_json::to_writer(&mut file, &crafted_item)?;

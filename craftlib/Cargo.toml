@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 anyhow = { workspace = true }
+log = { workspace = true }
 itertools.workspace = true
 pod2 = { workspace = true }
 pod2utils = { path = "../pod2utils" }
