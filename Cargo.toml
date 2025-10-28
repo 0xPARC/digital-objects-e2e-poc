@@ -23,7 +23,8 @@ tracing-subscriber = { version = "0.3", features = ["registry", "env-filter" ] }
 tracing-log = "0.1.1"
 
 # pod
-pod2 = { git="https://github.com/0xPARC/pod2", rev = "707c14db14d03485c68045a903771591e533ba59", default-features = false, features = ["backend_plonky2", "disk_cache", "zk"]}
+# pod2 = { git="https://github.com/0xPARC/pod2", rev = "707c14db14d03485c68045a903771591e533ba59", default-features = false, features = ["backend_plonky2", "disk_cache", "zk"]}
+pod2 = { path="../pod2_polish-interf", default-features = false, features = ["backend_plonky2", "disk_cache", "zk"]}
 plonky2 = { git = "https://github.com/0xPARC/plonky2.git", rev = "109d517d09c210ae4c2cee381d3e3fbc04aa3812" }
 pod2_onchain = { git = "https://github.com/0xPARC/pod2-onchain.git", rev = "5f2047752349a0f06665bc8f6ba82f50bc5ad435", default-features=false, features = ["disk_cache"]}
 
@@ -49,7 +50,8 @@ warp = "0.3"
 # temporarily patch pod2 version, since it is constantly updated, to avoid
 # updating pod2-onchain usage of it each time
 [patch."https://github.com/0xPARC/pod2"]
-pod2 = { git = "https://github.com/0xPARC/pod2?rev=main", rev = "707c14db14d03485c68045a903771591e533ba59" }
+# pod2 = { git = "https://github.com/0xPARC/pod2?rev=main", rev = "707c14db14d03485c68045a903771591e533ba59" }
+pod2 = { path="../pod2_polish-interf", default-features = false, features = ["backend_plonky2", "disk_cache", "zk"]}
 
 # [profile.release]
 # debug = true
