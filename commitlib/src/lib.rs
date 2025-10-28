@@ -118,18 +118,25 @@ impl<'a> ItemBuilder<'a> {
 
     fn st_super_sub_set_recursive(
         &mut self,
-        st_super_sub_set: Statement,
+        inputs_set: &Set,
+        created_items: &Set,
     ) -> anyhow::Result<Statement> {
-        let super_set: Set = todo!();
-        let i: Value = todo!();
-        let sub: Set = todo!();
-        let smaller: Set = todo!();
+        let mut smaller = inputs_set.clone();
+        let i = smaller
+            .set()
+            .iter()
+            .next()
+            .expect("Should be nonempty.")
+            .clone();
+        smaller.delete(&i)?;
+        let st_prev = self.st_super_sub_set(&smaller, created_items)?;
+
         // Build SuperSubSetRecursive(super, sub)
         Ok(st_custom!(self.ctx,
             SuperSubSetRecursive() = (
-                SetContains(super_set, i),
-                SetInsert(sub, smaller, i),
-                st_super_sub_set
+                SetContains(created_items, i),
+                SetInsert(inputs_set, smaller, i),
+                st_prev
             ))?)
     }
 
@@ -137,8 +144,8 @@ impl<'a> ItemBuilder<'a> {
     // created_items_set.  Returns the private SuperSubSet statement.
     fn st_super_sub_set(
         &mut self,
-        inputs_set: Set,
-        created_items: Set,
+        inputs_set: &Set,
+        created_items: &Set,
     ) -> anyhow::Result<Statement> {
         // Build SuperSubSet(created_items, inputs)
         if inputs_set.commitment() == EMPTY_HASH {
@@ -150,29 +157,62 @@ impl<'a> ItemBuilder<'a> {
                     Statement::None
                 ))?)
         } else {
-            // TODO: take one element out, call st_super_sub_set_recursive and recurse
-            todo!()
+            let st_recursive = self.st_super_sub_set_recursive(inputs_set, created_items)?;
+            Ok(st_custom!(self.ctx,
+                SuperSubSet() = (
+                    Statement::None,
+                    st_recursive
+                ))?)
         }
     }
 
     // Adds statements to MainPodBilder to prove correct nullifiers for a set of
     // inputs.  Returns the private Nullifiers.
-    fn st_nullifiers(&mut self, inputs_set: Set, nullifiers: Set) -> anyhow::Result<Statement> {
-        // TODO: Needs a real impl.  This only works for 0 inputs.
-        assert!(inputs_set.commitment() == EMPTY_HASH);
-        assert!(nullifiers.commitment() == EMPTY_HASH);
-
+    fn st_nullifiers(
+        &mut self,
+        // inputs + keys + ItemKey statements
+        inputs_with_keys: Vec<(Hash, RawValue, Statement)>,
+        nullifiers: Set,
+    ) -> anyhow::Result<Statement> {
+        let empty_set = Set::new(self.params.max_depth_mt_containers, HashSet::new())?;
         // Build Nullifiers(nullifiers, inputs)
         let st_nullifiers_empty = st_custom!(self.ctx,
             NullifiersEmpty() = (
-                Equal(inputs_set, EMPTY_VALUE),
-                Equal(nullifiers, EMPTY_VALUE)
+                Equal(&empty_set, EMPTY_VALUE),
+                Equal(&empty_set, EMPTY_VALUE)
             ))?;
-        Ok(st_custom!(self.ctx,
+        let init_st = st_custom!(self.ctx,
             Nullifiers() = (
                 st_nullifiers_empty,
                 Statement::None
-            ))?)
+            ))?;
+
+        let (st, _, ns)= inputs_with_keys.into_iter().try_fold::<_,_,anyhow::Result<_>>((init_st, empty_set.clone(), empty_set), |(st, is, ns), (i,k, ik_st)| {
+            let n = hash_values(&[k.into(), CONSUMED_ITEM_EXTERNAL_NULLIFIER.into()]);
+            let mut new_ns = ns.clone();
+            new_ns.insert(&n.into())?;
+            let mut new_is = is.clone();
+            new_is.insert(&i.into())?;
+            let st_nullifiers_recursive = st_custom!(self.ctx,
+                                                     NullifiersRecursive() = (
+                                                         ik_st,
+                                                         HashOf(n, k, CONSUMED_ITEM_EXTERNAL_NULLIFIER),
+                                                         SetInsert(new_ns, ns, n),
+                                                         SetInsert(new_is, is, i),
+                                                         st
+            ))?;
+        let st_nullifiers = st_custom!(self.ctx,
+                                      Nullifiers() = (
+                                                          Statement::None,
+                st_nullifiers_recursive
+            ))?;
+            Ok((st_nullifiers, new_is, new_ns))
+        })?;
+
+        // Sanity check
+        assert_eq!(ns, nullifiers);
+
+        Ok(st)
     }
 
     // Builds the public POD to commit a creation operation on-chain, with the only
@@ -185,14 +225,13 @@ impl<'a> ItemBuilder<'a> {
         st_item_def: Statement,
     ) -> anyhow::Result<Statement> {
         let st_inputs_subset = self.st_super_sub_set(
-            item_def.ingredients.inputs_set(self.params)?,
-            created_items.clone(),
+            &item_def.ingredients.inputs_set(self.params)?,
+            &created_items,
         )?;
 
         // TODO: Calculate real nullifiers for non-empty inputs.
         let nullifiers = set_from_hashes(self.params, &HashSet::new())?;
-        let st_nullifiers =
-            self.st_nullifiers(item_def.ingredients.inputs_set(self.params)?, nullifiers)?;
+        let st_nullifiers = self.st_nullifiers(vec![], nullifiers)?;
 
         // Build CommitCreation(item, nullifiers, created_items)
         Ok(st_custom!(self.ctx,
@@ -269,11 +308,12 @@ mod tests {
         let batches = &commit_preds.defs.batches;
 
         let mut builder = MainPodBuilder::new(&Default::default(), vd_set);
-        let mut ctx = BuildContext {
+        let ctx = BuildContext {
             builder: &mut builder,
             batches,
         };
 
+        let mut item_builder = ItemBuilder::new(ctx, &params);
         let ingredients_def = IngredientsDef {
             inputs: HashSet::new(),
             key: Value::from(33).raw(),
@@ -283,7 +323,7 @@ mod tests {
             ingredients: ingredients_def,
             work: Value::from(42).raw(),
         };
-        let st_item_def = build_st_item_def(&mut ctx, &params, item_def.clone()).unwrap();
+        let st_item_def = item_builder.st_item_def(item_def.clone()).unwrap();
 
         let created_items = set_from_hashes(
             &params,
@@ -294,9 +334,9 @@ mod tests {
         )
         .unwrap();
 
-        let _st_commit_creation =
-            build_st_commit_creation(&mut ctx, &params, item_def, created_items, st_item_def)
-                .unwrap();
+        let _st_commit_creation = item_builder
+            .st_commit_creation(item_def, created_items, st_item_def)
+            .unwrap();
 
         let main_pod = builder.prove(prover).unwrap();
 
