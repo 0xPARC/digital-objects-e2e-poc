@@ -1,0 +1,19 @@
+craft:
+
+    IsBronze() = (
+        ItemDef
+        ...
+        BronzeInputs() = (
+            ...
+            IsTin
+            IsCopper
+        )
+    )
+
+commit:
+
+    CommitCreation() = (
+        ItemDef(...)
+        SuperSubset(...)
+        Nullifiers(...)
+    )

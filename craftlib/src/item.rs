@@ -107,12 +107,14 @@ impl<'a> CraftBuilder<'a> {
     ) -> anyhow::Result<Statement> {
         let tin = st_is_tin.args()[0].literal().unwrap();
         let copper = st_is_copper.args()[0].literal().unwrap();
-        let s1 = set!(self.params.max_depth_mt_containers, tin).unwrap();
+        let empty_set = set!(self.params.max_depth_mt_containers).unwrap();
+        let mut s1 = empty_set.clone();
+        s1.insert(&tin).unwrap();
         let mut inputs = s1.clone();
         inputs.insert(&copper).unwrap();
         Ok(st_custom!(self.ctx,
             BronzeInputs() = (
-                SetInsert(s1, EMPTY_VALUE, tin),
+                SetInsert(s1, empty_set, tin),
                 SetInsert(inputs, s1, copper),
                 st_is_tin,
                 st_is_copper

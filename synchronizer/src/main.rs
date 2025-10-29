@@ -6,7 +6,7 @@ use std::{
     io::{Read, Write},
     path::PathBuf,
     str::FromStr,
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, RwLock},
     time::Duration,
 };
 
@@ -110,6 +110,14 @@ impl Config {
 }
 
 #[derive(Debug)]
+struct State {
+    epoch: u64,
+    created_items_roots: Vec<RawValue>,
+    created_items: Set,
+    nullifiers: HashSet<RawValue>,
+}
+
+#[derive(Debug)]
 struct Node {
     cfg: Config,
     #[allow(dead_code)]
@@ -121,10 +129,7 @@ struct Node {
     verifier_circuit_data: VerifierCircuitData,
     pred_commit_creation: CustomPredicateRef,
     // Mutable state
-    // Pair consisting of the current epoch and hitherto created item roots.
-    created_item_roots_pair: Mutex<(u64, Vec<RawValue>)>,
-    created_items: RwLock<Set>,
-    nullifiers: RwLock<HashSet<RawValue>>,
+    state: RwLock<State>,
 }
 
 impl Node {
@@ -149,7 +154,17 @@ impl Node {
             &*cache_get_shrunk_main_pod_circuit_data(&params);
 
         let created_items = Set::new(params.max_depth_mt_containers, HashSet::new()).unwrap();
-        let nullifiers = HashSet::new();
+        let state = State {
+            epoch: 0,
+            // initialize the `created_items_root` (which is an empty root
+            // (0x00...), so that when new items are crafted from scratch, their
+            // `payload.created_items_root` (which is 0x00... since it is a
+            // from-scratch item) is accepted as a "valid" one, since it appears
+            // at the `created_items_root`.
+            created_items_roots: vec![RawValue::from(created_items.commitment())],
+            created_items,
+            nullifiers: HashSet::new(),
+        };
         Ok(Self {
             cfg,
             beacon_cli,
@@ -159,17 +174,7 @@ impl Node {
             common_circuit_data: (**common_circuit_data).clone(),
             verifier_circuit_data: (**verifier_circuit_data).clone(),
             pred_commit_creation: commit_predicates.commit_creation,
-            // initialize the `created_items_root` (which is an empty root
-            // (0x00...), so that when new items are crafted from scratch, their
-            // `payload.created_items_root` (which is 0x00... since it is a
-            // from-scratch item) is accepted as a "valid" one, since it appears
-            // at the `created_items_root`.
-            created_item_roots_pair: Mutex::new((
-                0,
-                vec![RawValue::from(created_items.commitment())],
-            )),
-            created_items: RwLock::new(created_items),
-            nullifiers: RwLock::new(nullifiers),
+            state: RwLock::new(state),
         })
     }
 
@@ -390,10 +395,13 @@ impl Node {
             bytes_from_simple_blob(blob.blob.inner()).context("Invalid byte encoding in blob")?;
         let payload = Payload::from_bytes(&bytes, &self.common_circuit_data)?;
 
-        let mut created_items_roots = self.created_item_roots_pair.lock().expect("lock");
+        let mut state = self.state.write().expect("lock");
 
         // Check the proof is using an official createdItems set
-        if !created_items_roots.1.contains(&payload.created_items_root) {
+        if !state
+            .created_items_roots
+            .contains(&payload.created_items_root)
+        {
             bail!(
                 "created_items_root {} not in created_items_roots",
                 payload.created_items_root
@@ -401,23 +409,14 @@ impl Node {
         }
 
         // Check that output is unique
-        if self
-            .created_items
-            .read()
-            .expect("rlock")
-            .contains(&Value::from(payload.item))
-        {
+        if state.created_items.contains(&Value::from(payload.item)) {
             bail!("item {} exists in created_items", payload.item);
         }
 
         // Check that inputs are unique
-        {
-            // The nullifiers read lock is dropped at the end of this block
-            let nullifiers = self.nullifiers.read().expect("rlock");
-            for nullifier in &payload.nullifiers {
-                if nullifiers.contains(nullifier) {
-                    bail!("nullifier {} exists in nullifiers", nullifier);
-                }
+        for nullifier in &payload.nullifiers {
+            if state.nullifiers.contains(nullifier) {
+                bail!("nullifier {} exists in nullifiers", nullifier);
             }
         }
 
@@ -441,23 +440,27 @@ impl Node {
         self.verify_shrunk_main_pod(payload.proof, st_commit_creation)?;
 
         // Register nullifiers
-        {
-            let mut nullifiers = self.nullifiers.write().expect("wlock");
-            for nullifier in &payload.nullifiers {
-                nullifiers.insert(*nullifier);
-            }
+        for nullifier in &payload.nullifiers {
+            state.nullifiers.insert(*nullifier);
         }
         // Register item
-        self.created_items
-            .write()
-            .expect("wlock")
+        state
+            .created_items
             .insert(&Value::from(payload.item))
             .unwrap();
 
-        created_items_roots.0 += 1;
-        created_items_roots.1.push(RawValue::from(
-            self.created_items.read().expect("rlock").commitment(),
-        ));
+        state.epoch += 1;
+        let created_items_root = state.created_items.commitment();
+        state
+            .created_items_roots
+            .push(RawValue::from(created_items_root));
+        info!(
+            "state update: ecpoh={}, created_items.len={}, nullifiers.len={}, created_items_root={}, ",
+            state.epoch,
+            state.created_items.set().len(),
+            state.nullifiers.len(),
+            created_items_root,
+        );
         Ok(())
     }
 

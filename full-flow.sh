@@ -23,6 +23,9 @@ $tmux split-window -v
 # run the Synchronizer server
 $tmux send-keys -t fullflow:0.0 'RUST_LOG=synchronizer=debug cargo run --release -p synchronizer' C-m
 
+# Wait for synchronizer to be online
+while ! (echo "GET /" | ncat -i 1s "0.0.0.0" 8001 | grep HTTP); do sleep 2; done
+
 # app command line:
 # craft new copper item
 $tmux send-keys -t fullflow:0.1 'RUST_LOG=app=debug cargo run --release -p app -- craft --output ./tmp/item-copper --key key0 --recipe copper' C-m
@@ -30,6 +33,20 @@ $tmux send-keys -t fullflow:0.1 'RUST_LOG=app=debug cargo run --release -p app -
 $tmux send-keys -t fullflow:0.1 'RUST_LOG=app=debug cargo run --release -p app -- commit --input ./tmp/item-copper' C-m
 # verify the crafted item
 $tmux send-keys -t fullflow:0.1 'RUST_LOG=app=debug cargo run --release -p app -- verify --input ./tmp/item-copper' C-m
+
+# craft new tin item
+$tmux send-keys -t fullflow:0.1 'RUST_LOG=app=debug cargo run --release -p app -- craft --output ./tmp/item-tin --key key0 --recipe tin' C-m
+# commit the crafted item
+$tmux send-keys -t fullflow:0.1 'RUST_LOG=app=debug cargo run --release -p app -- commit --input ./tmp/item-tin' C-m
+# verify the crafted item
+$tmux send-keys -t fullflow:0.1 'RUST_LOG=app=debug cargo run --release -p app -- verify --input ./tmp/item-tin' C-m
+
+# craft new bronze item
+$tmux send-keys -t fullflow:0.1 'RUST_LOG=app=debug cargo run --release -p app -- craft --input ./tmp/item-tin --input ./tmp/item-copper --output ./tmp/item-bronze --key key0 --recipe bronze' C-m
+# commit the crafted item
+$tmux send-keys -t fullflow:0.1 'RUST_LOG=app=debug cargo run --release -p app -- commit --input ./tmp/item-bronze' C-m
+# verify the crafted item
+$tmux send-keys -t fullflow:0.1 'RUST_LOG=app=debug cargo run --release -p app -- verify --input ./tmp/item-bronze' C-m
 
 $tmux select-pane -t fullflow:0.1
 
