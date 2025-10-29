@@ -6,8 +6,8 @@ use crate::CONSUMED_ITEM_EXTERNAL_NULLIFIER;
 pub struct CommitPredicates {
     pub defs: PredicateDefs,
 
-    pub super_sub_set: CustomPredicateRef,
-    pub super_sub_set_recursive: CustomPredicateRef,
+    pub subset_of: CustomPredicateRef,
+    pub subset_of_recursive: CustomPredicateRef,
     pub item_def: CustomPredicateRef,
     pub item_key: CustomPredicateRef,
 
@@ -17,10 +17,6 @@ pub struct CommitPredicates {
     pub commit_creation: CustomPredicateRef,
 }
 
-// TODO:
-// - Rename SuperSubSet to SubsetOf and flip the arguments
-// - Rename SuperSubSetRecursive to SubsetOfRecursive and flip the first 2 arguments
-// - Also rename the fields of CommitPredicates struct
 impl CommitPredicates {
     pub fn compile(params: &Params) -> Self {
         // maximum allowed:
@@ -32,15 +28,15 @@ impl CommitPredicates {
             r#"
             // Generic recursive construction confirming subset.  Relies on the Merkle
             // tree already requiring unique keys (so no inserts on super)
-            SuperSubSet(super, sub) = OR(
+            SubsetOf(sub, super) = OR(
                 Equal(sub, {})
-                SuperSubSetRecursive(super, sub)
+                SubsetOfRecursive(sub, super)
             )
 
-            SuperSubSetRecursive(super, sub, private: i, smaller) = AND(
+            SubsetOfRecursive(sub, super, private: i, smaller) = AND(
                 SetContains(super, i)
                 SetInsert(sub, smaller, i)
-                SuperSubSet(super, smaller)
+                SubsetOf(smaller, super)
             )
 
             // Prove proper derivation of item ID from defined inputs
@@ -95,7 +91,7 @@ impl CommitPredicates {
                 ItemDef(item, ingredients, inputs, key, work)
 
                 // Prove all inputs are in the created set
-                SuperSubSet(created_items, inputs)
+                SubsetOf(inputs, created_items)
 
                 // Expose nullifiers for all inputs
                 Nullifiers(nullifiers, inputs)
@@ -107,8 +103,8 @@ impl CommitPredicates {
         let defs = PredicateDefs::new(params, &batch_defs, &[]);
 
         CommitPredicates {
-            super_sub_set: defs.predicate_ref_by_name("SuperSubSet").unwrap(),
-            super_sub_set_recursive: defs.predicate_ref_by_name("SuperSubSetRecursive").unwrap(),
+            subset_of: defs.predicate_ref_by_name("SubsetOf").unwrap(),
+            subset_of_recursive: defs.predicate_ref_by_name("SubsetOfRecursive").unwrap(),
             item_def: defs.predicate_ref_by_name("ItemDef").unwrap(),
             item_key: defs.predicate_ref_by_name("ItemKey").unwrap(),
             nullifiers: defs.predicate_ref_by_name("Nullifiers").unwrap(),

@@ -285,6 +285,7 @@ impl Helper {
         )?;
         builder.reveal(&st_commit_creation);
         let prover = &Prover {};
+        println!("Proving commit_pod...");
         let pod = builder.prove(prover)?;
         pod.pod.verify().unwrap();
 

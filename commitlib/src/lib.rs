@@ -131,9 +131,9 @@ impl<'a> ItemBuilder<'a> {
         smaller.delete(&i)?;
         let st_prev = self.st_super_sub_set(smaller.clone(), created_items.clone())?;
 
-        // Build SuperSubSetRecursive(super, sub)
+        // Build SubsetOfRecursive(sub, super)
         Ok(st_custom!(self.ctx,
-            SuperSubSetRecursive() = (
+            SubsetOfRecursive() = (
                 SetContains(created_items, i),
                 SetInsert(inputs_set, smaller, i),
                 st_prev
@@ -141,25 +141,25 @@ impl<'a> ItemBuilder<'a> {
     }
 
     // Adds statements to MainPodBuilder to prove inclusion of input_set in
-    // created_items_set.  Returns the private SuperSubSet statement.
+    // created_items_set.  Returns the private SubsetOf statement.
     fn st_super_sub_set(
         &mut self,
         inputs_set: Set,
         created_items: Set,
     ) -> anyhow::Result<Statement> {
-        // Build SuperSubSet(created_items, inputs)
+        // Build SubsetOf(inputs, created_items)
         if inputs_set.commitment() == EMPTY_HASH {
             // We manually specify the `super` wildcard value because it's otherwise unconstrained.  This
             // is only relevant in the base case where `sub` is empty, which is a subset of anything.
             Ok(st_custom!(self.ctx,
-                SuperSubSet(super=created_items) = (
+                SubsetOf(super=created_items) = (
                     Equal(inputs_set, EMPTY_VALUE),
                     Statement::None
                 ))?)
         } else {
             let st_recursive = self.st_super_sub_set_recursive(inputs_set, created_items)?;
             Ok(st_custom!(self.ctx,
-                SuperSubSet() = (
+                SubsetOf() = (
                     Statement::None,
                     st_recursive
                 ))?)
