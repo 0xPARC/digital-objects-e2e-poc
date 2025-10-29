@@ -17,6 +17,10 @@ pub struct CommitPredicates {
     pub commit_creation: CustomPredicateRef,
 }
 
+// TODO:
+// - Rename SuperSubSet to SubsetOf and flip the arguments
+// - Rename SuperSubSetRecursive to SubsetOfRecursive and flip the first 2 arguments
+// - Also rename the fields of CommitPredicates struct
 impl CommitPredicates {
     pub fn compile(params: &Params) -> Self {
         // maximum allowed:

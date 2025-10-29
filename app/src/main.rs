@@ -1,12 +1,11 @@
 //! Examples of usage
 //!
 //! - craft new copper item:
-//!   RUST_LOG=app=debug cargo run --release -p app -- craft --output ./item0 --key key0 --recipe copper
+//!   RUST_LOG=app=debug cargo run --release -p app -- craft --output ./item0 --recipe copper
 //! - commit the crafted item:
 //!   RUST_LOG=app=debug cargo run --release -p app -- commit --input ./item0
-
 use std::{
-    fmt,
+    array, fmt,
     path::{Path, PathBuf},
     str::FromStr,
     sync::Arc,
@@ -30,14 +29,16 @@ use craftlib::{
     item::{CraftBuilder, MiningRecipe},
     predicates::ItemPredicates,
 };
+use plonky2::field::types::Field;
 use pod2::{
     backends::plonky2::{mainpod::Prover, primitives::merkletree::MerkleProof},
     frontend::{MainPod, MainPodBuilder},
     middleware::{
-        CustomPredicateBatch, DEFAULT_VD_SET, Params, RawValue, VDSet, Value, containers::Set,
+        CustomPredicateBatch, DEFAULT_VD_SET, F, Params, RawValue, VDSet, containers::Set,
     },
 };
 use pod2utils::macros::BuildContext;
+use rand::{RngCore, SeedableRng, rngs::StdRng};
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
@@ -82,8 +83,6 @@ impl fmt::Display for Recipe {
 enum Commands {
     /// Craft an item locally
     Craft {
-        #[arg(long, value_name = "VALUE")]
-        key: Value,
         #[arg(long, value_name = "RECIPE")]
         recipe: String,
         #[arg(long, value_name = "FILE")]
@@ -118,13 +117,12 @@ async fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Some(Commands::Craft {
-            key,
             recipe,
             output,
             inputs,
         }) => {
             let recipe = Recipe::from_str(&recipe)?;
-            craft_item(&params, key, recipe, &output, &inputs)?;
+            craft_item(&params, recipe, &output, &inputs)?;
         }
         Some(Commands::Commit { input }) => {
             commit_item(&params, &cfg, &input).await?;
@@ -136,6 +134,9 @@ async fn main() -> anyhow::Result<()> {
             // first get the merkle proof of item existence from the Synchronizer
             let item = RawValue::from(crafted_item.def.item_hash(&params)?);
             let item_hex: String = format!("{item:#}");
+            let (epoch, _): (u64, RawValue) =
+                reqwest::blocking::get(format!("{}/created_items_root", cfg.sync_url,))?.json()?;
+            println!("Verifying committment of item {item:#} via synchronizer at epoch {epoch}");
             let (epoch, mtp): (u64, MerkleProof) = reqwest::blocking::get(format!(
                 "{}/created_item/{}",
                 cfg.sync_url,
@@ -298,15 +299,19 @@ fn load_item(input: &Path) -> anyhow::Result<CraftedItem> {
     Ok(crafted_item)
 }
 
+fn rand_raw_value() -> RawValue {
+    let mut rng = StdRng::from_os_rng();
+    RawValue(array::from_fn(|_| F::from_noncanonical_u64(rng.next_u64())))
+}
+
 fn craft_item(
     params: &Params,
-    key: Value,
     recipe: Recipe,
     output: &Path,
     inputs: &[PathBuf],
 ) -> anyhow::Result<()> {
-    let key = key.raw();
-    println!("About to mine \"{recipe}\"");
+    let key = rand_raw_value();
+    println!("About to mine \"{recipe}\" with key {key:#}");
     let (item_def, input_items) = match recipe {
         Recipe::Copper => {
             if !inputs.is_empty() {
