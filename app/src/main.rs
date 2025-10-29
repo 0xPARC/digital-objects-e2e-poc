@@ -24,7 +24,7 @@ use common::{
 use craftlib::{
     constants::{
         BRONZE_BLUEPRINT, BRONZE_MINING_MAX, BRONZE_WORK, COPPER_BLUEPRINT, COPPER_MINING_MAX,
-        COPPER_WORK, TIN_BLUEPRINT, TIN_MINING_MAX, TIN_WORK,
+        TIN_BLUEPRINT, TIN_MINING_MAX, TIN_WORK,
     },
     item::{CraftBuilder, MiningRecipe},
     powpod::PowPod,

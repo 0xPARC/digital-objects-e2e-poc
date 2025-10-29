@@ -1,7 +1,8 @@
 //! PowPod: Introduction Pod that used as a "Proof of Work".
 //! - takes as input a custom value, which will be bounded into the recursive chain
 //! - counts how many recursions have been performed
-//! the 'work' comes from the proof computation cost at the each recursive step.
+//!
+//! The 'work' comes from the proof computation cost at the each recursive step.
 //!
 //! An other option would be to prove the traditional PoW (hash output within a
 //! range / certain amount of zeroes) inside a circuit, which is easier to
@@ -9,11 +10,14 @@
 //!
 //! Circuits structure:
 //! 1. RecursiveCircuit<PowInneCircuit>, where for each recursive step:
+//!
 //!   PowInnerCircuit contains the logic of:
 //!     - output = hash(input)
 //!     - count+1
+//!
 //!   And the RecursiveCircuit does the logic of:
 //!     - verify previous proof of itself
+//!
 //! 2. PowPod:
 //!     - satisfies in the pod2's Pod trait interface
 //!     - verifies the proof from RecursiveCircuit<PowInnerCircuit>
@@ -76,7 +80,7 @@ use serde::{Deserialize, Serialize};
 // ARITY is assumed to be one, this also assumed at the PowInnerCircuit.
 const ARITY: usize = 1;
 const NUM_PUBLIC_INPUTS: usize = 9; // 9: count + input + output
-const POW_POD_TYPE: (usize, &'static str) = (2001, "Pow");
+const POW_POD_TYPE: (usize, &str) = (2001, "Pow");
 
 static STANDARD_POW_POD_DATA: std::sync::LazyLock<(PowPodTarget, CircuitData<F, C, D>)> =
     std::sync::LazyLock::new(|| build().expect("successful build"));
@@ -143,7 +147,7 @@ impl PowPod {
         );
         let pow_pod = timed!(
             "PowPod::new",
-            PowPod::construct(&params, vd_set, count, input, output, proof_with_pis)?
+            PowPod::construct(params, vd_set, count, input, output, proof_with_pis)?
         );
 
         #[cfg(test)] // sanity check
@@ -168,12 +172,12 @@ impl PowPod {
             .into_iter()
             .map(mainpod::Statement::from)
             .collect_vec();
-        let statements_hash: Hash = calculate_statements_hash(&statements, &params);
+        let statements_hash: Hash = calculate_statements_hash(&statements, params);
         // set targets
         let pod_pow_input = PowPodVerifyInput {
             vd_root: vd_set.root(),
             statements_hash,
-            proof: proof,
+            proof,
         };
         let mut pw = PartialWitness::<F>::new();
         pow_pod_target.set_targets(&mut pw, &pod_pow_input)?;
@@ -223,7 +227,7 @@ impl PowPod {
         for i in 0..n_iters {
             if i > 0 {
                 inner_inputs.prev_count = inner_inputs.count;
-                inner_inputs.count = inner_inputs.count + F::ONE;
+                inner_inputs.count += F::ONE;
                 inner_inputs.midput = inner_inputs.output;
                 inner_inputs.output =
                     RawValue::from(pod2::middleware::hash_value(&inner_inputs.midput));
@@ -240,8 +244,8 @@ impl PowPod {
                 .verifier_data()
                 .verify(recursive_proof.clone())?;
 
-            dbg!(&inner_inputs);
-            dbg!(&recursive_proof.public_inputs);
+            log::debug!("{inner_inputs:?}");
+            log::debug!("{:?}", recursive_proof.public_inputs);
         }
         Ok((inner_inputs, recursive_proof))
     }
@@ -287,7 +291,7 @@ impl Pod for PowPod {
                 proof: self.proof.clone(),
                 public_inputs,
             })
-            .map_err(|e| Error::custom(format!("PowPod proof verification failure: {:?}", e)))
+            .map_err(|e| Error::custom(format!("PowPod proof verification failure: {e:?}")))
     }
 
     fn statements_hash(&self) -> Hash {
@@ -322,7 +326,7 @@ impl Pod for PowPod {
         let data: Data = serde_json::from_value(data)?;
         let common =
             &*pod2::backends::plonky2::cache_get_standard_rec_main_pod_common_circuit_data();
-        let proof = deserialize_proof(&common, &data.proof)?;
+        let proof = deserialize_proof(common, &data.proof)?;
         Ok(Self {
             params,
             count: data.count,
@@ -378,10 +382,10 @@ fn pub_self_statements_target(
     let zero = builder.zero();
     let st_arg_0 = StatementArgTarget::literal(
         builder,
-        &ValueTarget::from_slice(&vec![count, zero, zero, zero]),
+        &ValueTarget::from_slice(&[count, zero, zero, zero]),
     );
-    let st_arg_1 = StatementArgTarget::literal(builder, &ValueTarget::from_slice(&input));
-    let st_arg_2 = StatementArgTarget::literal(builder, &ValueTarget::from_slice(&output));
+    let st_arg_1 = StatementArgTarget::literal(builder, &ValueTarget::from_slice(input));
+    let st_arg_2 = StatementArgTarget::literal(builder, &ValueTarget::from_slice(output));
     let args = [st_arg_0, st_arg_1, st_arg_2]
         .into_iter()
         .chain(core::iter::repeat_with(|| {
@@ -416,15 +420,15 @@ impl PowPodTarget {
         let (_, recursive_params) = &*POW_RECURSIVE_CIRCUIT;
         let verifier_data_targ =
             builder.constant_verifier_data(&recursive_params.verifier_data().verifier_only);
-        let proof = builder.add_virtual_proof_with_pis(&recursive_params.common_data());
-        builder.verify_proof::<C>(&proof, &verifier_data_targ, &recursive_params.common_data());
+        let proof = builder.add_virtual_proof_with_pis(recursive_params.common_data());
+        builder.verify_proof::<C>(&proof, &verifier_data_targ, recursive_params.common_data());
 
         // calculate statements_hash
         let count = proof.public_inputs[0];
         let input = &proof.public_inputs[1..5];
         let output = &proof.public_inputs[5..9];
         let statements = pub_self_statements_target(builder, params, count, input, output);
-        let statements_hash = calculate_statements_hash_circuit(&params, builder, &statements);
+        let statements_hash = calculate_statements_hash_circuit(params, builder, &statements);
 
         // register the public inputs
         let vd_root = builder.add_virtual_hash();
@@ -480,7 +484,7 @@ impl InnerCircuit for PowInnerCircuit {
         let midput = builder.add_virtual_value();
 
         let output_h = builder.hash_n_to_hash_no_pad::<PoseidonHash>(midput.elements.to_vec());
-        let output = ValueTarget::from_slice(&output_h.elements.to_vec());
+        let output = ValueTarget::from_slice(output_h.elements.as_ref());
 
         let zero = builder.zero();
         let is_basecase = builder.is_equal(prev_count, zero);
@@ -568,7 +572,7 @@ mod tests {
             builder.constants(&inp.midput.0)
         };
         VerifiedProofTarget {
-            public_inputs: vec![vec![count], input, midput].concat(),
+            public_inputs: [vec![count], input, midput].concat(),
             verifier_data_hash: HashOutTarget::from_partial(&[builder.zero()], builder.zero()),
         }
     }
@@ -690,7 +694,7 @@ mod tests {
             &output_targ.elements,
         );
         let statements_hash_targ =
-            calculate_statements_hash_circuit(&params, &mut builder, &st_targ);
+            calculate_statements_hash_circuit(params, &mut builder, &st_targ);
 
         builder.connect_hashes(expected_statements_hash_targ, statements_hash_targ);
 
@@ -726,7 +730,10 @@ mod tests {
         let pow_pod = PowPod::new(&params, vd_set.clone(), n_iters, input)?;
         pow_pod.verify()?;
 
-        println!("{:#}", pow_pod.verifier_data_hash());
+        println!(
+            "pow_pod.verifier_data_hash(): {:#}",
+            pow_pod.verifier_data_hash()
+        );
 
         // wrap the pow_pod in a 'MainPod'
         let main_pow_pod = frontend::MainPod {
@@ -737,25 +744,22 @@ mod tests {
 
         // let expected_count = F::from_canonical_u64(n_iters as u64);
         let expected_count = Value::from(n_iters as i64);
-        let expected_input = input.clone();
+        let expected_input = input;
         // let expected_output = pow_pod.output;
 
         // now generate a new MainPod from the pow_pod
-        let mut main_pod_builder = frontend::MainPodBuilder::new(&params, &vd_set);
+        let mut main_pod_builder = frontend::MainPodBuilder::new(&params, vd_set);
         main_pod_builder.add_pod(main_pow_pod.clone());
 
         main_pod_builder.reveal(&main_pow_pod.public_statements[0]);
 
-        let mut prover = pod2::backends::plonky2::mock::mainpod::MockProver {};
-        let pod = main_pod_builder.prove(&mut prover)?;
+        let prover = pod2::backends::plonky2::mock::mainpod::MockProver {};
+        let pod = main_pod_builder.prove(&prover)?;
         assert!(pod.pod.verify().is_ok());
 
         println!("going to prove the main_pod");
-        let mut prover = mainpod::Prover {};
-        let main_pod = timed!(
-            "main_pod_builder.prove",
-            main_pod_builder.prove(&mut prover)?
-        );
+        let prover = mainpod::Prover {};
+        let main_pod = timed!("main_pod_builder.prove", main_pod_builder.prove(&prover)?);
         let pod: Box<mainpod::MainPod> = (main_pod.pod as Box<dyn std::any::Any>)
             .downcast::<mainpod::MainPod>()
             .unwrap();
