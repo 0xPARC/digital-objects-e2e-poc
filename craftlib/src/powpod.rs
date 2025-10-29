@@ -1,11 +1,31 @@
 //! PoW: recursive circuit which:
 //! - takes as input a custom value, which will be bounded into the recursive chain
 //! - counts how many recursions have been performed
+//!
+//! Circuits structure:
+//! 1. RecursiveCircuit<PowInneCircuit>, where PowInnerCircuit contains the logic of:
+//!     - output = hash(input)
+//!     - count++
+//!   And the RecursiveCircuit does the logic of:
+//!     - verify previous proof of itself
+//! 2. PowPod:
+//!     - fits in the Pod trait interface
+//!     - verifies the proof from RecursiveCircuit<PowInnerCircuit>
+//!
+//!
+//! Usage:
+//! ```rust
+//!   let n_iters: usize = 2;
+//!   let input = RawValue::from(hash_str("starting input"));
+//!   let pow_pod = PowPod::new(&params, n_iters, input)?;
+//! ```
+//! An example of usage can be found at the test `test_pow_pod` (bottom of this
+//! file).
 
 use anyhow::Result;
 use itertools::Itertools;
 use plonky2::{
-    field::types::{Field, PrimeField64},
+    field::types::Field,
     hash::{
         hash_types::{HashOut, HashOutTarget},
         poseidon::PoseidonHash,
@@ -16,8 +36,7 @@ use plonky2::{
     },
     plonk::{
         circuit_builder::CircuitBuilder,
-        circuit_data::{CircuitConfig, CircuitData, CommonCircuitData, VerifierOnlyCircuitData},
-        config::Hasher,
+        circuit_data::{CircuitData, VerifierOnlyCircuitData},
         proof::{ProofWithPublicInputs, ProofWithPublicInputsTarget},
     },
 };
@@ -32,32 +51,31 @@ use pod2::{
             },
             mainpod::calculate_statements_hash_circuit,
         },
-        deserialize_proof, hash_common_data, mainpod,
+        deserialize_proof, mainpod,
         mainpod::calculate_statements_hash,
         recursion::{
             InnerCircuit, RecursiveCircuit, RecursiveParams, VerifiedProofTarget,
-            circuit::dummy as dummy_recursive, new_params as new_recursive_params, pad_circuit,
+            circuit::dummy as dummy_recursive, new_params as new_recursive_params,
         },
-        serialization::VerifierOnlyCircuitDataSerializer,
         serialize_proof,
     },
-    frontend, measure_gates_begin, measure_gates_end, measure_gates_print, middleware,
+    measure_gates_begin, measure_gates_end, middleware,
     middleware::{
-        AnchoredKey, C, D, EMPTY_HASH, F, HASH_SIZE, Hash, IntroPredicateRef, Params, Pod, Proof,
-        RawValue, ToFields, VDSet, Value, hash_str,
+        C, D, F, HASH_SIZE, Hash, IntroPredicateRef, Params, Pod, Proof, RawValue, ToFields, VDSet,
     },
     timed,
 };
 use serde::{Deserialize, Serialize};
 
-const ARITY: usize = 1; // TODO set to 1 for the pow recursive circuit
-const NUM_PUBLIC_INPUTS: usize = 9;
+// ARITY is assumed to be one, this also assumed at the PowInnerCircuit.
+const ARITY: usize = 1;
+const NUM_PUBLIC_INPUTS: usize = 9; // 9: count + input + output
 const POW_POD_TYPE: (usize, &'static str) = (2001, "PoW");
 
-static STANDARD_POW_POD_DATA: std::sync::LazyLock<(PowPodVerifyTarget, CircuitData<F, C, D>)> =
+static STANDARD_POW_POD_DATA: std::sync::LazyLock<(PowPodTarget, CircuitData<F, C, D>)> =
     std::sync::LazyLock::new(|| build().expect("successful build"));
 
-fn build() -> Result<(PowPodVerifyTarget, CircuitData<F, C, D>)> {
+fn build() -> Result<(PowPodTarget, CircuitData<F, C, D>)> {
     let params = Params::default();
 
     // use pod2's recursion config as config for the introduction pod; which if
@@ -69,7 +87,7 @@ fn build() -> Result<(PowPodVerifyTarget, CircuitData<F, C, D>)> {
     let config = common_data.config.clone();
 
     let mut builder = CircuitBuilder::<F, D>::new(config);
-    let pow_pod_verify_target = PowPodVerifyTarget::add_targets(&mut builder, &params)?;
+    let pow_pod_verify_target = PowPodTarget::add_targets(&mut builder, &params)?;
     pod2::backends::plonky2::recursion::pad_circuit(&mut builder, &common_data);
 
     let data = timed!("PowPod build", builder.build::<C>());
@@ -77,15 +95,12 @@ fn build() -> Result<(PowPodVerifyTarget, CircuitData<F, C, D>)> {
     Ok((pow_pod_verify_target, data))
 }
 
-// TODO rename to POW_RECURSIVE_CIRCUIT
-static POW_CIRCUIT_VERIFIER_DATA: std::sync::LazyLock<(
+static POW_RECURSIVE_CIRCUIT: std::sync::LazyLock<(
     RecursiveCircuit<PowInnerCircuit>,
     RecursiveParams,
-)> = std::sync::LazyLock::new(|| build_pow_circuit_verifier_data().expect("successful build"));
+)> = std::sync::LazyLock::new(|| build_pow_recursive_circuit().expect("successful build"));
 
-// TODO rename to build_pow_recursive_circuit
-fn build_pow_circuit_verifier_data() -> Result<(RecursiveCircuit<PowInnerCircuit>, RecursiveParams)>
-{
+fn build_pow_recursive_circuit() -> Result<(RecursiveCircuit<PowInnerCircuit>, RecursiveParams)> {
     let recursive_params: RecursiveParams =
         new_recursive_params::<PowInnerCircuit>(ARITY, NUM_PUBLIC_INPUTS, &())?;
 
@@ -96,48 +111,67 @@ fn build_pow_circuit_verifier_data() -> Result<(RecursiveCircuit<PowInnerCircuit
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct PowPod {
-    params: Params,
-    // recursive_params: RecursiveParams,
-    count: F,
-    input: RawValue,
-    output: RawValue,
+    pub params: Params,
+    pub count: F,
+    pub input: RawValue,
+    pub output: RawValue,
 
-    vd_set: VDSet,
-    statements_hash: Hash,
-    proof: Proof,
+    pub vd_set: VDSet,
+    pub statements_hash: Hash,
+    pub proof: Proof,
 
-    common_hash: String,
+    pub common_hash: String,
 }
 
+#[allow(dead_code)]
 impl PowPod {
-    fn new(
+    /// returns a PowPod for the given n_iters and input.
+    pub fn new(params: &Params, n_iters: usize, input: RawValue) -> Result<PowPod> {
+        let (last_iteration_values, proof_with_pis): (
+            PowInnerCircuitInput,
+            ProofWithPublicInputs<F, C, D>,
+        ) = PowPod::get_pow_recursive_circuit_proof(n_iters, input)?;
+
+        // prepare the VDSet
+        let mut vds: Vec<VerifierOnlyCircuitData<C, D>> = DEFAULT_VD_LIST.clone();
+        vds.push(STANDARD_POW_POD_DATA.1.verifier_only.clone());
+        vds.push(
+            POW_RECURSIVE_CIRCUIT
+                .1
+                .verifier_data()
+                .verifier_only
+                .clone(),
+        );
+        let vd_set = VDSet::new(params.max_depth_mt_vds, &vds).unwrap();
+
+        // generate a new PowPod from the given count, input, output
+        let (count, input, output) = (
+            last_iteration_values.count,
+            last_iteration_values.input,
+            last_iteration_values.output,
+        );
+        let pow_pod = timed!(
+            "PowPod::new",
+            PowPod::construct(&params, &vd_set, count, input, output, proof_with_pis).unwrap()
+        );
+
+        #[cfg(test)] // sanity check
+        pow_pod.verify().unwrap();
+
+        Ok(pow_pod)
+    }
+
+    /// given the proof from RecursiveCircuit<PowInnerCircuit>, constructs the
+    /// PowPod which verifies it.
+    fn construct(
         params: &Params,
         vd_set: &VDSet,
         count: F,
         input: RawValue,
-        midput: RawValue,
         output: RawValue,
         proof: ProofWithPublicInputs<F, C, D>,
     ) -> Result<PowPod> {
-        // 1. prove the RecursiveCircuit<PowInnerCircuit> circuit
-        let (recursive_circuit, recursive_params) = &*POW_CIRCUIT_VERIFIER_DATA;
-        let pow_verify_proof = recursive_circuit.prove(
-            &PowInnerCircuitInput {
-                prev_count: count - F::ONE,
-                count,
-                input,
-                midput,
-                output,
-            },
-            vec![proof],
-            vec![recursive_params.verifier_data().verifier_only.clone()],
-        )?;
-        // sanity check
-        recursive_params
-            .verifier_data()
-            .verify(pow_verify_proof.clone())?;
-
-        // 2. verify the pow_verify_proof in a PowPodVerifyTarget circuit
+        // verify the given proof in a PowPodTarget circuit
         let (pow_pod_target, circuit_data) = &*STANDARD_POW_POD_DATA;
         let statements = pub_self_statements(count, input, output)
             .into_iter()
@@ -148,7 +182,7 @@ impl PowPod {
         let pod_pow_input = PowPodVerifyInput {
             vd_root: vd_set.root(),
             statements_hash,
-            proof: pow_verify_proof,
+            proof: proof,
         };
         let mut pw = PartialWitness::<F>::new();
         pow_pod_target.set_targets(&mut pw, &pod_pow_input)?;
@@ -161,10 +195,8 @@ impl PowPod {
             .verifier_data()
             .verify(proof_with_pis.clone())?;
 
-        // let common_hash = hash_common_data(&recursive_params.common_data()).expect("hash ok");
         let common_hash: String =
             pod2::backends::plonky2::mainpod::cache_get_rec_main_pod_common_hash(params).clone();
-        dbg!(&common_hash);
 
         Ok(PowPod {
             params: params.clone(),
@@ -176,6 +208,51 @@ impl PowPod {
             vd_set: vd_set.clone(),
             common_hash,
         })
+    }
+
+    /// computes the PoW proof out of the RecursiveCircuit<PowInnerCircuit> circuit.
+    fn get_pow_recursive_circuit_proof(
+        n_iters: usize,
+        starting_input: RawValue,
+    ) -> Result<(PowInnerCircuitInput, ProofWithPublicInputs<F, C, D>)> {
+        let mut inner_inputs = PowInnerCircuitInput {
+            prev_count: F::ZERO,
+            count: F::ONE,
+            input: starting_input,
+            midput: starting_input, // base case: midput==input
+            output: RawValue::from(pod2::middleware::hash_value(&starting_input)),
+        };
+
+        let (recursive_circuit, recursive_params) = &*POW_RECURSIVE_CIRCUIT;
+
+        let (dummy_verifier_only_data, dummy_proof) =
+            dummy_recursive(recursive_params.common_data(), NUM_PUBLIC_INPUTS)?;
+        let mut recursive_proof = dummy_proof;
+        let mut recursive_verifier_only_data = dummy_verifier_only_data;
+        for i in 0..n_iters {
+            if i > 0 {
+                inner_inputs.prev_count = inner_inputs.count;
+                inner_inputs.count = inner_inputs.count + F::ONE;
+                inner_inputs.midput = inner_inputs.output;
+                inner_inputs.output =
+                    RawValue::from(pod2::middleware::hash_value(&inner_inputs.midput));
+
+                recursive_verifier_only_data =
+                    recursive_params.verifier_data().verifier_only.clone();
+            }
+            recursive_proof = recursive_circuit.prove(
+                &inner_inputs,
+                vec![recursive_proof.clone()],
+                vec![recursive_verifier_only_data.clone()],
+            )?;
+            recursive_params
+                .verifier_data()
+                .verify(recursive_proof.clone())?;
+
+            dbg!(&inner_inputs);
+            dbg!(&recursive_proof.public_inputs);
+        }
+        Ok((inner_inputs, recursive_proof))
     }
 }
 
@@ -205,7 +282,6 @@ impl Pod for PowPod {
             ));
         }
 
-        // let circuit_data = &*STANDARD_POW_POD_DATA.1.common_data();
         let (_, circuit_data) = &*STANDARD_POW_POD_DATA;
 
         let public_inputs = statements_hash
@@ -287,17 +363,12 @@ impl Pod for PowPod {
 }
 
 fn pub_self_statements(count: F, input: RawValue, output: RawValue) -> Vec<middleware::Statement> {
-    // TODO rm
-    // TODO use count as i64 directly instead of F
-    // let count_i64 = count.to_canonical_u64() as i64;
-
     vec![middleware::Statement::Intro(
         IntroPredicateRef {
             name: POW_POD_TYPE.1.to_string(),
             args_len: NUM_PUBLIC_INPUTS,
             verifier_data_hash: Hash(
-                // STANDARD_POW_POD_DATA
-                POW_CIRCUIT_VERIFIER_DATA
+                POW_RECURSIVE_CIRCUIT
                     .1
                     .verifier_data()
                     .verifier_only
@@ -335,7 +406,7 @@ fn pub_self_statements_target(
         .collect();
 
     let verifier_data_hash = builder.constant_hash(HashOut {
-        elements: POW_CIRCUIT_VERIFIER_DATA
+        elements: POW_RECURSIVE_CIRCUIT
             .1
             .verifier_data()
             .verifier_only
@@ -347,29 +418,28 @@ fn pub_self_statements_target(
 }
 
 #[derive(Clone, Debug)]
-struct PowPodVerifyTarget {
+struct PowPodTarget {
     vd_root: HashOutTarget,
     statements_hash: HashOutTarget,
     proof: ProofWithPublicInputsTarget<D>,
 }
-pub struct PowPodVerifyInput {
+struct PowPodVerifyInput {
     vd_root: Hash,
     statements_hash: Hash,
     proof: ProofWithPublicInputs<F, C, D>,
 }
-impl PowPodVerifyTarget {
+impl PowPodTarget {
     fn add_targets(builder: &mut CircuitBuilder<F, D>, params: &Params) -> Result<Self> {
-        let measure = measure_gates_begin!(builder, "PowPodVerifyTarget");
+        let measure = measure_gates_begin!(builder, "PowPodTarget");
 
         // Verify RecursiveCircuit<PowInnerCircuit>'s proof (with verifier_data hardcoded as constant)
-        let (_, recursive_params) = &*POW_CIRCUIT_VERIFIER_DATA;
+        let (_, recursive_params) = &*POW_RECURSIVE_CIRCUIT;
         let verifier_data_targ =
             builder.constant_verifier_data(&recursive_params.verifier_data().verifier_only);
         let proof = builder.add_virtual_proof_with_pis(&recursive_params.common_data());
         builder.verify_proof::<C>(&proof, &verifier_data_targ, &recursive_params.common_data());
 
         // calculate statements_hash
-        // how do we know these numbers are correct??
         let count = proof.public_inputs[0];
         let input = &proof.public_inputs[1..5];
         let output = &proof.public_inputs[5..9];
@@ -382,7 +452,7 @@ impl PowPodVerifyTarget {
         builder.register_public_inputs(&vd_root.elements);
 
         measure_gates_end!(builder, measure);
-        Ok(PowPodVerifyTarget {
+        Ok(PowPodTarget {
             vd_root,
             statements_hash,
             proof,
@@ -402,7 +472,7 @@ impl PowPodVerifyTarget {
 }
 
 #[derive(Clone, Debug)]
-pub struct PowInnerCircuit {
+struct PowInnerCircuit {
     prev_count: Target,
     /// count contains the amount of recursive steps done
     count: Target,
@@ -413,9 +483,8 @@ pub struct PowInnerCircuit {
     /// output of the recursive chain
     output: ValueTarget,
 }
-// TODO maybe rename to PowStepValues
 #[derive(Debug)]
-pub struct PowInnerCircuitInput {
+struct PowInnerCircuitInput {
     prev_count: F,
     count: F,
     input: RawValue,
@@ -428,7 +497,7 @@ impl InnerCircuit for PowInnerCircuit {
     fn build(
         builder: &mut CircuitBuilder<F, D>,
         _params: &Self::Params,
-        _verified_proofs: &[VerifiedProofTarget],
+        verified_proofs: &[VerifiedProofTarget],
     ) -> BResult<Self> {
         let prev_count = builder.add_virtual_target();
         let input = builder.add_virtual_value();
@@ -442,31 +511,38 @@ impl InnerCircuit for PowInnerCircuit {
         //   ii) prev_count==count==0
         let zero = builder.zero();
         let is_basecase = builder.is_equal(prev_count, zero);
-
-        let one = builder.one();
-        let count = builder.add(prev_count, one);
-
-        // let computed_count = builder.add(prev_count, one);
-        // let count_at_basecase = builder.select(is_basecase, zero, computed_count);
-        // builder.connect(count, count_at_basecase);
-
-        let input_at_basecase = ValueTarget {
-            elements: std::array::from_fn(|i| builder.select(is_basecase, input.elements[i], zero)),
-        };
-        let midput_at_basecase = ValueTarget {
-            elements: std::array::from_fn(|i| {
-                builder.select(is_basecase, midput.elements[i], zero)
-            }),
-        };
+        let is_not_basecase = builder.not(is_basecase);
 
         for i in 0..HASH_SIZE {
-            builder.connect(
-                input_at_basecase.elements[i],
-                midput_at_basecase.elements[i],
+            builder.conditional_assert_eq(
+                is_basecase.target,
+                input.elements[i],
+                midput.elements[i],
             );
         }
 
-        // register public input
+        // if we're at case prev_count>0,
+        // assert that the public_inputs of the proof being
+        // verified match with the prev_count, input and midput
+        builder.connect(verified_proofs[0].public_inputs[0], prev_count);
+        for i in 0..HASH_SIZE {
+            builder.conditional_assert_eq(
+                is_not_basecase.target,
+                verified_proofs[0].public_inputs[1 + i],
+                input.elements[i],
+            );
+            builder.conditional_assert_eq(
+                is_not_basecase.target,
+                verified_proofs[0].public_inputs[5 + i],
+                midput.elements[i],
+            );
+        }
+
+        // increment count
+        let one = builder.one();
+        let count = builder.add(prev_count, one);
+
+        // register public inputs: count, input, output
         builder.register_public_input(count);
         for e in input.elements.iter() {
             builder.register_public_input(*e);
@@ -494,8 +570,30 @@ impl InnerCircuit for PowInnerCircuit {
 
 #[cfg(test)]
 mod tests {
+    use plonky2::{field::types::PrimeField64, plonk::circuit_data::CircuitConfig};
+    use pod2::{frontend, measure_gates_print, middleware::hash_str};
+
     use super::*;
 
+    // For tests only. Returns a valid VerifiedProofTarget filled with the
+    // public_inputs from the given PowInnerCircuitInput, in order to run some
+    // tests.
+    fn empty_verified_proof_target(
+        builder: &mut CircuitBuilder<F, D>,
+        inp: &PowInnerCircuitInput,
+    ) -> VerifiedProofTarget {
+        let count = builder.constant(inp.prev_count);
+        let input = builder.constants(&inp.input.0);
+        let midput = if inp.prev_count.is_zero() {
+            builder.constants(&inp.output.0)
+        } else {
+            builder.constants(&inp.midput.0)
+        };
+        VerifiedProofTarget {
+            public_inputs: vec![vec![count], input, midput].concat(),
+            verifier_data_hash: HashOutTarget::from_partial(&[builder.zero()], builder.zero()),
+        }
+    }
     #[test]
     fn test_inner_circuit() -> Result<()> {
         let inner_params = ();
@@ -506,44 +604,32 @@ mod tests {
         let config = CircuitConfig::standard_recursion_zk_config();
         let mut builder = CircuitBuilder::<F, D>::new(config.clone());
 
-        // build circuit
-        let measure = measure_gates_begin!(
-            &builder,
-            format!("verifier for zk 2^{}", expected_degree_bits)
-        );
-        let targets = PowInnerCircuit::build(&mut builder, &inner_params, &[])?;
-        measure_gates_end!(&builder, measure);
-        measure_gates_print!();
-
-        // set witness
-        let mut pw = PartialWitness::<F>::new();
         let inner_inputs = PowInnerCircuitInput {
             prev_count: F::ZERO,
             count: F::ONE,
             input: starting_input,
             midput: starting_input, // base case: midput==input
             output: RawValue::from(pod2::middleware::hash_value(&starting_input)),
-            // alternatively:
-            // output: RawValue::from(Hash(
-            //     PoseidonHash::hash_no_pad(&starting_input.0.to_vec()).elements,
-            // )),
         };
+
+        // build circuit
+        let measure = measure_gates_begin!(&builder, format!("PowInnerCircuit gates"));
+        let verified_proof_target = empty_verified_proof_target(&mut builder, &inner_inputs);
+        let targets =
+            PowInnerCircuit::build(&mut builder, &inner_params, &[verified_proof_target])?;
+        measure_gates_end!(&builder, measure);
+        measure_gates_print!();
+        let data = builder.build::<C>();
+
+        // set witness
+        let mut pw = PartialWitness::<F>::new();
         targets.set_targets(&mut pw, &inner_inputs)?;
 
         // generate & verify proof
-        let data = builder.build::<C>();
         let proof = data.prove(pw)?;
         data.verify(proof.clone())?;
 
         // Second iteration
-        // circuit
-        let mut builder = CircuitBuilder::<F, D>::new(config);
-        let mut pw = PartialWitness::<F>::new();
-
-        // build circuit
-        let targets = PowInnerCircuit::build(&mut builder, &inner_params, &[])?;
-
-        // set witness
         let inner_inputs = PowInnerCircuitInput {
             prev_count: F::ONE,
             count: F::from_canonical_u64(2u64),
@@ -551,9 +637,12 @@ mod tests {
             midput: inner_inputs.output, // base case: midput==input
             output: RawValue::from(pod2::middleware::hash_value(&inner_inputs.output)),
         };
+        let mut builder = CircuitBuilder::<F, D>::new(config);
+        let mut pw = PartialWitness::<F>::new();
+        let verified_proof_target = empty_verified_proof_target(&mut builder, &inner_inputs);
+        let targets =
+            PowInnerCircuit::build(&mut builder, &inner_params, &[verified_proof_target])?;
         targets.set_targets(&mut pw, &inner_inputs)?;
-
-        // generate & verify proof
         let data = builder.build::<C>();
         let proof = data.prove(pw)?;
         data.verify(proof.clone())?;
@@ -561,54 +650,10 @@ mod tests {
         Ok(())
     }
 
-    // TODO move to lib instead of tests
-    fn get_pow_recursive_circuit(
-        n_iters: usize,
-        starting_input: RawValue,
-    ) -> Result<(PowInnerCircuitInput, ProofWithPublicInputs<F, C, D>)> {
-        let mut inner_inputs = PowInnerCircuitInput {
-            prev_count: F::ZERO,
-            count: F::ONE,
-            input: starting_input,
-            midput: starting_input, // base case: midput==input
-            output: RawValue::from(pod2::middleware::hash_value(&starting_input)),
-        };
-
-        let (recursive_circuit, recursive_params) = &*POW_CIRCUIT_VERIFIER_DATA;
-
-        let (dummy_verifier_only_data, dummy_proof) =
-            dummy_recursive(recursive_params.common_data(), NUM_PUBLIC_INPUTS)?;
-        let mut recursive_proof = dummy_proof;
-        let mut recursive_verifier_only_data = dummy_verifier_only_data;
-        for i in 0..n_iters {
-            if i > 0 {
-                inner_inputs.prev_count = inner_inputs.count;
-                inner_inputs.count = inner_inputs.count + F::ONE;
-                inner_inputs.midput = inner_inputs.output;
-                inner_inputs.output =
-                    RawValue::from(pod2::middleware::hash_value(&inner_inputs.midput));
-
-                recursive_verifier_only_data =
-                    recursive_params.verifier_data().verifier_only.clone();
-            }
-            recursive_proof = recursive_circuit.prove(
-                &inner_inputs,
-                vec![recursive_proof.clone()],
-                vec![recursive_verifier_only_data.clone()],
-            )?;
-            recursive_params
-                .verifier_data()
-                .verify(recursive_proof.clone())?;
-
-            dbg!(&inner_inputs);
-            dbg!(&recursive_proof.public_inputs);
-        }
-        Ok((inner_inputs, recursive_proof))
-    }
     #[test]
     fn test_recursion_on_inner_circuit() -> Result<()> {
         let starting_input = RawValue::from(hash_str("starting input"));
-        let _ = get_pow_recursive_circuit(3, starting_input)?;
+        let _ = PowPod::get_pow_recursive_circuit_proof(3, starting_input)?;
         Ok(())
     }
 
@@ -619,9 +664,9 @@ mod tests {
         // first generate all the circuits data so that it does not need to be
         // computed at further stages of the test (affecting the time reports)
         timed!(
-            "generate POW_CIRCUIT_VERIFIER_DATA, STANDARD_POW_POD_DATA, STANDARD_REC_MAIN_POD_CIRCUIT",
+            "generate POW_RECURSIVE_CIRCUIT, STANDARD_POW_POD_DATA, STANDARD_REC_MAIN_POD_CIRCUIT",
             {
-                let (_, _) = &*POW_CIRCUIT_VERIFIER_DATA;
+                let (_, _) = &*POW_RECURSIVE_CIRCUIT;
                 let (_, _) = &*STANDARD_POW_POD_DATA;
                 let _ =
                     &*pod2::backends::plonky2::cache_get_standard_rec_main_pod_common_circuit_data(
@@ -679,101 +724,56 @@ mod tests {
         Ok(())
     }
 
-    fn get_test_pow_pod(
-        n_iters: usize,
-        starting_input: RawValue,
-    ) -> Result<(Box<dyn Pod>, Params, VDSet, F, RawValue, RawValue)> {
-        let (last_iteration_values, proof_with_pis): (
-            PowInnerCircuitInput,
-            ProofWithPublicInputs<F, C, D>,
-        ) = get_pow_recursive_circuit(n_iters, starting_input)?;
-
-        // first generate all the circuits data so that it does not need to be
-        // computed at further stages of the test (affecting the time reports)
+    #[test]
+    fn test_pow_pod() -> Result<()> {
+        // for this test, first generate all the circuits data so that it does
+        // not need to be computed at further stages of the test (affecting the
+        // time reports)
         timed!(
-            "generate ECDSA_VERIFY, STANDARD_ECDSA_POD_DATA, STANDARD_REC_MAIN_POD_CIRCUIT",
+            "generate POW_RECURSIVE_CIRCUIT, STANDARD_POW_POD_DATA, standard_rec_main_pod_common_circuit_data",
             {
-                let (_, _) = &*POW_CIRCUIT_VERIFIER_DATA;
+                let (_, _) = &*POW_RECURSIVE_CIRCUIT;
                 let (_, _) = &*STANDARD_POW_POD_DATA;
                 let _ =
                     &*pod2::backends::plonky2::cache_get_standard_rec_main_pod_common_circuit_data(
                     );
             }
         );
+
         let params = Params::default();
-
-        let mut vds: Vec<VerifierOnlyCircuitData<C, D>> = DEFAULT_VD_LIST.clone();
-        vds.push(STANDARD_POW_POD_DATA.1.verifier_only.clone());
-        vds.push(
-            POW_CIRCUIT_VERIFIER_DATA
-                .1
-                .verifier_data()
-                .verifier_only
-                .clone(),
-        );
-        let vd_set = VDSet::new(params.max_depth_mt_vds, &vds).unwrap();
-        // generate a new PowPod from the given msg, pk, signature
-        // This is the line
-        let (count, input, midput, output) = (
-            last_iteration_values.count,
-            last_iteration_values.input,
-            last_iteration_values.midput,
-            last_iteration_values.output,
-        );
-        let pow_pod = timed!(
-            "PowPod::new",
-            PowPod::new(
-                &params,
-                &vd_set,
-                count,
-                input,
-                midput,
-                output,
-                proof_with_pis
-            )
-            .unwrap()
-        );
-        Ok((Box::new(pow_pod), params, vd_set, count, input, output))
-    }
-
-    #[test]
-    fn test_pow_pod() -> Result<()> {
         let n_iters: usize = 2;
-        let starting_input = RawValue::from(hash_str("starting input"));
-        let (pow_pod, params, vd_set, count, input, output) =
-            get_test_pow_pod(n_iters, starting_input)?;
+        let input = RawValue::from(hash_str("starting input"));
 
+        let pow_pod = PowPod::new(&params, n_iters, input)?;
         pow_pod.verify().unwrap();
 
-        // wrap the pow_pod in a 'MainPod' (RecursivePod)
+        // wrap the pow_pod in a 'MainPod'
         let main_pow_pod = frontend::MainPod {
-            pod: pow_pod.clone(),
+            pod: Box::new(pow_pod.clone()),
             public_statements: pow_pod.pub_statements(),
             params: params.clone(),
         };
 
         let expected_count = F::from_canonical_u64(n_iters as u64);
-        let expected_input = starting_input.clone();
-        let expected_output = output;
+        let expected_input = input.clone();
+        let expected_output = pow_pod.output;
 
         // now generate a new MainPod from the pow_pod
-        let mut main_pod_builder = frontend::MainPodBuilder::new(&params, &vd_set);
+        let mut main_pod_builder = frontend::MainPodBuilder::new(&params, &pow_pod.vd_set);
         main_pod_builder.add_pod(main_pow_pod.clone());
 
         // add operation that ensures that the count is as expected in the PowPod
         main_pod_builder
             .pub_op(frontend::Operation::eq(
                 expected_count.to_canonical_u64() as i64,
-                count.to_canonical_u64() as i64,
-                // RawValue([expected_count, F::ZERO, F::ZERO, F::ZERO]).into(),
-                // RawValue([count, F::ZERO, F::ZERO, F::ZERO]).into(),
+                pow_pod.count.to_canonical_u64() as i64,
             ))
             .unwrap();
         main_pod_builder
-            .pub_op(frontend::Operation::eq(expected_input, input))
+            .pub_op(frontend::Operation::eq(expected_input, pow_pod.input))
             .unwrap();
         main_pod_builder
-            .pub_op(frontend::Operation::eq(expected_output, output))
+            .pub_op(frontend::Operation::eq(expected_output, pow_pod.output))
             .unwrap();
 
         // TODO WIP
