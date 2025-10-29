@@ -1,19 +1,10 @@
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::collections::{HashMap, HashSet};
 
-use commitlib::{IngredientsDef, ItemDef, build_st_item_def, build_st_item_key};
-use pod2::{
-    frontend::{MainPod, MainPodBuilder},
-    middleware::{
-        CustomPredicateBatch, EMPTY_VALUE, Hash, MainPodProver, Params, RawValue, Statement,
-        ToFields, VDSet, Value,
-    },
-};
-use pod2utils::{macros::BuildContext, st_custom};
+use commitlib::{IngredientsDef, ItemDef};
+use pod2::middleware::{EMPTY_VALUE, Hash, Params, RawValue, Statement, ToFields, Value};
+use pod2utils::{macros::BuildContext, set, st_custom};
 
-use crate::constants::COPPER_BLUEPRINT;
+use crate::constants::{BRONZE_BLUEPRINT, COPPER_BLUEPRINT, TIN_BLUEPRINT};
 
 // Reusable recipe for an item to be mined, not including the variable
 // cryptographic values.
@@ -63,68 +54,100 @@ impl MiningRecipe {
     }
 }
 
-// Adds statements to MainPodBilder to represent Copper as additions to
-// already-existing generic item statements.
-// Builds the following public predicates: IsCopper
-// Returns the Statement object for IsCopper for use in further statements.
-pub fn build_st_is_copper(
-    ctx: &mut BuildContext,
-    params: &Params,
-    item_def: ItemDef,
-    st_item_def: Statement,
-) -> anyhow::Result<Statement> {
-    // Build IsCopper(item)
-    let st_is_copper = st_custom!(ctx,
-        IsCopper() = (
-            st_item_def,
-            Equal(item_def.work, EMPTY_VALUE),
-            Equal(item_def.ingredients.inputs_set(params)?, EMPTY_VALUE),
-            DictContains(item_def.ingredients.dict(params)?, "blueprint", COPPER_BLUEPRINT)
-        ))?;
-
-    Ok(st_is_copper)
+pub struct CraftBuilder<'a> {
+    pub ctx: BuildContext<'a>,
+    pub params: &'a Params,
 }
 
-// Builds the private POD to store locally for use in further crafting.
-// Contains the following public predicates: ItemDef, ItemKey, IsCopper
-pub fn prove_copper(
-    item_def: ItemDef,
+impl<'a> CraftBuilder<'a> {
+    pub fn new(ctx: BuildContext<'a>, params: &'a Params) -> Self {
+        Self { ctx, params }
+    }
 
-    // TODO: All the args below might belong in a ItemBuilder object
-    batches: &[Arc<CustomPredicateBatch>],
-    params: &Params,
-    prover: &dyn MainPodProver,
-    vd_set: &VDSet,
-) -> anyhow::Result<MainPod> {
-    let mut builder = MainPodBuilder::new(&Default::default(), vd_set);
+    // Adds statements to MainPodBilder to represent Copper as additions to
+    // already-existing generic item statements.
+    // Builds the following public predicates: IsCopper
+    // Returns the Statement object for IsCopper for use in further statements.
+    pub fn st_is_copper(
+        &mut self,
+        item_def: ItemDef,
+        st_item_def: Statement,
+    ) -> anyhow::Result<Statement> {
+        // Build IsCopper(item)
+        Ok(st_custom!(self.ctx,
+            IsCopper() = (
+                st_item_def,
+                Equal(item_def.work, EMPTY_VALUE),
+                Equal(item_def.ingredients.inputs_set(self.params)?, EMPTY_VALUE),
+                DictContains(item_def.ingredients.dict(self.params)?, "blueprint", COPPER_BLUEPRINT)
+            ))?)
+    }
 
-    let mut ctx = BuildContext {
-        builder: &mut builder,
-        batches,
-    };
-    let st_item_def = build_st_item_def(&mut ctx, params, item_def.clone())?;
-    ctx.builder.reveal(&st_item_def);
-    let st_item_key = build_st_item_key(&mut ctx, st_item_def.clone())?;
-    ctx.builder.reveal(&st_item_key);
-    let st_is_copper = build_st_is_copper(&mut ctx, params, item_def, st_item_def)?;
-    ctx.builder.reveal(&st_is_copper);
+    pub fn st_is_tin(
+        &mut self,
+        item_def: ItemDef,
+        st_item_def: Statement,
+    ) -> anyhow::Result<Statement> {
+        // Build IsTin(item)
+        Ok(st_custom!(self.ctx,
+            IsTin() = (
+                st_item_def,
+                Equal(item_def.ingredients.inputs_set(self.params)?, EMPTY_VALUE),
+                DictContains(item_def.ingredients.dict(self.params)?, "blueprint", TIN_BLUEPRINT)
+            ))?)
+    }
 
-    // Prove MainPOD
-    Ok(builder.prove(prover)?)
+    fn st_bronze_inputs(
+        &mut self,
+        st_is_tin: Statement,
+        st_is_copper: Statement,
+    ) -> anyhow::Result<Statement> {
+        let tin = st_is_tin.args()[0].literal().unwrap();
+        let copper = st_is_copper.args()[0].literal().unwrap();
+        let s1 = set!(self.params.max_depth_mt_containers, tin).unwrap();
+        let mut inputs = s1.clone();
+        inputs.insert(&copper).unwrap();
+        Ok(st_custom!(self.ctx,
+            BronzeInputs() = (
+                SetInsert(s1, EMPTY_VALUE, tin),
+                SetInsert(inputs, s1, copper),
+                st_is_tin,
+                st_is_copper
+            ))?)
+    }
+
+    pub fn st_is_bronze(
+        &mut self,
+        item_def: ItemDef,
+        st_item_def: Statement,
+        st_is_tin: Statement,
+        st_is_copper: Statement,
+    ) -> anyhow::Result<Statement> {
+        let st_bronze_inputs = self.st_bronze_inputs(st_is_tin, st_is_copper)?;
+        // Build IsBronze(item)
+        Ok(st_custom!(self.ctx,
+            IsBronze() = (
+                st_item_def,
+                DictContains(item_def.ingredients.dict(self.params)?, "blueprint", BRONZE_BLUEPRINT),
+                st_bronze_inputs
+            ))?)
+    }
 }
 
 #[cfg(test)]
 mod tests {
 
-    use std::collections::HashMap;
+    use std::{collections::HashMap, sync::Arc};
 
-    use commitlib::{
-        predicates::CommitPredicates, prove_st_commit_creation, util::set_from_hashes,
-    };
+    use commitlib::{ItemBuilder, ItemDef, predicates::CommitPredicates, util::set_from_hashes};
     use pod2::{
         backends::plonky2::mock::mainpod::MockProver,
+        frontend::{MainPod, MainPodBuilder},
         lang::parse,
-        middleware::{RawValue, hash_value},
+        middleware::{
+            CustomPredicateBatch, EMPTY_VALUE, MainPodProver, Params, RawValue, VDSet, Value,
+            containers::Set, hash_value,
+        },
     };
 
     use super::*;
@@ -136,6 +159,62 @@ mod tests {
 
     // Seed of 2612=0xA34 is a match with hash 6647892930992163=0x000A7EE9D427E832.
     const COPPER_START_SEED: i64 = 0x9C4;
+
+    // Builds the private POD to store locally for use in further crafting.
+    // Contains the following public predicates: ItemDef, ItemKey, IsCopper
+    fn prove_copper(
+        item_def: ItemDef,
+
+        // TODO: All the args below might belong in a ItemBuilder object
+        batches: &[Arc<CustomPredicateBatch>],
+        params: &Params,
+        prover: &dyn MainPodProver,
+        vd_set: &VDSet,
+    ) -> anyhow::Result<MainPod> {
+        let mut builder = MainPodBuilder::new(&Default::default(), vd_set);
+        let mut item_builder = ItemBuilder::new(BuildContext::new(&mut builder, batches), params);
+        let st_item_def = item_builder.st_item_def(item_def.clone())?;
+        item_builder.ctx.builder.reveal(&st_item_def);
+        let st_item_key = item_builder.st_item_key(st_item_def.clone())?;
+        item_builder.ctx.builder.reveal(&st_item_key);
+
+        let mut craft_builder = CraftBuilder::new(BuildContext::new(&mut builder, batches), params);
+        let st_is_copper = craft_builder.st_is_copper(item_def, st_item_def)?;
+        craft_builder.ctx.builder.reveal(&st_is_copper);
+
+        // Prove MainPOD
+        Ok(builder.prove(prover)?)
+    }
+
+    // Builds the public POD to commit a creation operation on-chain, with the only
+    // public predicate being CommitCreation.  Uses a given created_items_set as
+    // the root to prove that inputs were previously created.
+    fn prove_st_commit_creation(
+        item_def: ItemDef,
+        created_items: Set,
+        item_main_pod: MainPod,
+
+        // TODO: All the args below might belong in a ItemBuilder object
+        batches: &[Arc<CustomPredicateBatch>],
+        params: &Params,
+        prover: &dyn MainPodProver,
+        vd_set: &VDSet,
+    ) -> anyhow::Result<MainPod> {
+        let mut builder = MainPodBuilder::new(&Default::default(), vd_set);
+
+        // TODO: Consider a more robust lookup for this which doesn't depend on index.
+        let st_item_def = item_main_pod.public_statements[0].clone();
+        builder.add_pod(item_main_pod);
+
+        let mut item_builder = ItemBuilder::new(BuildContext::new(&mut builder, batches), params);
+        let (st_nullifier, _) = item_builder.st_nullifiers(vec![])?;
+        let st_commit_creation =
+            item_builder.st_commit_creation(item_def, st_nullifier, created_items, st_item_def)?;
+        builder.reveal(&st_commit_creation);
+
+        // Prove MainPOD
+        Ok(builder.prove(prover)?)
+    }
 
     fn check_matched_wildcards(matched: HashMap<String, Value>, expected: HashMap<String, Value>) {
         assert_eq!(matched.len(), expected.len(), "len");

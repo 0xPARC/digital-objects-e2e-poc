@@ -10,9 +10,7 @@ use std::path::{Path, PathBuf};
 use anyhow::bail;
 use app::{Config, eth::send_payload, log_init};
 use clap::{Parser, Subcommand};
-use commitlib::{
-    ItemDef, build_st_commit_creation, build_st_item_def, predicates::CommitPredicates,
-};
+use commitlib::{ItemBuilder, ItemDef, predicates::CommitPredicates};
 use common::{
     load_dotenv,
     payload::{Payload, PayloadProof},
@@ -20,7 +18,7 @@ use common::{
 };
 use craftlib::{
     constants::{COPPER_BLUEPRINT, COPPER_MINING_MAX, COPPER_WORK},
-    item::{MiningRecipe, build_st_is_copper},
+    item::{CraftBuilder, MiningRecipe},
     predicates::ItemPredicates,
 };
 use pod2::{
@@ -158,16 +156,15 @@ fn craft_item(params: &Params, key: Value, recipe: &str, output: &Path) -> anyho
 
     let mut builder = MainPodBuilder::new(&Default::default(), vd_set);
 
-    let mut ctx = BuildContext {
-        builder: &mut builder,
-        batches: &batches,
-    };
-    let st_item_def = build_st_item_def(&mut ctx, params, item_def.clone())?;
+    let mut item_builder = ItemBuilder::new(BuildContext::new(&mut builder, &batches), params);
+    let st_item_def = item_builder.st_item_def(item_def.clone())?;
 
+    let mut craft_builder = CraftBuilder::new(BuildContext::new(&mut builder, &batches), params);
     let st_craft = match recipe {
-        "copper" => build_st_is_copper(&mut ctx, params, item_def.clone(), st_item_def)?,
+        "copper" => craft_builder.st_is_copper(item_def.clone(), st_item_def)?,
         unknown => unreachable!("recipe {unknown}"),
     };
+    let CraftBuilder { ctx, .. } = craft_builder;
     ctx.builder.reveal(&st_craft);
     let prover = &Prover {};
     let pod = ctx.builder.prove(prover)?;
@@ -195,21 +192,18 @@ async fn commit_item(params: &Params, cfg: &Config, input: &Path) -> anyhow::Res
 
     let mut builder = MainPodBuilder::new(&Default::default(), vd_set);
 
-    let mut ctx = BuildContext {
-        builder: &mut builder,
-        batches,
-    };
-    let st_item_def = build_st_item_def(&mut ctx, params, crafted_item.def.clone())?;
-    let st_commit_creation = build_st_commit_creation(
-        &mut ctx,
-        params,
+    let mut item_builder = ItemBuilder::new(BuildContext::new(&mut builder, batches), params);
+    let st_item_def = item_builder.st_item_def(crafted_item.def.clone())?;
+    let (st_nullifier, _) = item_builder.st_nullifiers(vec![])?;
+    let st_commit_creation = item_builder.st_commit_creation(
         crafted_item.def.clone(),
+        st_nullifier,
         created_items.clone(),
         st_item_def,
     )?;
-    ctx.builder.reveal(&st_commit_creation);
+    builder.reveal(&st_commit_creation);
     let prover = &Prover {};
-    let pod = ctx.builder.prove(prover)?;
+    let pod = builder.prove(prover)?;
     pod.pod.verify().unwrap();
 
     let shrunk_main_pod_build = ShrunkMainPodSetup::new(params)
