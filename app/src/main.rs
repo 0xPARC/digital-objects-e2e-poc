@@ -220,7 +220,7 @@ impl Helper {
             item_builder.ctx.builder.reveal(&st_nullifiers);
             // Propagate sts_input_craft for use in st_craft
             for st_input_craft in &sts_input_craft {
-                item_builder.ctx.builder.reveal(&st_input_craft);
+                item_builder.ctx.builder.reveal(st_input_craft);
             }
 
             println!("Proving nullifiers_pod...");
