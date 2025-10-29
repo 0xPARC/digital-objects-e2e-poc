@@ -310,7 +310,7 @@ fn craft_item(
     inputs: &[PathBuf],
 ) -> anyhow::Result<()> {
     let key = rand_raw_value();
-    println!("About to mine \"{recipe}\" with key {key:#}");
+    println!("About to craft \"{recipe}\" with key {key:#}");
     let (item_def, input_items) = match recipe {
         Recipe::Copper => {
             if !inputs.is_empty() {
