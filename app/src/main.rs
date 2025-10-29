@@ -94,13 +94,11 @@ enum Commands {
     Commit {
         #[arg(long, value_name = "FILE")]
         input: PathBuf,
-        // TODO: Add more flags maybe
     },
     /// Verify a committed item
     Verify {
         #[arg(long, value_name = "FILE")]
         input: PathBuf,
-        // TODO: Add more flags maybe
     },
 }
 
@@ -373,9 +371,6 @@ fn craft_item(
     let input_item_pods: Vec<_> = input_items.iter().map(|item| &item.pod).cloned().collect();
     let pod = helper.make_item_pod(recipe, item_def.clone(), input_item_pods)?;
 
-    // TODO: In CraftedItem we should store everything required to
-    // - Commit the itemp
-    // - Craft a new item that consumes is so that the crafted item can later be committed
     let crafted_item = CraftedItem { pod, def: item_def };
     let mut file = std::fs::File::create(output)?;
     serde_json::to_writer(&mut file, &crafted_item)?;
@@ -400,7 +395,6 @@ async fn commit_item(params: &Params, cfg: &Config, input: &Path) -> anyhow::Res
         .expect("successful build");
     let shrunk_main_pod_proof = shrink_compress_pod(&shrunk_main_pod_build, pod.clone()).unwrap();
 
-    // TODO: Use set in Payload.
     let st_commit_creation = pod.public_statements[0].clone();
     let nullifier_set = set_from_value(&st_commit_creation.args()[1].literal()?)?;
     let nullifiers: Vec<RawValue> = nullifier_set.set().iter().map(|v| v.raw()).collect();
