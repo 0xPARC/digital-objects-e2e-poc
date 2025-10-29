@@ -64,7 +64,7 @@ impl FromStr for Recipe {
             "copper" => Ok(Self::Copper),
             "tin" => Ok(Self::Tin),
             "bronze" => Ok(Self::Bronze),
-            _ => Err(anyhow!("unknwon recipe {s}")),
+            _ => Err(anyhow!("unknown recipe {s}")),
         }
     }
 }
@@ -134,7 +134,7 @@ async fn main() -> anyhow::Result<()> {
             let item_hex: String = format!("{item:#}");
             let (epoch, _): (u64, RawValue) =
                 reqwest::blocking::get(format!("{}/created_items_root", cfg.sync_url,))?.json()?;
-            println!("Verifying committment of item {item:#} via synchronizer at epoch {epoch}");
+            println!("Verifying commitment of item {item:#} via synchronizer at epoch {epoch}");
             let (epoch, mtp): (u64, MerkleProof) = reqwest::blocking::get(format!(
                 "{}/created_item/{}",
                 cfg.sync_url,
@@ -253,7 +253,7 @@ impl Helper {
 
         builder.reveal(&st_item_key); // 0: Required for consuming via Nullifiers
         builder.reveal(&st_item_def); // 1: Required for committing via CommitCreation
-        builder.reveal(&st_nullifiers); // 2: Required for comitting via CommitCreation
+        builder.reveal(&st_nullifiers); // 2: Required for committing via CommitCreation
         builder.reveal(&st_craft); // 3: App layer predicate
 
         println!("Proving item_pod");
