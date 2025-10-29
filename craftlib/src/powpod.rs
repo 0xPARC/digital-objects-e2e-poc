@@ -49,7 +49,6 @@ use plonky2::{
 use pod2::{
     backends::plonky2::{
         Error, Result as BResult,
-        basetypes::DEFAULT_VD_LIST,
         circuits::{
             common::{
                 CircuitBuilderPod, PredicateTarget, StatementArgTarget, StatementTarget,
@@ -67,7 +66,8 @@ use pod2::{
     },
     measure_gates_begin, measure_gates_end, middleware,
     middleware::{
-        C, D, F, HASH_SIZE, Hash, IntroPredicateRef, Params, Pod, Proof, RawValue, ToFields, VDSet,
+        C, D, EMPTY_HASH, F, HASH_SIZE, Hash, IntroPredicateRef, Params, Pod, Proof, RawValue,
+        ToFields, VDSet,
     },
     timed,
 };
@@ -76,7 +76,7 @@ use serde::{Deserialize, Serialize};
 // ARITY is assumed to be one, this also assumed at the PowInnerCircuit.
 const ARITY: usize = 1;
 const NUM_PUBLIC_INPUTS: usize = 9; // 9: count + input + output
-const POW_POD_TYPE: (usize, &'static str) = (2001, "PoW");
+const POW_POD_TYPE: (usize, &'static str) = (2001, "Pow");
 
 static STANDARD_POW_POD_DATA: std::sync::LazyLock<(PowPodTarget, CircuitData<F, C, D>)> =
     std::sync::LazyLock::new(|| build().expect("successful build"));
@@ -117,7 +117,7 @@ pub struct PowPod {
     pub params: Params,
     pub count: F,
     pub input: RawValue,
-    pub output: RawValue,
+    pub output: RawValue, // output = H(H(H( ...H(input) ))) (count times)
 
     pub vd_set: VDSet,
     pub statements_hash: Hash,
@@ -129,23 +129,11 @@ pub struct PowPod {
 #[allow(dead_code)]
 impl PowPod {
     /// returns a PowPod for the given n_iters and input.
-    pub fn new(params: &Params, n_iters: usize, input: RawValue) -> Result<PowPod> {
+    pub fn new(params: &Params, vd_set: VDSet, n_iters: usize, input: RawValue) -> Result<PowPod> {
         let (last_iteration_values, proof_with_pis): (
             PowInnerCircuitInput,
             ProofWithPublicInputs<F, C, D>,
         ) = PowPod::get_pow_recursive_circuit_proof(n_iters, input)?;
-
-        // prepare the VDSet
-        let mut vds: Vec<VerifierOnlyCircuitData<C, D>> = DEFAULT_VD_LIST.clone();
-        vds.push(STANDARD_POW_POD_DATA.1.verifier_only.clone());
-        vds.push(
-            POW_RECURSIVE_CIRCUIT
-                .1
-                .verifier_data()
-                .verifier_only
-                .clone(),
-        );
-        let vd_set = VDSet::new(params.max_depth_mt_vds, &vds)?;
 
         // generate a new PowPod from the given count, input, output
         let (count, input, output) = (
@@ -155,7 +143,7 @@ impl PowPod {
         );
         let pow_pod = timed!(
             "PowPod::new",
-            PowPod::construct(&params, &vd_set, count, input, output, proof_with_pis)?
+            PowPod::construct(&params, vd_set, count, input, output, proof_with_pis)?
         );
 
         #[cfg(test)] // sanity check
@@ -168,7 +156,7 @@ impl PowPod {
     /// PowPod which verifies it.
     fn construct(
         params: &Params,
-        vd_set: &VDSet,
+        vd_set: VDSet,
         count: F,
         input: RawValue,
         output: RawValue,
@@ -370,15 +358,8 @@ fn pub_self_statements(count: F, input: RawValue, output: RawValue) -> Vec<middl
     vec![middleware::Statement::Intro(
         IntroPredicateRef {
             name: POW_POD_TYPE.1.to_string(),
-            args_len: NUM_PUBLIC_INPUTS,
-            verifier_data_hash: Hash(
-                POW_RECURSIVE_CIRCUIT
-                    .1
-                    .verifier_data()
-                    .verifier_only
-                    .circuit_digest
-                    .elements,
-            ),
+            args_len: 3,
+            verifier_data_hash: EMPTY_HASH,
         },
         vec![
             RawValue([count, F::ZERO, F::ZERO, F::ZERO]).into(),
@@ -410,12 +391,7 @@ fn pub_self_statements_target(
         .collect();
 
     let verifier_data_hash = builder.constant_hash(HashOut {
-        elements: POW_RECURSIVE_CIRCUIT
-            .1
-            .verifier_data()
-            .verifier_only
-            .circuit_digest
-            .elements,
+        elements: EMPTY_HASH.0,
     });
     let predicate = PredicateTarget::new_intro(builder, verifier_data_hash);
     vec![StatementTarget { predicate, args }]
@@ -568,8 +544,12 @@ impl InnerCircuit for PowInnerCircuit {
 
 #[cfg(test)]
 mod tests {
-    use plonky2::{field::types::PrimeField64, plonk::circuit_data::CircuitConfig};
-    use pod2::{frontend, measure_gates_print, middleware::hash_str};
+    use plonky2::plonk::circuit_data::CircuitConfig;
+    use pod2::{
+        backends::plonky2::basetypes::DEFAULT_VD_SET,
+        frontend, measure_gates_print,
+        middleware::{Value, hash_str},
+    };
 
     use super::*;
 
@@ -742,8 +722,11 @@ mod tests {
         let n_iters: usize = 2;
         let input = RawValue::from(hash_str("starting input"));
 
-        let pow_pod = PowPod::new(&params, n_iters, input)?;
+        let vd_set = &*DEFAULT_VD_SET;
+        let pow_pod = PowPod::new(&params, vd_set.clone(), n_iters, input)?;
         pow_pod.verify()?;
+
+        println!("{:#}", pow_pod.verifier_data_hash());
 
         // wrap the pow_pod in a 'MainPod'
         let main_pow_pod = frontend::MainPod {
@@ -752,28 +735,16 @@ mod tests {
             params: params.clone(),
         };
 
-        let expected_count = F::from_canonical_u64(n_iters as u64);
+        // let expected_count = F::from_canonical_u64(n_iters as u64);
+        let expected_count = Value::from(n_iters as i64);
         let expected_input = input.clone();
-        let expected_output = pow_pod.output;
+        // let expected_output = pow_pod.output;
 
         // now generate a new MainPod from the pow_pod
-        let mut main_pod_builder = frontend::MainPodBuilder::new(&params, &pow_pod.vd_set);
+        let mut main_pod_builder = frontend::MainPodBuilder::new(&params, &vd_set);
         main_pod_builder.add_pod(main_pow_pod.clone());
 
-        // add operation that ensures that the count is as expected in the PowPod
-        main_pod_builder.pub_op(frontend::Operation::eq(
-            expected_count.to_canonical_u64() as i64,
-            pow_pod.count.to_canonical_u64() as i64,
-        ))?;
-        main_pod_builder.pub_op(frontend::Operation::eq(expected_input, pow_pod.input))?;
-        main_pod_builder.pub_op(frontend::Operation::eq(expected_output, pow_pod.output))?;
-
-        // TODO WIP
-        // perpetuate the count
-        // main_pod_builder
-        //     .pub_op(frontend::Operation::copy(
-        //         main_pow_pod.public_statements[0].clone(),
-        //     ))?;
+        main_pod_builder.reveal(&main_pow_pod.public_statements[0]);
 
         let mut prover = pod2::backends::plonky2::mock::mainpod::MockProver {};
         let pod = main_pod_builder.prove(&mut prover)?;
@@ -785,10 +756,16 @@ mod tests {
             "main_pod_builder.prove",
             main_pod_builder.prove(&mut prover)?
         );
-        let pod = (main_pod.pod as Box<dyn std::any::Any>)
+        let pod: Box<mainpod::MainPod> = (main_pod.pod as Box<dyn std::any::Any>)
             .downcast::<mainpod::MainPod>()
             .unwrap();
         pod.verify()?;
+
+        let st_pow = pod.pub_statements()[0].clone();
+        let count = st_pow.args()[0].literal()?;
+        let input = st_pow.args()[1].literal()?;
+        assert_eq!(count, expected_count);
+        assert_eq!(input, Value::from(expected_input));
 
         Ok(())
     }

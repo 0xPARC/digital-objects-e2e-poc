@@ -53,5 +53,5 @@ warp = "0.3"
 # pod2 = { git = "https://github.com/0xPARC/pod2?rev=main", rev = "707c14db14d03485c68045a903771591e533ba59" }
 pod2 = { path="../pod2_polish-interf", default-features = false, features = ["backend_plonky2", "disk_cache", "zk"]}
 
-# [profile.release]
-# debug = true
+[profile.release]
+debug = true
