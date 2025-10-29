@@ -6,19 +6,18 @@
 //!   RUST_LOG=app=debug cargo run --release -p app -- commit --input ./item0
 
 use std::{
-    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     sync::Arc,
 };
 
-use alloy::network::any;
 use anyhow::bail;
 use app::{Config, eth::send_payload, log_init};
 use clap::{Parser, Subcommand};
-use commitlib::{IngredientsDef, ItemBuilder, ItemDef, predicates::CommitPredicates};
+use commitlib::{ItemBuilder, ItemDef, predicates::CommitPredicates};
 use common::{
     load_dotenv,
     payload::{Payload, PayloadProof},
+    set_from_value,
     shrink::{ShrunkMainPodSetup, shrink_compress_pod},
 };
 use craftlib::{
@@ -30,13 +29,10 @@ use craftlib::{
     predicates::ItemPredicates,
 };
 use pod2::{
-    backends::plonky2::{
-        mainpod::Prover, mock::mainpod::MockProver, primitives::merkletree::MerkleProof,
-    },
+    backends::plonky2::{mainpod::Prover, primitives::merkletree::MerkleProof},
     frontend::{MainPod, MainPodBuilder},
     middleware::{
-        CustomPredicateBatch, DEFAULT_VD_SET, MainPodProver, Params, RawValue, VDSet, Value,
-        containers::Set,
+        CustomPredicateBatch, DEFAULT_VD_SET, Params, RawValue, VDSet, Value, containers::Set,
     },
 };
 use pod2utils::macros::BuildContext;
@@ -163,7 +159,8 @@ impl Helper {
 
     fn make_item_pod(
         &self,
-        ingredients_def: IngredientsDef,
+        recipe: &str,
+        item_def: ItemDef,
         input_item_key_pods: Vec<MainPod>,
     ) -> anyhow::Result<MainPod> {
         let prover = &Prover {};
@@ -172,16 +169,12 @@ impl Helper {
             ItemBuilder::new(BuildContext::new(&mut builder, &self.batches), &self.params);
 
         let mut sts_item_key = Vec::new();
-        for input_item_key_pod in input_item_key_pods {
+        for input_item_key_pod in input_item_key_pods.clone() {
             let st_item_key = input_item_key_pod.pod.pub_statements()[0].clone();
             sts_item_key.push(st_item_key);
             item_builder.ctx.builder.add_pod(input_item_key_pod);
         }
 
-        let item_def = ItemDef {
-            ingredients: ingredients_def,
-            work: Value::from(42).raw(),
-        };
         let (st_nullifiers, _nullifiers) = if sts_item_key.is_empty() {
             item_builder.st_nullifiers(sts_item_key).unwrap()
         } else {
@@ -200,16 +193,34 @@ impl Helper {
             (st_nullifiers, nullifiers)
         };
 
-        // TODO: expose the statements required for latter committing and consuming.  For example
+        // TODO: expose the statements required for later committing and consuming.  For example
         // expose:
         // - IsCopper
         // - ItemKey
-        let mut builder = MainPodBuilder::new(&self.params, &self.vd_set);
         let mut item_builder =
             ItemBuilder::new(BuildContext::new(&mut builder, &self.batches), &self.params);
-        let st_item_def = item_builder.st_item_def(item_def).unwrap();
-        let st_item_key = item_builder.st_item_key(st_item_def).unwrap();
-        item_builder.ctx.builder.reveal(&st_item_key);
+        let st_item_def = item_builder.st_item_def(item_def.clone()).unwrap();
+        let st_item_key = item_builder.st_item_key(st_item_def.clone()).unwrap();
+
+        let mut craft_builder =
+            CraftBuilder::new(BuildContext::new(&mut builder, &self.batches), &self.params);
+        let st_craft = match recipe {
+            "copper" => craft_builder.st_is_copper(item_def, st_item_def.clone())?,
+            "tin" => craft_builder.st_is_tin(item_def, st_item_def.clone())?,
+            // TODO
+            "bronze" => craft_builder.st_is_bronze(
+                item_def,
+                st_item_def.clone(),
+                input_item_key_pods[0].public_statements[3].clone(),
+                input_item_key_pods[1].public_statements[3].clone(),
+            )?,
+            unknown => unreachable!("recipe {unknown}"),
+        };
+
+        builder.reveal(&st_item_key);
+        builder.reveal(&st_item_def);
+        builder.reveal(&st_nullifiers);
+        builder.reveal(&st_craft);
 
         println!("Proving item_key_pod for...");
         let item_key_pod = builder.prove(prover).unwrap();
@@ -217,10 +228,36 @@ impl Helper {
 
         Ok(item_key_pod)
     }
+
+    fn make_commitment_pod(
+        &self,
+        crafted_item: CraftedItem,
+        created_items: Set,
+    ) -> anyhow::Result<MainPod> {
+        let mut builder = MainPodBuilder::new(&self.params, &self.vd_set);
+        builder.add_pod(crafted_item.pod.clone());
+
+        let mut item_builder =
+            ItemBuilder::new(BuildContext::new(&mut builder, &self.batches), &self.params);
+        let st_item_def = crafted_item.pod.public_statements[1].clone();
+        let st_nullifier = crafted_item.pod.public_statements[2].clone();
+        let st_commit_creation = item_builder.st_commit_creation(
+            crafted_item.def.clone(),
+            st_nullifier,
+            created_items.clone(),
+            st_item_def,
+        )?;
+        builder.reveal(&st_commit_creation);
+        let prover = &Prover {};
+        let pod = builder.prove(prover)?;
+        pod.pod.verify().unwrap();
+
+        Ok(pod)
+    }
 }
 
 fn load_item(input: &Path) -> anyhow::Result<CraftedItem> {
-    let mut file = std::fs::File::open(&input)?;
+    let mut file = std::fs::File::open(input)?;
     let crafted_item: CraftedItem = serde_json::from_reader(&mut file)?;
     crafted_item.pod.pod.verify()?;
     Ok(crafted_item)
@@ -233,12 +270,12 @@ fn craft_item(
     output: &Path,
     inputs: &[PathBuf],
 ) -> anyhow::Result<()> {
-    println!("inputs: {:?}", inputs);
+    println!("inputs: {inputs:?}");
     let key = key.raw();
     println!("About to mine \"{recipe}\"");
     let (item_def, input_items) = match recipe {
         "copper" => {
-            if inputs.len() != 0 {
+            if !inputs.is_empty() {
                 bail!("{recipe} takes 0 inputs");
             }
             let mining_recipe = MiningRecipe::new(COPPER_BLUEPRINT.to_string(), &[]);
@@ -254,7 +291,7 @@ fn craft_item(
             )
         }
         "tin" => {
-            if inputs.len() != 0 {
+            if !inputs.is_empty() {
                 bail!("{recipe} takes 0 inputs");
             }
             let mining_recipe = MiningRecipe::new(TIN_BLUEPRINT.to_string(), &[]);
@@ -293,35 +330,12 @@ fn craft_item(
         unknown => bail!("Unknown recipe for \"{unknown}\""),
     };
 
-    let helper = Helper::new(params.clone(), *DEFAULT_VD_SET);
+    let helper = Helper::new(params.clone(), DEFAULT_VD_SET.clone());
     let input_item_pods: Vec<_> = input_items.iter().map(|item| &item.pod).cloned().collect();
-    let item_pod = helper.make_item_pod(item_def.ingredients, input_item_pods)?;
-
-    let commit_preds = CommitPredicates::compile(params);
-    let mut batches = commit_preds.defs.batches.clone();
-    let item_preds = ItemPredicates::compile(params, &commit_preds);
-    batches.extend_from_slice(&item_preds.defs.batches);
-
-    // TODO
-    let vd_set = &*DEFAULT_VD_SET;
-
-    let mut builder = MainPodBuilder::new(&Default::default(), vd_set);
-
-    let mut item_builder = ItemBuilder::new(BuildContext::new(&mut builder, &batches), params);
-    let st_item_def = item_builder.st_item_def(item_def.clone())?;
-
-    let mut craft_builder = CraftBuilder::new(BuildContext::new(&mut builder, &batches), params);
-    let st_craft = match recipe {
-        "copper" => craft_builder.st_is_copper(item_def.clone(), st_item_def)?,
-        unknown => unreachable!("recipe {unknown}"),
-    };
-    builder.reveal(&st_craft);
-    let prover = &Prover {};
-    let pod = builder.prove(prover)?;
-    pod.pod.verify().unwrap();
+    let pod = helper.make_item_pod(recipe, item_def.clone(), input_item_pods)?;
 
     // TODO: In CraftedItem we should store everything required to
-    // - Commit the item
+    // - Commit the itemp
     // - Craft a new item that consumes is so that the crafted item can later be committed
     let crafted_item = CraftedItem { pod, def: item_def };
     let mut file = std::fs::File::create(output)?;
@@ -338,33 +352,18 @@ async fn commit_item(params: &Params, cfg: &Config, input: &Path) -> anyhow::Res
     let created_items: Set =
         reqwest::blocking::get(format!("{}/created_items", cfg.sync_url))?.json()?;
 
-    let commit_preds = CommitPredicates::compile(params);
-    let batches = &commit_preds.defs.batches;
-    // TODO
-    let vd_set = &*DEFAULT_VD_SET;
+    let helper = Helper::new(params.clone(), DEFAULT_VD_SET.clone());
 
-    let mut builder = MainPodBuilder::new(&Default::default(), vd_set);
-
-    let mut item_builder = ItemBuilder::new(BuildContext::new(&mut builder, batches), params);
-    let st_item_def = item_builder.st_item_def(crafted_item.def.clone())?;
-    let (st_nullifier, _) = item_builder.st_nullifiers(vec![])?;
-    let st_commit_creation = item_builder.st_commit_creation(
-        crafted_item.def.clone(),
-        st_nullifier,
-        created_items.clone(),
-        st_item_def,
-    )?;
-    builder.reveal(&st_commit_creation);
-    let prover = &Prover {};
-    let pod = builder.prove(prover)?;
-    pod.pod.verify().unwrap();
+    let pod = helper.make_commitment_pod(crafted_item.clone(), created_items.clone())?;
 
     let shrunk_main_pod_build = ShrunkMainPodSetup::new(params)
         .build()
         .expect("successful build");
     let shrunk_main_pod_proof = shrink_compress_pod(&shrunk_main_pod_build, pod.clone()).unwrap();
 
-    let nullifiers = vec![]; // TODO
+    // TODO: Use set in Payload.
+    let nullifier_set = set_from_value(&pod.public_statements[0].clone().args()[1].literal()?)?;
+    let nullifiers: Vec<RawValue> = nullifier_set.set().iter().map(|v| v.raw()).collect();
     let payload_bytes = Payload {
         proof: PayloadProof::Plonky2(Box::new(shrunk_main_pod_proof.clone())),
         item: RawValue::from(crafted_item.def.item_hash(params)?),

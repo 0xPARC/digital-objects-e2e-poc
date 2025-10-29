@@ -229,7 +229,7 @@ mod tests {
     #[test]
     fn test_mine_copper() -> anyhow::Result<()> {
         let params = Params::default();
-        let mining_recipe = MiningRecipe::new(COPPER_BLUEPRINT.to_string());
+        let mining_recipe = MiningRecipe::new(COPPER_BLUEPRINT.to_string(), &[]);
         let key = RawValue::from(0xBADC0DE);
 
         // Seed of 2612=0xA34 is a match with hash 6647892930992163=0x000A7EE9D427E832.
@@ -264,7 +264,7 @@ mod tests {
 
         // Mine copper with a selected key.
         let key = RawValue::from(0xBADC0DE);
-        let mining_recipe = MiningRecipe::new(COPPER_BLUEPRINT.to_string());
+        let mining_recipe = MiningRecipe::new(COPPER_BLUEPRINT.to_string(), &[]);
         let ingredients_def = mining_recipe
             .do_mining(&params, key, COPPER_START_SEED, COPPER_MINING_MAX)?
             .unwrap();
