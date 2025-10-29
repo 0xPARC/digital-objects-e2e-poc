@@ -172,10 +172,10 @@ mod tests {
         let st_inputs_eq_empty = builder.priv_op(Operation::eq(inputs_set.clone(), EMPTY_VALUE))?;
         let st_inputs_subset = builder.op(
             true, /*public*/
-            vec![(0, Value::from(created_items.clone()))],
+            vec![(1, Value::from(created_items.clone()))],
             Operation::custom(
                 commit_preds.subset_of.clone(),
-                [Statement::None, st_inputs_eq_empty.clone()],
+                [st_inputs_eq_empty.clone(), Statement::None],
             ),
         )?;
 
