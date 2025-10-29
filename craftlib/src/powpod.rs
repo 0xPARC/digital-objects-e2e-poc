@@ -25,9 +25,14 @@
 //!
 //! Usage:
 //! ```rust
+//!   use pod2::{backends::plonky2::basetypes::DEFAULT_VD_SET, middleware::{Params, RawValue, hash_str}};
+//!   use craftlib::powpod::PowPod;
+//!
+//!   let params = Params::default();
+//!   let vd_set = &*DEFAULT_VD_SET;
 //!   let n_iters: usize = 2;
 //!   let input = RawValue::from(hash_str("starting input"));
-//!   let pow_pod = PowPod::new(&params, n_iters, input)?;
+//!   let pow_pod = PowPod::new(&params, vd_set.clone(), n_iters, input).unwrap();
 //! ```
 //! An complete example of usage can be found at the test `test_pow_pod` (bottom
 //! of this file).

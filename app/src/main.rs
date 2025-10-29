@@ -335,10 +335,10 @@ fn craft_item(
                 .do_mining(params, key, 0, COPPER_MINING_MAX)?
                 .unwrap();
             let pow_pod = PowPod::new(
-                &params,
+                params,
                 vd_set.clone(),
                 3, // num_iters
-                RawValue::from(ingredients_def.dict(&params)?.commitment()),
+                RawValue::from(ingredients_def.dict(params)?.commitment()),
             )?;
             (
                 ItemDef {
