@@ -110,6 +110,7 @@ async fn send_tx<F: TxFiller, P: Provider>(
             envelope.try_into_pooled()?.try_map_eip4844(|tx| {
                 tx.try_map_sidecar(|sidecar| sidecar.try_into_7594(EnvKzgSettings::Default.get()))
             })?;
+        info!("sending tx {}", tx.tx_hash());
         let encoded_tx = tx.encoded_2718();
         // Send the raw transaction to the network.
         let send_tx_result = provider.send_raw_transaction(&encoded_tx).await;

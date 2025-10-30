@@ -165,16 +165,16 @@ mod tests {
             [st_item_def.clone()],
         ))?;
 
-        // Build SuperSubSet(created_items, inputs)
+        // Build SubsetOf(inputs, created_items)
         // We use builder.op() to manually specify the `super` wildcard value
         // because it's otherwise unconstrained.  This is only relevant in
         // the base case where `sub` is empty, which is a subset of anything.
         let st_inputs_eq_empty = builder.priv_op(Operation::eq(inputs_set.clone(), EMPTY_VALUE))?;
         let st_inputs_subset = builder.op(
             true, /*public*/
-            vec![(0, Value::from(created_items.clone()))],
+            vec![(1, Value::from(created_items.clone()))],
             Operation::custom(
-                commit_preds.super_sub_set.clone(),
+                commit_preds.subset_of.clone(),
                 [st_inputs_eq_empty.clone(), Statement::None],
             ),
         )?;
@@ -230,7 +230,7 @@ mod tests {
             REQUEST(
                 ItemDef(item, ingredients, inputs, key, work)
                 ItemKey(item, key)
-                SuperSubSet(created_items, inputs)
+                SubsetOf(inputs, created_items)
                 Nullifiers(nullifiers, inputs)
                 CommitCreation(item, nullifiers, created_items)
                 IsCopper(item)

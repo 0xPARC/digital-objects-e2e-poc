@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use commitlib::{IngredientsDef, ItemDef};
+use log;
 use pod2::middleware::{EMPTY_VALUE, Hash, Params, RawValue, Statement, ToFields, Value};
 use pod2utils::{macros::BuildContext, set, st_custom};
 
@@ -34,11 +35,13 @@ impl MiningRecipe {
         start_seed: i64,
         mine_max: u64,
     ) -> pod2::middleware::Result<Option<IngredientsDef>> {
+        log::info!("Mining...");
         for seed in start_seed..=i64::MAX {
             let ingredients = self.prep_ingredients(key, seed);
             let ingredients_hash = ingredients.hash(params)?;
             let mining_val = ingredients_hash.to_fields(params)[0];
             if mining_val.0 <= mine_max {
+                log::info!("Mining complete!");
                 return Ok(Some(ingredients));
             }
         }
@@ -46,9 +49,9 @@ impl MiningRecipe {
         Ok(None)
     }
 
-    pub fn new_no_inputs(blueprint: String) -> Self {
+    pub fn new(blueprint: String, inputs: &[Hash]) -> Self {
         MiningRecipe {
-            inputs: HashSet::new(),
+            inputs: HashSet::from_iter(inputs.iter().cloned()),
             blueprint,
         }
     }
@@ -104,12 +107,14 @@ impl<'a> CraftBuilder<'a> {
     ) -> anyhow::Result<Statement> {
         let tin = st_is_tin.args()[0].literal().unwrap();
         let copper = st_is_copper.args()[0].literal().unwrap();
-        let s1 = set!(self.params.max_depth_mt_containers, tin).unwrap();
+        let empty_set = set!(self.params.max_depth_mt_containers).unwrap();
+        let mut s1 = empty_set.clone();
+        s1.insert(&tin).unwrap();
         let mut inputs = s1.clone();
         inputs.insert(&copper).unwrap();
         Ok(st_custom!(self.ctx,
             BronzeInputs() = (
-                SetInsert(s1, EMPTY_VALUE, tin),
+                SetInsert(s1, empty_set, tin),
                 SetInsert(inputs, s1, copper),
                 st_is_tin,
                 st_is_copper
@@ -226,7 +231,7 @@ mod tests {
     #[test]
     fn test_mine_copper() -> anyhow::Result<()> {
         let params = Params::default();
-        let mining_recipe = MiningRecipe::new_no_inputs(COPPER_BLUEPRINT.to_string());
+        let mining_recipe = MiningRecipe::new(COPPER_BLUEPRINT.to_string(), &[]);
         let key = RawValue::from(0xBADC0DE);
 
         // Seed of 2612=0xA34 is a match with hash 6647892930992163=0x000A7EE9D427E832.
@@ -261,7 +266,7 @@ mod tests {
 
         // Mine copper with a selected key.
         let key = RawValue::from(0xBADC0DE);
-        let mining_recipe = MiningRecipe::new_no_inputs(COPPER_BLUEPRINT.to_string());
+        let mining_recipe = MiningRecipe::new(COPPER_BLUEPRINT.to_string(), &[]);
         let ingredients_def = mining_recipe
             .do_mining(&params, key, COPPER_START_SEED, COPPER_MINING_MAX)?
             .unwrap();

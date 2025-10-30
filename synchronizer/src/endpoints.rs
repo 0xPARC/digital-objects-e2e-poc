@@ -20,29 +20,31 @@ pub(crate) async fn handler_get_created_item(
     node: Arc<Node>,
 ) -> Result<impl warp::Reply, warp::Rejection> {
     let item = RawValue::from_hex(&item_str).map_err(|e| CustomError(e.to_string()))?;
-    let created_items = node.created_items.read().unwrap();
-    let epoch = node.created_item_roots_pair.lock().unwrap().0;
-    let mtp = created_items
+    let state = node.state.read().unwrap();
+    let mtp = state
+        .created_items
         .prove(&Value::from(item))
         .map_err(|e| CustomError(e.to_string()))?;
-    drop(created_items);
-    Ok(warp::reply::json(&(epoch, mtp)))
+    Ok(warp::reply::json(&(state.epoch, mtp)))
 }
 
 // GET /created_items
 pub(crate) async fn handler_get_created_items(
     node: Arc<Node>,
 ) -> Result<impl warp::Reply, warp::Rejection> {
-    let created_items = node.created_items.read().unwrap().clone();
-    Ok(warp::reply::json(&created_items))
+    let state = node.state.read().unwrap();
+    Ok(warp::reply::json(&state.created_items))
 }
 
 // GET /created_items_root
 pub(crate) async fn handler_get_latest_created_items_root(
     node: Arc<Node>,
 ) -> Result<impl warp::Reply, warp::Rejection> {
-    let cir_pair = node.created_item_roots_pair.lock().unwrap();
-    Ok(warp::reply::json(&(cir_pair.0, cir_pair.1[0])))
+    let state = node.state.read().unwrap();
+    Ok(warp::reply::json(&(
+        state.epoch,
+        state.created_items_roots.last().unwrap(),
+    )))
 }
 
 // GET /created_items_root/{epoch}
@@ -50,10 +52,9 @@ pub(crate) async fn handler_get_created_items_root(
     epoch: u64,
     node: Arc<Node>,
 ) -> Result<impl warp::Reply, warp::Rejection> {
-    let cir_pair = node.created_item_roots_pair.lock().unwrap();
-    let cur_epoch = cir_pair.0;
-    (cur_epoch >= epoch)
-        .then(|| warp::reply::json(&cir_pair.1[epoch as usize]))
+    let state = node.state.read().unwrap();
+    (state.epoch >= epoch)
+        .then(|| warp::reply::json(&state.created_items_roots[epoch as usize]))
         .ok_or(CustomError(format!("Invalid epoch: {}", epoch)).into())
 }
 
@@ -63,9 +64,8 @@ pub(crate) async fn handler_get_nullifier(
     node: Arc<Node>,
 ) -> Result<impl warp::Reply, warp::Rejection> {
     let nullifier = RawValue::from_hex(&nullifier_str).map_err(|e| CustomError(e.to_string()))?;
-    let nullifiers = node.nullifiers.read().unwrap();
-    let exists = nullifiers.contains(&nullifier);
-    drop(nullifiers);
+    let state = node.state.read().unwrap();
+    let exists = state.nullifiers.contains(&nullifier);
     Ok(warp::reply::json(&exists))
 }
 
