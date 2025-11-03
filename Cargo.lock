@@ -3689,7 +3689,7 @@ source = "git+https://github.com/0xPARC/plonky2.git?rev=109d517d09c210ae4c2cee38
 [[package]]
 name = "pod2"
 version = "0.1.0"
-source = "git+https://github.com/0xPARC/pod2?rev=main?rev=70c6ac3fb165db6344e60a85c8705c53c7dd749e#70c6ac3fb165db6344e60a85c8705c53c7dd749e"
+source = "git+https://github.com/0xPARC/pod2?rev=main?rev=7f1222015d9f35f35823a7575c3a9203f01ad749#7f1222015d9f35f35823a7575c3a9203f01ad749"
 dependencies = [
  "anyhow",
  "base64 0.22.1",

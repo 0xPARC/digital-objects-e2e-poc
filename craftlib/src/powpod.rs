@@ -37,7 +37,7 @@
 //! An complete example of usage can be found at the test `test_pow_pod` (bottom
 //! of this file).
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use itertools::Itertools;
 use plonky2::{
     field::types::Field,
@@ -69,7 +69,8 @@ use pod2::{
         mainpod::calculate_statements_hash,
         recursion::{
             InnerCircuit, RecursiveCircuit, RecursiveParams, VerifiedProofTarget,
-            circuit::dummy as dummy_recursive, new_params as new_recursive_params,
+            circuit::{dummy as dummy_recursive, hash_verifier_data_gadget},
+            new_params as new_recursive_params,
         },
         serialize_proof,
     },
@@ -84,7 +85,7 @@ use serde::{Deserialize, Serialize};
 
 // ARITY is assumed to be one, this also assumed at the PowInnerCircuit.
 const ARITY: usize = 1;
-const NUM_PUBLIC_INPUTS: usize = 9; // 9: count + input + output
+const NUM_PUBLIC_INPUTS: usize = 13; // 13: count + input + output + verified_data_hash
 const POW_POD_TYPE: (usize, &str) = (2001, "Pow");
 
 static STANDARD_POW_POD_DATA: std::sync::LazyLock<(PowPodTarget, CircuitData<F, C, D>)> =
@@ -142,7 +143,10 @@ impl PowPod {
         let (last_iteration_values, proof_with_pis): (
             PowInnerCircuitInput,
             ProofWithPublicInputs<F, C, D>,
-        ) = PowPod::get_pow_recursive_circuit_proof(n_iters, input)?;
+        ) = timed!(
+            "PowPod::gen_pow_recursive_circuit_proof",
+            PowPod::get_pow_recursive_circuit_proof(n_iters, input)?
+        );
 
         // generate a new PowPod from the given count, input, output
         let (count, input, output) = (
@@ -151,7 +155,7 @@ impl PowPod {
             last_iteration_values.output,
         );
         let pow_pod = timed!(
-            "PowPod::new",
+            "PowPod::construct",
             PowPod::construct(params, vd_set, count, input, output, proof_with_pis)?
         );
 
@@ -215,6 +219,18 @@ impl PowPod {
         n_iters: usize,
         starting_input: RawValue,
     ) -> Result<(PowInnerCircuitInput, ProofWithPublicInputs<F, C, D>)> {
+        if n_iters < 2 {
+            // this check is due the verifier_data_hash behaving differently for
+            // the first 2 iterations:
+            // - if n_iters=0, is [0,0,0,0]
+            // - if n_iters=1, is the one of the dummy_verifier_data
+            // in both cases, when verifying the proof out of the recursive
+            // chain in the PowPod circuit, the verifier_data_hash would not
+            // match the one expected (hardcoded as constant) at the PowPod
+            // circuit.
+            return Err(anyhow!("n_iters must be equal or greater than 2"));
+        }
+
         let mut inner_inputs = PowInnerCircuitInput {
             prev_count: F::ZERO,
             count: F::ONE,
@@ -240,6 +256,9 @@ impl PowPod {
                 recursive_verifier_only_data =
                     recursive_params.verifier_data().verifier_only.clone();
             }
+            log::debug!("{inner_inputs:?}");
+            log::debug!("{:?}", recursive_proof.public_inputs);
+
             recursive_proof = recursive_circuit.prove(
                 &inner_inputs,
                 vec![recursive_proof.clone()],
@@ -248,9 +267,6 @@ impl PowPod {
             recursive_params
                 .verifier_data()
                 .verify(recursive_proof.clone())?;
-
-            log::debug!("{inner_inputs:?}");
-            log::debug!("{:?}", recursive_proof.public_inputs);
         }
         Ok((inner_inputs, recursive_proof))
     }
@@ -428,6 +444,18 @@ impl PowPodTarget {
         let proof = builder.add_virtual_proof_with_pis(recursive_params.common_data());
         builder.verify_proof::<C>(&proof, &verifier_data_targ, recursive_params.common_data());
 
+        // ensure that the verifier_data_hash that appears at the public inputs
+        // of the proof being verified matches the one that is constant
+        let pi_verifier_data_hash = &proof.public_inputs[9..13];
+        let constant_verifier_data_hash = hash_verifier_data_gadget(builder, &verifier_data_targ);
+        #[allow(clippy::needless_range_loop)] // to use same syntax as in other similar circuits
+        for i in 0..HASH_SIZE {
+            builder.connect(
+                pi_verifier_data_hash[i],
+                constant_verifier_data_hash.elements[i],
+            );
+        }
+
         // calculate statements_hash
         let count = proof.public_inputs[0];
         let input = &proof.public_inputs[1..5];
@@ -492,8 +520,13 @@ impl InnerCircuit for PowInnerCircuit {
         let output = ValueTarget::from_slice(output_h.elements.as_ref());
 
         let zero = builder.zero();
-        let is_basecase = builder.is_equal(prev_count, zero);
+        let one = builder.one();
+
+        let is_basecase = builder.is_equal(prev_count, zero); // case 0
         let is_not_basecase = builder.not(is_basecase);
+        let is_case_1 = builder.is_equal(prev_count, one); // case 1
+        let case_0_or_1 = builder.or(is_basecase, is_case_1);
+        let after_case_1 = builder.not(case_0_or_1);
 
         // if we're at the prev_count==0, ensure that
         // input==midput
@@ -506,9 +539,12 @@ impl InnerCircuit for PowInnerCircuit {
         }
 
         // if we're at case prev_count>0, assert that the public_inputs of the
-        // proof being verified match with the prev_count, input and midput
+        // proof being verified match with the prev_count, input and midput.
+        // For prev_count>1, we also check that the verifier_data_hash being
+        // used matches the one at the public_inputs of the previous proof.
         builder.connect(verified_proofs[0].public_inputs[0], prev_count);
         for i in 0..HASH_SIZE {
+            // if prev_count>0:
             builder.conditional_assert_eq(
                 is_not_basecase.target,
                 verified_proofs[0].public_inputs[1 + i],
@@ -519,20 +555,29 @@ impl InnerCircuit for PowInnerCircuit {
                 verified_proofs[0].public_inputs[5 + i],
                 midput.elements[i],
             );
+
+            // if we're at case prev_count>1:
+            // check that the verifier_data's hash used to verify the current
+            // proof is the same as in the public_inputs. Notice that at case 0,
+            // this verifier_data_hash is [0,0,0,0], and at case 1 is the hash
+            // of the dummy_verifier_data; hence we do this check when
+            // prev_count>1.
+            builder.conditional_assert_eq(
+                after_case_1.target,
+                verified_proofs[0].public_inputs[9 + i],
+                verified_proofs[0].verifier_data_hash.elements[i],
+            );
         }
 
         // increment count
-        let one = builder.one();
         let count = builder.add(prev_count, one);
 
         // register public inputs: count, input, output
         builder.register_public_input(count);
-        for e in input.elements.iter() {
-            builder.register_public_input(*e);
-        }
-        for e in output.elements.iter() {
-            builder.register_public_input(*e);
-        }
+        builder.register_public_inputs(&input.elements);
+        builder.register_public_inputs(&output.elements);
+        builder.register_public_inputs(&verified_proofs[0].verifier_data_hash.elements);
+
         Ok(Self {
             prev_count,
             count,
@@ -576,9 +621,16 @@ mod tests {
         } else {
             builder.constants(&inp.midput.0)
         };
+        let verifier_data_hash = HashOutTarget::from_partial(&[builder.zero()], builder.zero());
         VerifiedProofTarget {
-            public_inputs: [vec![count], input, midput].concat(),
-            verifier_data_hash: HashOutTarget::from_partial(&[builder.zero()], builder.zero()),
+            public_inputs: [
+                vec![count],
+                input,
+                midput,
+                verifier_data_hash.elements.to_vec(),
+            ]
+            .concat(),
+            verifier_data_hash,
         }
     }
     #[test]
@@ -732,11 +784,14 @@ mod tests {
         let input = RawValue::from(hash_str("starting input"));
 
         let vd_set = &*DEFAULT_VD_SET;
-        let pow_pod = PowPod::new(&params, vd_set.clone(), n_iters, input)?;
+        let pow_pod = timed!(
+            "PowPod::new",
+            PowPod::new(&params, vd_set.clone(), n_iters, input)?
+        );
         pow_pod.verify()?;
 
         println!(
-            "pow_pod.verifier_data_hash(): {:#}",
+            "pow_pod.verifier_data_hash(): {:#} . To be used when importing the PowPod as introduction pod to define new predicates.",
             pow_pod.verifier_data_hash()
         );
 
@@ -747,10 +802,8 @@ mod tests {
             params: params.clone(),
         };
 
-        // let expected_count = F::from_canonical_u64(n_iters as u64);
         let expected_count = Value::from(n_iters as i64);
         let expected_input = input;
-        // let expected_output = pow_pod.output;
 
         // now generate a new MainPod from the pow_pod
         let mut main_pod_builder = frontend::MainPodBuilder::new(&params, vd_set);

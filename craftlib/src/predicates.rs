@@ -18,7 +18,7 @@ impl ItemPredicates {
         // 8 arguments per predicate, at most 5 of which are public
         // 5 statements per predicate
         let batch_defs = [r#"
-            use intro Pow(count, input, output) from 0xa5ddf9efb3b8f9c2e58af8c03f0b1f4e8ce29da41d2bf50e71d613c4e95319dd // powpod vd hash
+            use intro Pow(count, input, output) from 0x3493488bc23af15ac5fabe38c3cb6c4b66adb57e3898adf201ae50cc57183f65 // powpod vd hash
 
             // Example of a mined item with no inputs or sequential work.
             // Copper requires working in a copper mine (blueprint="copper") and
