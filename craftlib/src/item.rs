@@ -75,14 +75,15 @@ impl<'a> CraftBuilder<'a> {
         &mut self,
         item_def: ItemDef,
         st_item_def: Statement,
+        st_pow: Statement,
     ) -> anyhow::Result<Statement> {
         // Build IsCopper(item)
         Ok(st_custom!(self.ctx,
             IsCopper() = (
                 st_item_def,
-                Equal(item_def.work, EMPTY_VALUE),
                 Equal(item_def.ingredients.inputs_set(self.params)?, EMPTY_VALUE),
-                DictContains(item_def.ingredients.dict(self.params)?, "blueprint", COPPER_BLUEPRINT)
+                DictContains(item_def.ingredients.dict(self.params)?, "blueprint", COPPER_BLUEPRINT),
+                st_pow
             ))?)
     }
 
@@ -150,7 +151,7 @@ mod tests {
         frontend::{MainPod, MainPodBuilder},
         lang::parse,
         middleware::{
-            CustomPredicateBatch, EMPTY_VALUE, MainPodProver, Params, RawValue, VDSet, Value,
+            CustomPredicateBatch, EMPTY_VALUE, MainPodProver, Params, Pod, RawValue, VDSet, Value,
             containers::Set, hash_value,
         },
     };
@@ -158,6 +159,7 @@ mod tests {
     use super::*;
     use crate::{
         constants::{COPPER_BLUEPRINT, COPPER_MINING_MAX, COPPER_WORK},
+        powpod::PowPod,
         predicates::ItemPredicates,
         test_util::test::mock_vd_set,
     };
@@ -169,6 +171,7 @@ mod tests {
     // Contains the following public predicates: ItemDef, ItemKey, IsCopper
     fn prove_copper(
         item_def: ItemDef,
+        pow_pod: MainPod,
 
         // TODO: All the args below might belong in a ItemBuilder object
         batches: &[Arc<CustomPredicateBatch>],
@@ -183,8 +186,11 @@ mod tests {
         let st_item_key = item_builder.st_item_key(st_item_def.clone())?;
         item_builder.ctx.builder.reveal(&st_item_key);
 
+        let st_pow = pow_pod.public_statements[0].clone();
+
         let mut craft_builder = CraftBuilder::new(BuildContext::new(&mut builder, batches), params);
-        let st_is_copper = craft_builder.st_is_copper(item_def, st_item_def)?;
+        craft_builder.ctx.builder.add_pod(pow_pod);
+        let st_is_copper = craft_builder.st_is_copper(item_def, st_item_def, st_pow)?;
         craft_builder.ctx.builder.reveal(&st_is_copper);
 
         // Prove MainPOD
@@ -271,18 +277,37 @@ mod tests {
             .do_mining(&params, key, COPPER_START_SEED, COPPER_MINING_MAX)?
             .unwrap();
 
+        let pow_pod = PowPod::new(
+            &params,
+            vd_set.clone(),
+            3, // num_iters
+            RawValue::from(ingredients_def.dict(&params)?.commitment()),
+        )?;
+        let main_pow_pod = MainPod {
+            pod: Box::new(pow_pod.clone()),
+            public_statements: pow_pod.pub_statements(),
+            params: params.clone(),
+        };
+
         // Pre-calculate hashes and intermediate values.
         let ingredients_dict = ingredients_def.dict(&params)?;
         let inputs_set = ingredients_def.inputs_set(&params)?;
         let item_def = ItemDef {
             ingredients: ingredients_def.clone(),
-            work: COPPER_WORK,
+            work: pow_pod.output,
         };
         let item_hash = item_def.item_hash(&params)?;
 
         // Prove a copper POD.  This is the private POD for the player to store
         // locally for future crafting.
-        let copper_main_pod = prove_copper(item_def.clone(), &batches, &params, prover, vd_set)?;
+        let copper_main_pod = prove_copper(
+            item_def.clone(),
+            main_pow_pod,
+            &batches,
+            &params,
+            prover,
+            vd_set,
+        )?;
 
         copper_main_pod.pod.verify()?;
         assert_eq!(copper_main_pod.public_statements.len(), 3);
@@ -323,7 +348,7 @@ mod tests {
                 ("ingredients".to_string(), Value::from(ingredients_dict)),
                 ("inputs".to_string(), Value::from(inputs_set)),
                 ("key".to_string(), Value::from(key)),
-                ("work".to_string(), Value::from(EMPTY_VALUE)),
+                ("work".to_string(), Value::from(pow_pod.output)),
             ]),
         );
 

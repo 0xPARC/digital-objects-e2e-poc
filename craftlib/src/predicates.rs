@@ -18,16 +18,16 @@ impl ItemPredicates {
         // 8 arguments per predicate, at most 5 of which are public
         // 5 statements per predicate
         let batch_defs = [r#"
+            use intro Pow(count, input, output) from 0x3493488bc23af15ac5fabe38c3cb6c4b66adb57e3898adf201ae50cc57183f65 // powpod vd hash
+
             // Example of a mined item with no inputs or sequential work.
-            // Copper requ`ires working in a copper mine (blueprint="copper") and
+            // Copper requires working in a copper mine (blueprint="copper") and
             // 10 leading 0s.
             IsCopper(item, private: ingredients, inputs, key, work) = AND(
                 ItemDef(item, ingredients, inputs, key, work)
                 Equal(inputs, {})
-                Equal(work, 0)
                 DictContains(ingredients, "blueprint", "copper")
-
-                // TODO input POD: HashInRange(0, 1<<10, ingredients)
+                Pow(3, ingredients, work)
             )
 
             // Example of a mined item which is more common but takes more work to
@@ -76,14 +76,15 @@ mod tests {
     use commitlib::{IngredientsDef, ItemDef, util::set_from_hashes};
     use pod2::{
         backends::plonky2::mock::mainpod::MockProver,
-        frontend::{MainPodBuilder, Operation},
+        frontend::{MainPod, MainPodBuilder, Operation},
         lang::parse,
-        middleware::{EMPTY_VALUE, RawValue, Statement, Value, hash_value},
+        middleware::{EMPTY_VALUE, Pod, RawValue, Statement, Value, hash_value},
     };
 
     use super::*;
     use crate::{
         constants::COPPER_BLUEPRINT,
+        powpod::PowPod,
         test_util::test::{check_matched_wildcards, mock_vd_set},
     };
 
@@ -108,8 +109,6 @@ mod tests {
         // Item recipe constants
         let seed: i64 = 0xA34;
         let key = 0xBADC0DE;
-        let work: RawValue = EMPTY_VALUE;
-        // TODO: Real mining and sequential work.
 
         // Pre-calculate hashes and intermediate values.
         let ingredients_def: IngredientsDef = IngredientsDef {
@@ -122,6 +121,22 @@ mod tests {
         };
         let ingredients_dict = ingredients_def.dict(&params)?;
         let inputs_set = ingredients_def.inputs_set(&params)?;
+        // compute the PowPod
+        let vd_set = &mock_vd_set();
+        let pow_pod = PowPod::new(
+            &params,
+            vd_set.clone(),
+            3,
+            RawValue::from(ingredients_def.dict(&params)?.commitment()),
+        )?;
+        let main_pow_pod = MainPod {
+            pod: Box::new(pow_pod.clone()),
+            public_statements: pow_pod.pub_statements(),
+            params: params.clone(),
+        };
+        let work: RawValue = pow_pod.output;
+        let st_pow = main_pow_pod.public_statements[0].clone();
+        builder.add_pod(main_pow_pod);
         let item_def = ItemDef {
             ingredients: ingredients_def.clone(),
             work,
@@ -198,7 +213,6 @@ mod tests {
         ))?;
 
         // Build IsCopper(item)
-        let st_work_empty = builder.priv_op(Operation::eq(work, EMPTY_VALUE))?;
         let st_contains_blueprint = builder.priv_op(Operation::dict_contains(
             ingredients_dict.clone(),
             "blueprint",
@@ -209,8 +223,8 @@ mod tests {
             [
                 st_item_def,
                 st_inputs_eq_empty,
-                st_work_empty,
                 st_contains_blueprint,
+                st_pow,
             ],
         ))?;
 
