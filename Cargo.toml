@@ -25,7 +25,6 @@ tracing-log = "0.1.1"
 # pod
 pod2 = { git="https://github.com/0xPARC/pod2", rev = "7f1222015d9f35f35823a7575c3a9203f01ad749", default-features = false, features = ["backend_plonky2", "disk_cache", "zk"]}
 plonky2 = { git = "https://github.com/0xPARC/plonky2.git", rev = "109d517d09c210ae4c2cee381d3e3fbc04aa3812" }
-pod2_onchain = { git = "https://github.com/0xPARC/pod2-onchain.git", rev = "5f2047752349a0f06665bc8f6ba82f50bc5ad435", default-features=false, features = ["disk_cache"]}
 
 # eth
 alloy = { version = "1.0.41", features = [
