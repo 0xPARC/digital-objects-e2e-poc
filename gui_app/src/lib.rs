@@ -1,22 +1,8 @@
-use std::{
-    array, fmt,
-    path::{Path, PathBuf},
-    str::FromStr,
-    sync::Arc,
-};
+use std::str::FromStr;
 
 use alloy::primitives::Address;
 use anyhow::{Context as _, Result};
-use commitlib::{ItemBuilder, ItemDef, predicates::CommitPredicates};
-use pod2::{
-    backends::plonky2::{mainpod::Prover, primitives::merkletree::MerkleProof},
-    frontend::{MainPod, MainPodBuilder},
-    middleware::{
-        CustomPredicateBatch, DEFAULT_VD_SET, F, Params, Pod, RawValue, VDSet, containers::Set,
-    },
-};
-use serde::{Deserialize, Serialize};
-use tracing_subscriber::{EnvFilter, prelude::*};
+use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 pub mod eth;
 
@@ -56,20 +42,7 @@ impl Config {
 
 pub fn log_init() {
     tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::layer())
+        .with(fmt::layer())
         .with(EnvFilter::from_default_env())
         .init();
-}
-
-pub fn load_item(input: &Path) -> anyhow::Result<CraftedItem> {
-    let mut file = std::fs::File::open(input)?;
-    let crafted_item: CraftedItem = serde_json::from_reader(&mut file)?;
-    crafted_item.pod.pod.verify()?;
-    Ok(crafted_item)
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CraftedItem {
-    pub pod: MainPod,
-    pub def: ItemDef,
 }

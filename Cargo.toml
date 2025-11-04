@@ -6,6 +6,7 @@ members = [
     "common",
     "pod2utils",
     "app",
+    "gui_app",
 ]
 resolver = "3"
 

@@ -12,7 +12,7 @@ use std::{
 };
 
 use anyhow::{anyhow, bail};
-use app::{Config, eth::send_payload, log_init};
+use app::{Config, CraftedItem, eth::send_payload, load_item, log_init};
 use clap::{Parser, Subcommand};
 use commitlib::{ItemBuilder, ItemDef, predicates::CommitPredicates};
 use common::{
@@ -165,12 +165,6 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct CraftedItem {
-    pub pod: MainPod,
-    pub def: ItemDef,
-}
-
 struct Helper {
     params: Params,
     vd_set: VDSet,
@@ -302,13 +296,6 @@ impl Helper {
 
         Ok(pod)
     }
-}
-
-fn load_item(input: &Path) -> anyhow::Result<CraftedItem> {
-    let mut file = std::fs::File::open(input)?;
-    let crafted_item: CraftedItem = serde_json::from_reader(&mut file)?;
-    crafted_item.pod.pod.verify()?;
-    Ok(crafted_item)
 }
 
 fn rand_raw_value() -> RawValue {
