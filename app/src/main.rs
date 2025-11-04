@@ -12,7 +12,7 @@ use std::{
 };
 
 use anyhow::{anyhow, bail};
-use app::{Config, CraftedItem, eth::send_payload, load_item, log_init};
+use app::{Config, CraftedItem, Recipe, eth::send_payload, load_item, log_init};
 use clap::{Parser, Subcommand};
 use commitlib::{ItemBuilder, ItemDef, predicates::CommitPredicates};
 use common::{
@@ -48,36 +48,6 @@ use tracing::info;
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
-}
-
-#[derive(Debug, Clone, Copy)]
-enum Recipe {
-    Copper,
-    Tin,
-    Bronze,
-}
-
-impl FromStr for Recipe {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "copper" => Ok(Self::Copper),
-            "tin" => Ok(Self::Tin),
-            "bronze" => Ok(Self::Bronze),
-            _ => Err(anyhow!("unknown recipe {s}")),
-        }
-    }
-}
-
-impl fmt::Display for Recipe {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::Copper => write!(f, "copper"),
-            Self::Tin => write!(f, "tin"),
-            Self::Bronze => write!(f, "bronze"),
-        }
-    }
 }
 
 #[derive(Subcommand)]

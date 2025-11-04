@@ -6,7 +6,7 @@ use std::{
 };
 
 use alloy::primitives::Address;
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Result, anyhow};
 use commitlib::{ItemBuilder, ItemDef, predicates::CommitPredicates};
 use pod2::{
     backends::plonky2::{mainpod::Prover, primitives::merkletree::MerkleProof},
@@ -72,4 +72,34 @@ pub fn load_item(input: &Path) -> anyhow::Result<CraftedItem> {
 pub struct CraftedItem {
     pub pod: MainPod,
     pub def: ItemDef,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Recipe {
+    Copper,
+    Tin,
+    Bronze,
+}
+
+impl FromStr for Recipe {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "copper" => Ok(Self::Copper),
+            "tin" => Ok(Self::Tin),
+            "bronze" => Ok(Self::Bronze),
+            _ => Err(anyhow!("unknown recipe {s}")),
+        }
+    }
+}
+
+impl fmt::Display for Recipe {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Self::Copper => write!(f, "copper"),
+            Self::Tin => write!(f, "tin"),
+            Self::Bronze => write!(f, "bronze"),
+        }
+    }
 }
