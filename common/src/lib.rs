@@ -8,12 +8,21 @@
 ///     configuration of the plonky2 prover, in order to make it compatible with the
 ///     Groth16 circuit.
 ///     Then compute a Groth16 proof which verifies the last plonky2 proof
+#[cfg(feature = "groth16")]
 pub mod groth;
 pub mod payload;
 ///   B) "shrink":
 ///     first shrinks the given MainPod's proof, and then compresses it,
 ///     returning the compressed proof (without public inputs)
 pub mod shrink;
+
+#[cfg(not(feature = "groth16"))]
+pub mod groth {
+    use anyhow::Result;
+    pub fn load_vk() -> Result<()> {
+        panic!("groth16 disabled");
+    }
+}
 
 use std::io;
 

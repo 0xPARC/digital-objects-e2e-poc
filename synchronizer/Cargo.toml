@@ -35,5 +35,3 @@ url = { version = "2.3.1", features = ["serde"] }
 
 
 chrono = "0.4.42"
-
-pod2_onchain = { workspace = true }

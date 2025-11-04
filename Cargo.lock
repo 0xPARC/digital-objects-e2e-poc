@@ -4944,7 +4944,6 @@ dependencies = [
  "minicbor-serde 0.6.1",
  "plonky2",
  "pod2",
- "pod2_onchain",
  "reqwest 0.11.27",
  "reqwest-eventsource",
  "serde",
