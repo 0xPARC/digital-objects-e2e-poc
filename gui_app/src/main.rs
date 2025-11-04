@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    fmt::Write,
     fs::{self},
     io,
     path::PathBuf,
@@ -9,6 +10,8 @@ use anyhow::{Result, anyhow};
 use app::{Config, CraftedItem, Recipe, load_item, log_init};
 use common::load_dotenv;
 use eframe::egui;
+use itertools::Itertools;
+use pod2::middleware::{Hash, Statement, StatementArg, TypedValue, Value};
 use tracing::info;
 
 fn main() -> Result<()> {
@@ -18,7 +21,7 @@ fn main() -> Result<()> {
     info!(?cfg, "Loaded config");
 
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default(),
+        viewport: egui::ViewportBuilder::default().with_maximized(true),
         ..Default::default()
     };
     let app = Box::new(App::new(cfg)?);
@@ -33,6 +36,97 @@ fn main() -> Result<()> {
         }),
     )
     .map_err(|e| anyhow::anyhow!("{e}"))
+}
+
+fn _indent(w: &mut impl Write, indent: usize) {
+    for _ in 0..indent {
+        write!(w, "  ").unwrap();
+    }
+}
+
+fn _pretty_val(w: &mut impl Write, indent: usize, v: &Value) {
+    match v.typed() {
+        TypedValue::Raw(v) => write!(w, "{:#}", v).unwrap(),
+        TypedValue::Array(a) => {
+            if a.array().is_empty() {
+                write!(w, "[]").unwrap();
+                return;
+            }
+            write!(w, "[\n").unwrap();
+            _indent(w, indent + 1);
+            for (i, v) in a.array().iter().enumerate() {
+                if i > 0 {
+                    write!(w, ",\n").unwrap();
+                    _indent(w, indent + 1);
+                }
+                _pretty_val(w, indent + 1, v);
+            }
+            write!(w, "\n").unwrap();
+            _indent(w, indent);
+            write!(w, "]").unwrap()
+        }
+        TypedValue::Set(s) => {
+            let values: Vec<_> = s.set().iter().sorted_by_key(|k| k.raw()).collect();
+            if values.is_empty() {
+                write!(w, "#[]").unwrap();
+                return;
+            }
+            write!(w, "#[\n").unwrap();
+            _indent(w, indent + 1);
+            for (i, v) in values.iter().enumerate() {
+                if i > 0 {
+                    write!(w, ",\n").unwrap();
+                    _indent(w, indent + 1);
+                }
+                _pretty_val(w, indent + 1, v);
+            }
+            write!(w, "\n").unwrap();
+            _indent(w, indent);
+            write!(w, "]").unwrap()
+        }
+        TypedValue::Dictionary(d) => {
+            let kvs: Vec<_> = d.kvs().iter().sorted_by_key(|(k, _)| k.name()).collect();
+            if kvs.is_empty() {
+                write!(w, "{{}}").unwrap();
+                return;
+            }
+            write!(w, "{{\n").unwrap();
+            _indent(w, indent + 1);
+            for (i, (k, v)) in kvs.iter().enumerate() {
+                if i > 0 {
+                    write!(w, ",\n").unwrap();
+                    _indent(w, indent + 1);
+                }
+                write!(w, "{}: ", k).unwrap();
+                _pretty_val(w, indent + 1, v);
+            }
+            write!(w, "\n").unwrap();
+            _indent(w, indent);
+            write!(w, "}}").unwrap()
+        }
+        _ => write!(w, "{}", v).unwrap(),
+    }
+}
+
+fn _pretty_arg(w: &mut impl Write, indent: usize, arg: &StatementArg) {
+    match arg {
+        StatementArg::None => write!(w, "  none").unwrap(),
+        StatementArg::Literal(v) => _pretty_val(w, indent, v),
+        StatementArg::Key(ak) => write!(w, "  {}", ak).unwrap(),
+    }
+}
+
+fn _pretty_st(w: &mut impl Write, st: &Statement) {
+    write!(w, "{}(\n", st.predicate()).unwrap();
+    _indent(w, 1);
+    for (i, arg) in st.args().iter().enumerate() {
+        if i != 0 {
+            write!(w, ",\n").unwrap();
+            _indent(w, 1);
+        }
+        _pretty_arg(w, 1, arg);
+    }
+    write!(w, "\n)").unwrap();
 }
 
 #[derive(Default)]
@@ -66,9 +160,16 @@ impl Crafting {
     }
 }
 
+struct Item {
+    name: String,
+    id: Hash,
+    crafted_item: CraftedItem,
+    path: PathBuf,
+}
+
 struct App {
     cfg: Config,
-    items: Vec<(String, CraftedItem)>,
+    items: Vec<Item>,
     item_view: ItemView,
     crafting: Crafting,
 }
@@ -84,8 +185,19 @@ impl App {
         for entry in entries {
             let name = entry.file_name().unwrap().to_str().unwrap().to_string();
             log::debug!("loading {entry:?}");
-            let item = load_item(&entry)?;
-            items.push((name, item));
+            let crafted_item = load_item(&entry)?;
+            let id = Hash::from(
+                crafted_item.pod.public_statements[0].args()[0]
+                    .literal()
+                    .unwrap()
+                    .raw(),
+            );
+            items.push(Item {
+                name,
+                id,
+                crafted_item: crafted_item,
+                path: entry,
+            });
         }
         self.items = items;
         Ok(())
@@ -114,9 +226,9 @@ impl eframe::App for App {
                 //     ui.selectable_value(&mut selected_item, Some(i), name);
                 // }
                 // ui.separator();
-                for (i, (name, _)) in self.items.iter().enumerate() {
-                    ui.dnd_drag_source(egui::Id::new(name), i, |ui| {
-                        ui.label(name);
+                for (i, item) in self.items.iter().enumerate() {
+                    ui.dnd_drag_source(egui::Id::new(item.name.clone()), i, |ui| {
+                        ui.label(&item.name);
                     });
                 }
             });
@@ -130,8 +242,8 @@ impl eframe::App for App {
                     ui.horizontal(|ui| {
                         ui.heading("Item: ");
                         let (_, dropped_payload) = ui.dnd_drop_zone::<usize, ()>(frame, |ui| {
-                            if let Some((name, _item)) = item {
-                                ui.heading(format!("{name}"));
+                            if let Some(item) = item {
+                                ui.heading(format!("{}", item.name));
                             } else {
                                 ui.heading("...");
                             }
@@ -142,10 +254,22 @@ impl eframe::App for App {
                     });
                     ui.separator();
 
-                    if let Some((_name, item)) = item {
+                    if let Some(item) = item {
+                        egui::ScrollArea::horizontal()
+                            .id_salt("item properties scroll")
+                            .show(ui, |ui| {
+                                egui::Grid::new("item properties").show(ui, |ui| {
+                                    ui.label("path:");
+                                    ui.label(format!("{:?}", item.path));
+                                    ui.end_row();
+                                    ui.label("id:");
+                                    ui.label(format!("{:#}", item.id));
+                                    ui.end_row();
+                                });
+                            });
                         ui.horizontal(|ui| {
                             if ui.button("Verify").clicked() {
-                                let result = item.pod.pod.verify();
+                                let result = item.crafted_item.pod.pod.verify();
                                 // TODO: Verify commit on-chain via synchronizer
                                 self.item_view.verify_result =
                                     Some(result.map_err(|e| anyhow!("{e}")));
@@ -154,11 +278,16 @@ impl eframe::App for App {
                         });
                         ui.heading("Statements:");
                         egui::ScrollArea::vertical().show(ui, |ui| {
-                            let sts = &item.pod.public_statements;
+                            let sts = &item.crafted_item.pod.public_statements;
                             ui.separator();
                             for st in sts {
-                                ui.add(egui::Label::new(format!("{st}")).wrap());
-                                ui.separator();
+                                let mut st_str = String::new();
+                                _pretty_st(&mut st_str, st);
+                                ui.add(
+                                    egui::Label::new(egui::RichText::new(&st_str).monospace())
+                                        .wrap(),
+                                );
+                                ui.add_space(4.0);
                             }
                         });
                     }
@@ -180,39 +309,30 @@ impl eframe::App for App {
                         });
                     if let Some(recipe) = self.crafting.selected_recipe {
                         ui.heading("Inputs:");
-                        match recipe {
-                            Recipe::Bronze => {
-                                ui.horizontal(|ui| {
-                                    ui.label("tin:");
-                                    let (_, dropped_payload) =
-                                        ui.dnd_drop_zone::<usize, ()>(frame, |ui| {
-                                            if let Some(index) = self.crafting.input_items.get(&0) {
-                                                ui.label(format!("{}", self.items[*index].0));
-                                            } else {
-                                                ui.label("...");
-                                            }
-                                        });
-                                    if let Some(index) = dropped_payload {
-                                        self.crafting.input_items.insert(0, *index);
-                                    }
-                                });
-                                ui.horizontal(|ui| {
-                                    ui.label("copper:");
-                                    let (_, dropped_payload) =
-                                        ui.dnd_drop_zone::<usize, ()>(frame, |ui| {
-                                            if let Some(index) = self.crafting.input_items.get(&1) {
-                                                ui.label(format!("{}", self.items[*index].0));
-                                            } else {
-                                                ui.label("...");
-                                            }
-                                        });
-                                    if let Some(index) = dropped_payload {
-                                        self.crafting.input_items.insert(1, *index);
-                                    }
-                                });
+                        let inputs = match recipe {
+                            Recipe::Bronze => vec!["tin", "copper"],
+                            _ => vec![],
+                        };
+                        egui::Grid::new("crafting inputs").show(ui, |ui| {
+                            for (input_index, input) in inputs.iter().enumerate() {
+                                ui.label(format!("{input}:"));
+                                let (_, dropped_payload) =
+                                    ui.dnd_drop_zone::<usize, ()>(frame, |ui| {
+                                        if let Some(index) =
+                                            self.crafting.input_items.get(&input_index)
+                                        {
+                                            ui.label(format!("{}", self.items[*index].name));
+                                        } else {
+                                            ui.label("...");
+                                        }
+                                    });
+                                ui.end_row();
+                                if let Some(index) = dropped_payload {
+                                    self.crafting.input_items.insert(input_index, *index);
+                                }
                             }
-                            _ => {}
-                        }
+                        });
+
                         if ui.button("Craft").clicked() {
                             ui.label("todo");
                         }
