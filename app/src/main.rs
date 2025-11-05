@@ -77,14 +77,14 @@ async fn main() -> anyhow::Result<()> {
             let item_hex: String = format!("{item:#}");
             let (epoch, _): (u64, RawValue) =
                 reqwest::blocking::get(format!("{}/created_items_root", cfg.sync_url,))?.json()?;
-            println!("Verifying commitment of item {item:#} via synchronizer at epoch {epoch}");
+            info!("Verifying commitment of item {item:#} via synchronizer at epoch {epoch}");
             let (epoch, mtp): (u64, MerkleProof) = reqwest::blocking::get(format!(
                 "{}/created_item/{}",
                 cfg.sync_url,
                 &item_hex[2..]
             ))?
             .json()?;
-            println!("mtp at epoch {epoch}: {mtp:?}");
+            info!("mtp at epoch {epoch}: {mtp:?}");
 
             // fetch the associated Merkle root
             let merkle_root: RawValue =
@@ -99,7 +99,7 @@ async fn main() -> anyhow::Result<()> {
                 &item.into(),
             )?;
 
-            println!("Crafted item at {input:?} successfully verified!");
+            info!("Crafted item at {input:?} successfully verified!");
         }
         None => {}
     }

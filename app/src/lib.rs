@@ -33,6 +33,7 @@ use pod2::{
 use pod2utils::macros::BuildContext;
 use rand::{RngCore, SeedableRng, rngs::StdRng};
 use serde::{Deserialize, Serialize};
+use tracing::info;
 use tracing_subscriber::{EnvFilter, prelude::*};
 
 use crate::eth::send_payload;
@@ -182,7 +183,7 @@ impl Helper {
                 item_builder.ctx.builder.reveal(st_input_craft);
             }
 
-            println!("Proving nullifiers_pod...");
+            info!("Proving nullifiers_pod...");
             let nullifiers_pod = builder.prove(prover).unwrap();
             nullifiers_pod.pod.verify().unwrap();
             builder = MainPodBuilder::new(&self.params, &self.vd_set);
@@ -226,7 +227,7 @@ impl Helper {
         builder.reveal(&st_nullifiers); // 2: Required for committing via CommitCreation
         builder.reveal(&st_craft); // 3: App layer predicate
 
-        println!("Proving item_pod");
+        info!("Proving item_pod");
         let item_key_pod = builder.prove(prover).unwrap();
         item_key_pod.pod.verify().unwrap();
 
@@ -253,7 +254,7 @@ impl Helper {
         )?;
         builder.reveal(&st_commit_creation);
         let prover = &Prover {};
-        println!("Proving commit_pod...");
+        info!("Proving commit_pod...");
         let pod = builder.prove(prover)?;
         pod.pod.verify().unwrap();
 
@@ -269,7 +270,7 @@ pub fn craft_item(
 ) -> anyhow::Result<()> {
     let vd_set = DEFAULT_VD_SET.clone();
     let key = rand_raw_value();
-    println!("About to craft \"{recipe}\" with key {key:#}");
+    info!("About to craft \"{recipe}\" with key {key:#}");
     let (item_def, input_items, pow_pod) = match recipe {
         Recipe::Copper => {
             if !inputs.is_empty() {
@@ -342,7 +343,7 @@ pub fn craft_item(
     let crafted_item = CraftedItem { pod, def: item_def };
     let mut file = std::fs::File::create(output)?;
     serde_json::to_writer(&mut file, &crafted_item)?;
-    println!("Stored crafted item mined with recipe {recipe} to {output:?}");
+    info!("Stored crafted item mined with recipe {recipe} to {output:?}");
 
     Ok(())
 }
@@ -376,7 +377,7 @@ pub async fn commit_item(params: &Params, cfg: &Config, input: &Path) -> anyhow:
 
     let tx_hash = send_payload(cfg, payload_bytes).await?;
 
-    println!("Committed item in tx={tx_hash}");
+    info!("Committed item in tx={tx_hash}");
 
     Ok(())
 }

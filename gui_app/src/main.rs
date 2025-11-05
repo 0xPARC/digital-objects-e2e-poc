@@ -1,18 +1,24 @@
 use std::{
     collections::HashMap,
-    fmt::Write,
+    fmt::{self, Write},
     fs::{self},
-    io,
+    io, mem,
     path::{Path, PathBuf},
+    sync::{
+        Arc, RwLock,
+        mpsc::{self, channel},
+    },
+    thread::{self, JoinHandle},
+    time,
 };
 
 use anyhow::{Result, anyhow};
 use app::{Config, CraftedItem, Recipe, craft_item, load_item, log_init};
 use common::load_dotenv;
-use eframe::egui;
+use egui::{Color32, Frame, Label, RichText};
 use itertools::Itertools;
 use pod2::middleware::{Hash, Params, Statement, StatementArg, TypedValue, Value};
-use tracing::info;
+use tracing::{error, info};
 
 fn main() -> Result<()> {
     log_init();
@@ -36,7 +42,11 @@ fn main() -> Result<()> {
             Ok(app)
         }),
     )
-    .map_err(|e| anyhow::anyhow!("{e}"))
+    .map_err(|e| anyhow::anyhow!("{e}"))?;
+    // app.task_handler
+    //     .join()
+    //     .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    Ok(())
 }
 
 fn _indent(w: &mut impl Write, indent: usize) {
@@ -45,7 +55,7 @@ fn _indent(w: &mut impl Write, indent: usize) {
     }
 }
 
-fn _pretty_val(w: &mut impl Write, indent: usize, v: &Value) {
+fn pretty_val(w: &mut impl Write, indent: usize, v: &Value) {
     match v.typed() {
         TypedValue::Raw(v) => write!(w, "{v:#}").unwrap(),
         TypedValue::Array(a) => {
@@ -60,7 +70,7 @@ fn _pretty_val(w: &mut impl Write, indent: usize, v: &Value) {
                     writeln!(w, ",").unwrap();
                     _indent(w, indent + 1);
                 }
-                _pretty_val(w, indent + 1, v);
+                pretty_val(w, indent + 1, v);
             }
             writeln!(w).unwrap();
             _indent(w, indent);
@@ -79,7 +89,7 @@ fn _pretty_val(w: &mut impl Write, indent: usize, v: &Value) {
                     writeln!(w, ",").unwrap();
                     _indent(w, indent + 1);
                 }
-                _pretty_val(w, indent + 1, v);
+                pretty_val(w, indent + 1, v);
             }
             writeln!(w).unwrap();
             _indent(w, indent);
@@ -99,7 +109,7 @@ fn _pretty_val(w: &mut impl Write, indent: usize, v: &Value) {
                     _indent(w, indent + 1);
                 }
                 write!(w, "{k}: ").unwrap();
-                _pretty_val(w, indent + 1, v);
+                pretty_val(w, indent + 1, v);
             }
             writeln!(w).unwrap();
             _indent(w, indent);
@@ -109,15 +119,15 @@ fn _pretty_val(w: &mut impl Write, indent: usize, v: &Value) {
     }
 }
 
-fn _pretty_arg(w: &mut impl Write, indent: usize, arg: &StatementArg) {
+fn pretty_arg(w: &mut impl Write, indent: usize, arg: &StatementArg) {
     match arg {
         StatementArg::None => write!(w, "  none").unwrap(),
-        StatementArg::Literal(v) => _pretty_val(w, indent, v),
+        StatementArg::Literal(v) => pretty_val(w, indent, v),
         StatementArg::Key(ak) => write!(w, "  {ak}").unwrap(),
     }
 }
 
-fn _pretty_st(w: &mut impl Write, st: &Statement) {
+fn pretty_st(w: &mut impl Write, st: &Statement) {
     writeln!(w, "{}(", st.predicate()).unwrap();
     _indent(w, 1);
     for (i, arg) in st.args().iter().enumerate() {
@@ -125,7 +135,7 @@ fn _pretty_st(w: &mut impl Write, st: &Statement) {
             writeln!(w, ",").unwrap();
             _indent(w, 1);
         }
-        _pretty_arg(w, 1, arg);
+        pretty_arg(w, 1, arg);
     }
     write!(w, "\n)").unwrap();
 }
@@ -151,14 +161,14 @@ struct Crafting {
     // Input index to item index
     input_items: HashMap<usize, usize>,
     output_filename: String,
-    result: Option<Result<()>>,
+    result: Option<Result<PathBuf>>,
 }
 
 impl Crafting {
     fn select(&mut self, recipe: Recipe) {
         if Some(recipe) != self.selected_recipe {
+            *self = Self::default();
             self.selected_recipe = Some(recipe);
-            self.input_items = HashMap::new();
         }
     }
 }
@@ -175,69 +185,223 @@ struct Item {
     path: PathBuf,
 }
 
+fn recipe_inputs(r: &Recipe) -> Vec<Recipe> {
+    match r {
+        Recipe::Bronze => vec![Recipe::Tin, Recipe::Copper],
+        _ => vec![],
+    }
+}
+
+fn recipe_statement(r: &Recipe) -> &'static str {
+    match r {
+        Recipe::Copper => {
+            r#"
+use intro Pow(count, input, output) from 0x3493488bc23af15ac5fabe38c3cb6c4b66adb57e3898adf201ae50cc57183f65
+
+IsCopper(item, private: ingredients, inputs, key, work) = AND(
+    ItemDef(item, ingredients, inputs, key, work)
+    Equal(inputs, {})
+    DictContains(ingredients, "blueprint", "copper")
+    Pow(3, ingredients, work)
+)"#
+        }
+        Recipe::Tin => {
+            r#"
+IsTin(item, private: ingredients, inputs, key, work) = AND(
+    ItemDef(item, ingredients, inputs, key, work)
+    Equal(inputs, {})
+    DictContains(ingredients, "blueprint", "tin")
+)"#
+        }
+        Recipe::Bronze => {
+            r#"
+IsBronze(item, private: ingredients, inputs, key, work) = AND(
+    ItemDef(item, ingredients, inputs, key, work)
+    DictContains(ingredients, "blueprint", "bronze")
+
+    // 2 ingredients
+    SetInsert(s1, {}, tin)
+    SetInsert(inputs, s1, copper)
+
+    // Recursively prove the ingredients are correct.
+    IsTin(tin)
+    IsCopper(copper)
+)"#
+        }
+    }
+}
+
 struct App {
     cfg: Config,
     params: Params,
+    recipes: Vec<Recipe>,
     items: Vec<Item>,
     item_view: ItemView,
     crafting: Crafting,
     committing: Committing,
+    task_req_tx: mpsc::Sender<Request>,
+    task_res_rx: mpsc::Receiver<Response>,
+    task_handler: JoinHandle<()>,
+    task_status: Arc<RwLock<TaskStatus>>,
+}
+
+#[derive(Default, Clone)]
+struct TaskStatus {
+    busy: Option<String>,
+}
+
+enum Request {
+    Craft {
+        params: Params,
+        recipe: Recipe,
+        output: PathBuf,
+        input_paths: Vec<PathBuf>,
+    },
+    Exit,
+}
+
+enum Response {
+    Craft(Result<PathBuf>),
+    Null,
+}
+
+fn handle_msg(task_status: &RwLock<TaskStatus>, msg: Request) -> Response {
+    fn set_busy_task(task_status: &RwLock<TaskStatus>, task: &str) {
+        let mut task_status = task_status.write().unwrap();
+        task_status.busy = Some(task.to_string());
+    }
+    match msg {
+        Request::Craft {
+            params,
+            recipe,
+            output,
+            input_paths,
+        } => {
+            set_busy_task(task_status, "Crafting");
+
+            let r = craft_item(&params, recipe, &output, &input_paths);
+            task_status.write().unwrap().busy = None;
+            Response::Craft(r.map(|_| output))
+        }
+        Request::Exit => Response::Null,
+    }
 }
 
 impl App {
+    fn load_item(&mut self, entry: &Path) -> Result<()> {
+        log::debug!("loading {entry:?}");
+        let name = entry.file_name().unwrap().to_str().unwrap().to_string();
+        let crafted_item = load_item(&entry)?;
+        let id = Hash::from(
+            crafted_item.pod.public_statements[0].args()[0]
+                .literal()
+                .unwrap()
+                .raw(),
+        );
+        self.items.push(Item {
+            name,
+            id,
+            crafted_item,
+            path: entry.to_path_buf(),
+        });
+        self.items.sort_by_key(|item| item.name.clone());
+        Ok(())
+    }
+
     fn refresh_items(&mut self) -> Result<()> {
+        self.items = Vec::new();
         log::info!("Loading items...");
-        let mut entries = fs::read_dir(&self.cfg.pods_path)?
-            .map(|res| res.map(|e| e.path()))
-            .collect::<Result<Vec<_>, io::Error>>()?;
-        entries.sort();
-        let mut items = Vec::new();
-        for entry in entries {
-            let name = entry.file_name().unwrap().to_str().unwrap().to_string();
-            log::debug!("loading {entry:?}");
-            let crafted_item = load_item(&entry)?;
-            let id = Hash::from(
-                crafted_item.pod.public_statements[0].args()[0]
-                    .literal()
-                    .unwrap()
-                    .raw(),
-            );
-            items.push(Item {
-                name,
-                id,
-                crafted_item,
-                path: entry,
-            });
+        for entry in fs::read_dir(&self.cfg.pods_path)? {
+            self.load_item(&(entry?.path()))?;
         }
-        self.items = items;
         Ok(())
     }
 
     fn new(cfg: Config, params: Params) -> Result<Self> {
+        let task_status = Arc::new(RwLock::new(TaskStatus::default()));
+        let task_status_cloned = task_status.clone();
+        let (req_tx, req_rx) = channel();
+        let (res_tx, res_rx) = channel();
+        let task_handler = thread::spawn(move || {
+            let task_status = task_status_cloned;
+            loop {
+                match req_rx.recv() {
+                    Ok(msg) => {
+                        if matches!(msg, Request::Exit) {
+                            return;
+                        }
+                        res_tx.send(handle_msg(&*task_status, msg)).unwrap();
+                    }
+                    Err(e) => {
+                        error!("channel error: {e}");
+                        return;
+                    }
+                }
+            }
+        });
+        let recipes = vec![Recipe::Copper, Recipe::Tin, Recipe::Bronze];
         let mut app = Self {
             cfg,
             params,
+            recipes,
             items: vec![],
             item_view: Default::default(),
             crafting: Default::default(),
             committing: Default::default(),
+            task_req_tx: req_tx,
+            task_res_rx: res_rx,
+            task_handler,
+            task_status,
         };
         app.refresh_items()?;
         Ok(app)
     }
 }
 
+fn result2text<T: fmt::Debug, E: fmt::Debug>(r: &Option<Result<T, E>>) -> RichText {
+    match r {
+        None => RichText::new(""),
+        Some(Err(e)) => RichText::new(format!("{e:?}"))
+            .background_color(Color32::LIGHT_RED)
+            .color(Color32::BLACK),
+        Some(ok) => RichText::new(format!("{ok:?}"))
+            .background_color(Color32::LIGHT_GREEN)
+            .color(Color32::BLACK),
+    }
+}
+
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let frame = egui::Frame::default().inner_margin(4.0);
+        // Process task response messages
+        if let Ok(res) = self.task_res_rx.try_recv() {
+            match res {
+                Response::Craft(r) => {
+                    if let Ok(entry) = &r {
+                        self.load_item(entry).unwrap();
+                    }
+                    self.crafting.result = Some(r)
+                }
+                Response::Null => {}
+            }
+        }
+
+        // If the task is busy, display a spinner and the task name
+        let task_status = self.task_status.read().unwrap().clone();
+        if let Some(task) = task_status.busy {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                ui.vertical_centered(|ui| {
+                    ui.spinner();
+                    ui.heading(task);
+                });
+            });
+            return;
+        }
+
+        let frame = Frame::default().inner_margin(4.0);
         egui::SidePanel::left("item list").show(ctx, |ui| {
             ui.heading("Item list");
             ui.separator();
             egui::ScrollArea::vertical().show(ui, |ui| {
-                // for (i, (name, _)) in self.items.iter().enumerate() {
-                //     ui.selectable_value(&mut selected_item, Some(i), name);
-                // }
-                // ui.separator();
                 for (i, item) in self.items.iter().enumerate() {
                     ui.dnd_drag_source(egui::Id::new(item.name.clone()), i, |ui| {
                         ui.label(&item.name);
@@ -251,7 +415,8 @@ impl eframe::App for App {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.columns_const(|[item_view_ui, crafting_ui]| {
                 item_view_ui.vertical(|ui| {
-                    ui.horizontal(|ui| {
+                    egui::Grid::new("item title").show(ui, |ui| {
+                        ui.set_min_height(32.0);
                         ui.heading("Item: ");
                         let (_, dropped_payload) = ui.dnd_drop_zone::<usize, ()>(frame, |ui| {
                             if let Some(item) = item {
@@ -260,6 +425,7 @@ impl eframe::App for App {
                                 ui.heading("...");
                             }
                         });
+                        ui.end_row();
                         if let Some(selected_item) = dropped_payload {
                             self.item_view.select(*selected_item);
                         }
@@ -275,7 +441,9 @@ impl eframe::App for App {
                                     ui.label(format!("{:?}", item.path));
                                     ui.end_row();
                                     ui.label("id:");
-                                    ui.label(format!("{:#}", item.id));
+                                    ui.label(
+                                        RichText::new(format!("{:#}", item.id)).monospace().small(),
+                                    );
                                     ui.end_row();
                                 });
                             });
@@ -286,7 +454,7 @@ impl eframe::App for App {
                                 self.item_view.verify_result =
                                     Some(result.map_err(|e| anyhow!("{e}")));
                             }
-                            ui.label(format!("{:?}", self.item_view.verify_result));
+                            ui.label(result2text(&self.item_view.verify_result));
                         });
                         ui.heading("Statements:");
                         egui::ScrollArea::vertical().show(ui, |ui| {
@@ -294,11 +462,8 @@ impl eframe::App for App {
                             ui.separator();
                             for st in sts {
                                 let mut st_str = String::new();
-                                _pretty_st(&mut st_str, st);
-                                ui.add(
-                                    egui::Label::new(egui::RichText::new(&st_str).monospace())
-                                        .wrap(),
-                                );
+                                pretty_st(&mut st_str, st);
+                                ui.add(Label::new(RichText::new(&st_str).monospace()).wrap());
                                 ui.add_space(4.0);
                             }
                         });
@@ -306,24 +471,25 @@ impl eframe::App for App {
                 });
 
                 crafting_ui.vertical(|ui| {
-                    ui.heading("Crafting");
+                    egui::Grid::new("crafting title").show(ui, |ui| {
+                        ui.set_min_height(32.0);
+                        ui.heading("Crafting");
+                        ui.end_row();
+                    });
                     ui.separator();
                     egui::ComboBox::from_label("")
                         .selected_text(selected_recipe.map(|r| r.to_string()).unwrap_or_default())
                         .show_ui(ui, |ui| {
-                            for recipe in [Recipe::Copper, Recipe::Tin, Recipe::Bronze] {
+                            for recipe in &self.recipes {
                                 ui.selectable_value(
                                     &mut selected_recipe,
-                                    Some(recipe),
+                                    Some(*recipe),
                                     recipe.to_string(),
                                 );
                             }
                         });
                     if let Some(recipe) = self.crafting.selected_recipe {
-                        let inputs = match recipe {
-                            Recipe::Bronze => vec!["tin", "copper"],
-                            _ => vec![],
-                        };
+                        let inputs = recipe_inputs(&recipe);
                         if !inputs.is_empty() {
                             ui.heading("Inputs:");
                         }
@@ -347,10 +513,21 @@ impl eframe::App for App {
                             }
                         });
 
-                        ui.text_edit_singleline(&mut self.crafting.output_filename);
-                        if ui.button("Craft").clicked() {
-                            self.crafting.result = if self.crafting.output_filename.is_empty() {
-                                Some(Err(anyhow!("Please enter a filename.")))
+                        ui.horizontal(|ui| {
+                            ui.label("filename:");
+                            ui.text_edit_singleline(&mut self.crafting.output_filename);
+                        });
+                        let button_craft_response = ui
+                            .horizontal(|ui| {
+                                let button_craft_response = ui.button("Craft");
+                                ui.label(result2text(&self.crafting.result));
+                                button_craft_response
+                            })
+                            .inner;
+                        if button_craft_response.clicked() {
+                            if self.crafting.output_filename.is_empty() {
+                                self.crafting.result =
+                                    Some(Err(anyhow!("Please enter a filename.")));
                             } else {
                                 let output = Path::new(&self.cfg.pods_path)
                                     .join(&self.crafting.output_filename);
@@ -364,22 +541,23 @@ impl eframe::App for App {
                                     .collect::<Option<Vec<_>>>();
 
                                 match input_paths {
-                                    None => Some(Err(anyhow!("Please provide all inputs."))),
-                                    Some(input_paths) => Some(craft_item(
-                                        &self.params,
-                                        recipe,
-                                        &output,
-                                        &input_paths,
-                                    )),
+                                    None => {
+                                        self.crafting.result =
+                                            Some(Err(anyhow!("Please provide all inputs.")))
+                                    }
+                                    Some(input_paths) => {
+                                        self.task_req_tx
+                                            .send(Request::Craft {
+                                                params: self.params.clone(),
+                                                recipe,
+                                                output,
+                                                input_paths,
+                                            })
+                                            .unwrap();
+                                    }
                                 }
                             };
                         }
-                        let crafting_result_string = match &self.crafting.result {
-                            None => "".into(),
-                            Some(Ok(())) => "Crafting successful!".into(),
-                            Some(Err(e)) => format!("{e:?}"),
-                        };
-                        ui.label(crafting_result_string);
 
                         if ui.button("Commit").clicked() {
                             let input_path =
@@ -394,6 +572,13 @@ impl eframe::App for App {
                             Some(Err(e)) => format!("{e:?}"),
                         };
                         ui.label(commit_result_string);
+
+                        ui.heading("Statement:");
+                        egui::ScrollArea::vertical().show(ui, |ui| {
+                            ui.separator();
+                            let s = recipe_statement(&recipe);
+                            ui.add(Label::new(RichText::new(s).monospace()).wrap());
+                        });
                     }
                 });
             });
@@ -402,5 +587,11 @@ impl eframe::App for App {
                 self.crafting.select(selected_recipe);
             }
         });
+    }
+
+    fn on_exit(&mut self, _gl: Option<&egui_glow::glow::Context>) {
+        self.task_req_tx.send(Request::Exit).unwrap();
+        // if the task is not busy it should terminate before 100 ms
+        thread::sleep(time::Duration::from_millis(100));
     }
 }
