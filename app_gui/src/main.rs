@@ -191,6 +191,7 @@ struct Committing {
     result: Option<Result<()>>,
 }
 
+#[derive(Clone)]
 struct Item {
     name: String,
     id: Hash,
@@ -249,6 +250,7 @@ struct App {
     params: Params,
     recipes: Vec<Recipe>,
     items: Vec<Item>,
+    used_items: Vec<Item>,
     item_view: ItemView,
     crafting: Crafting,
     committing: Committing,
@@ -299,6 +301,25 @@ fn handle_req(task_status: &RwLock<TaskStatus>, req: Request) -> Response {
             set_busy_task(task_status, "Crafting");
 
             let r = craft_item(&params, recipe, &output, &input_paths);
+
+            // move the files of the used inputs into the `used` subdir
+            for input in input_paths {
+                let parent_path = input.parent().unwrap().display();
+                // if original file is not in 'used' subdir, move it there, ignore if it already is
+                // in that subdir
+                if !parent_path.to_string().contains("used") {
+                    fs::rename(
+                        input.clone(),
+                        format!(
+                            "{}/used/{}",
+                            parent_path,
+                            input.file_name().unwrap().display()
+                        ),
+                    )
+                    .unwrap();
+                }
+            }
+
             task_status.write().unwrap().busy = None;
             Response::Craft(r.map(|_| output))
         }
@@ -316,7 +337,11 @@ fn handle_req(task_status: &RwLock<TaskStatus>, req: Request) -> Response {
 }
 
 impl App {
-    fn load_item(&mut self, entry: &Path) -> Result<()> {
+    /// returns a vector with [self.items | self.used_items]
+    fn all_items(&self) -> Vec<Item> {
+        [self.items.clone(), self.used_items.clone()].concat()
+    }
+    fn load_item(&mut self, entry: &Path, used: bool) -> Result<()> {
         log::debug!("loading {entry:?}");
         let name = entry.file_name().unwrap().to_str().unwrap().to_string();
         let crafted_item = load_item(entry)?;
@@ -326,21 +351,44 @@ impl App {
                 .unwrap()
                 .raw(),
         );
-        self.items.push(Item {
-            name,
-            id,
-            crafted_item,
-            path: entry.to_path_buf(),
-        });
+        if used {
+            self.used_items.push(Item {
+                name,
+                id,
+                crafted_item,
+                path: entry.to_path_buf(),
+            });
+        } else {
+            self.items.push(Item {
+                name,
+                id,
+                crafted_item,
+                path: entry.to_path_buf(),
+            });
+        }
         self.items.sort_by_key(|item| item.name.clone());
+        self.used_items.sort_by_key(|item| item.name.clone());
         Ok(())
     }
 
     fn refresh_items(&mut self) -> Result<()> {
         self.items = Vec::new();
+        self.used_items = Vec::new();
         log::info!("Loading items...");
         for entry in fs::read_dir(&self.cfg.pods_path)? {
-            self.load_item(&(entry?.path()))?;
+            let entry = entry?;
+            // skip dirs
+            if !entry.file_type()?.is_dir() {
+                self.load_item(&(entry.path()), false)?;
+            }
+        }
+
+        for entry in fs::read_dir(format!("{}/used", &self.cfg.pods_path))? {
+            let entry = entry?;
+            // skip dirs
+            if !entry.file_type()?.is_dir() {
+                self.load_item(&(entry.path()), true)?;
+            }
         }
         Ok(())
     }
@@ -411,6 +459,7 @@ impl App {
             params,
             recipes,
             items: vec![],
+            used_items: vec![],
             item_view: Default::default(),
             crafting: Default::default(),
             committing: Default::default(),
@@ -439,13 +488,17 @@ fn result2text<T: fmt::Debug, E: fmt::Debug>(r: &Option<Result<T, E>>) -> RichTe
 impl App {
     // Item view panel
     fn update_item_view_ui(&mut self, ui: &mut Ui) {
-        let item = self.item_view.selected_item.map(|i| &self.items[i]);
+        // let item = self.item_view.selected_item.map(|i| &self.items[i]);
+        let item = self
+            .item_view
+            .selected_item
+            .map(|i| self.all_items()[i].clone());
         egui::Grid::new("item title").show(ui, |ui| {
             ui.set_min_height(32.0);
             ui.heading("Item: ");
             let frame = Frame::default().inner_margin(4.0);
             let (_, dropped_payload) = ui.dnd_drop_zone::<usize, ()>(frame, |ui| {
-                if let Some(item) = item {
+                if let Some(item) = item.clone() {
                     ui.heading(item.name.to_string());
                 } else {
                     ui.heading("...");
@@ -491,7 +544,7 @@ impl App {
             });
 
             if verify_clicked {
-                self.item_view.verify_result = Some(self.verify_item(item));
+                self.item_view.verify_result = Some(self.verify_item(&item));
             }
         }
     }
@@ -527,7 +580,7 @@ impl App {
                     let frame = Frame::default().inner_margin(4.0);
                     let (_, dropped_payload) = ui.dnd_drop_zone::<usize, ()>(frame, |ui| {
                         if let Some(index) = self.crafting.input_items.get(&input_index) {
-                            ui.label(self.items[*index].name.to_string());
+                            ui.label(self.all_items()[*index].name.to_string());
                         } else {
                             ui.label("...");
                         }
@@ -541,6 +594,13 @@ impl App {
 
             ui.horizontal(|ui| {
                 ui.label("filename:");
+                // suggest a default name for the file
+                self.crafting.output_filename = format!(
+                    "{}/{:?}_{}",
+                    self.cfg.pods_path,
+                    recipe,
+                    self.items.len() + self.used_items.len()
+                );
                 ui.text_edit_singleline(&mut self.crafting.output_filename);
             });
 
@@ -565,7 +625,7 @@ impl App {
                             self.crafting
                                 .input_items
                                 .get(&i)
-                                .map(|i| self.items[*i].path.clone())
+                                .map(|i| self.all_items()[*i].path.clone())
                         })
                         .collect::<Option<Vec<_>>>();
 
@@ -620,10 +680,12 @@ impl eframe::App for App {
             match res {
                 Response::Craft(r) => {
                     if let Ok(entry) = &r {
-                        self.load_item(entry).unwrap();
+                        self.load_item(entry, false).unwrap();
                     }
-                    self.crafting.craft_result = Some(r);
+                    self.refresh_items().unwrap();
+                    self.crafting.input_items = HashMap::new();
                     self.crafting.commit_result = None;
+                    self.crafting.craft_result = Some(r)
                 }
                 Response::Commit(r) => self.crafting.commit_result = Some(r),
                 Response::Null => {}
@@ -644,13 +706,31 @@ impl eframe::App for App {
 
         // Left side panel "Item list"
         egui::SidePanel::left("item list").show(ctx, |ui| {
-            ui.heading("Item list");
+            ui.horizontal(|ui| {
+                ui.heading("Digital Objects");
+                if ui.button("Refresh").clicked() {
+                    self.refresh_items().unwrap();
+                }
+            });
             ui.separator();
             egui::ScrollArea::vertical().show(ui, |ui| {
                 for (i, item) in self.items.iter().enumerate() {
                     ui.dnd_drag_source(egui::Id::new(item.name.clone()), i, |ui| {
                         ui.label(&item.name);
                     });
+                }
+            });
+            ui.separator();
+            ui.heading("Used items");
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                for (i, item) in self.used_items.iter().enumerate() {
+                    ui.dnd_drag_source(
+                        egui::Id::new(item.name.clone()),
+                        self.items.len() + i,
+                        |ui| {
+                            ui.label(&item.name);
+                        },
+                    );
                 }
             });
         });
