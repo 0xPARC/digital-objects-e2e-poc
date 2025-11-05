@@ -1,3 +1,9 @@
+// TODO: Remove after completing the gui_app
+#![allow(unreachable_code)]
+#![allow(unused_imports)]
+#![allow(unused_variables)]
+#![allow(dead_code)]
+
 use std::{
     collections::HashMap,
     fmt::{self, Write},
@@ -12,11 +18,12 @@ use std::{
 };
 
 use anyhow::{Result, anyhow};
-use app::{Config, CraftedItem, Recipe, craft_item, load_item, log_init};
+use app::{Config, CraftedItem, Recipe, commit_item, craft_item, load_item, log_init};
 use common::load_dotenv;
 use egui::{Color32, Frame, Label, RichText, Ui};
 use itertools::Itertools;
 use pod2::middleware::{Hash, Params, Statement, StatementArg, TypedValue, Value};
+use tokio::runtime::Runtime;
 use tracing::{error, info};
 
 fn main() -> Result<()> {
@@ -256,20 +263,26 @@ enum Request {
         output: PathBuf,
         input_paths: Vec<PathBuf>,
     },
+    Commit {
+        params: Params,
+        cfg: Config,
+        input: PathBuf,
+    },
     Exit,
 }
 
 enum Response {
     Craft(Result<PathBuf>),
+    Commit(Result<PathBuf>),
     Null,
 }
 
-fn handle_msg(task_status: &RwLock<TaskStatus>, msg: Request) -> Response {
+fn handle_req(task_status: &RwLock<TaskStatus>, req: Request) -> Response {
     fn set_busy_task(task_status: &RwLock<TaskStatus>, task: &str) {
         let mut task_status = task_status.write().unwrap();
         task_status.busy = Some(task.to_string());
     }
-    match msg {
+    match req {
         Request::Craft {
             params,
             recipe,
@@ -282,6 +295,15 @@ fn handle_msg(task_status: &RwLock<TaskStatus>, msg: Request) -> Response {
             task_status.write().unwrap().busy = None;
             Response::Craft(r.map(|_| output))
         }
+        Request::Commit { params, cfg, input } => {
+            set_busy_task(task_status, "Committing");
+
+            Runtime::new().unwrap();
+            // let r = commit_item(&params, &cfg, &input);
+            let r: Result<()> = todo!();
+            task_status.write().unwrap().busy = None;
+            Response::Commit(r.map(|_| input))
+        }
         Request::Exit => Response::Null,
     }
 }
@@ -290,7 +312,7 @@ impl App {
     fn load_item(&mut self, entry: &Path) -> Result<()> {
         log::debug!("loading {entry:?}");
         let name = entry.file_name().unwrap().to_str().unwrap().to_string();
-        let crafted_item = load_item(&entry)?;
+        let crafted_item = load_item(entry)?;
         let id = Hash::from(
             crafted_item.pod.public_statements[0].args()[0]
                 .literal()
@@ -325,11 +347,11 @@ impl App {
             let task_status = task_status_cloned;
             loop {
                 match req_rx.recv() {
-                    Ok(msg) => {
-                        if matches!(msg, Request::Exit) {
+                    Ok(req) => {
+                        if matches!(req, Request::Exit) {
                             return;
                         }
-                        res_tx.send(handle_msg(&*task_status, msg)).unwrap();
+                        res_tx.send(handle_req(&task_status, req)).unwrap();
                     }
                     Err(e) => {
                         error!("channel error: {e}");
@@ -400,7 +422,8 @@ impl App {
                         ui.label(format!("{:?}", item.path));
                         ui.end_row();
                         ui.label("id:");
-                        ui.label(RichText::new(format!("{:#}", item.id)).monospace().small());
+                        ui.label(RichText::new(format!("{:#}", item.id)).monospace());
+                        ui.label("test");
                         ui.end_row();
                     });
                 });
@@ -547,6 +570,9 @@ impl eframe::App for App {
                         self.load_item(entry).unwrap();
                     }
                     self.crafting.result = Some(r)
+                }
+                Response::Commit(r) => {
+                    todo!()
                 }
                 Response::Null => {}
             }
