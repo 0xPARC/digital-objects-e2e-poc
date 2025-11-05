@@ -2,7 +2,6 @@ use std::{
     collections::HashMap,
     fmt::{self, Write},
     fs::{self},
-    io, mem,
     path::{Path, PathBuf},
     sync::{
         Arc, RwLock,
@@ -15,7 +14,7 @@ use std::{
 use anyhow::{Result, anyhow};
 use app::{Config, CraftedItem, Recipe, craft_item, load_item, log_init};
 use common::load_dotenv;
-use egui::{Color32, Frame, Label, RichText};
+use egui::{Color32, Frame, Label, RichText, Ui};
 use itertools::Itertools;
 use pod2::middleware::{Hash, Params, Statement, StatementArg, TypedValue, Value};
 use tracing::{error, info};
@@ -241,7 +240,7 @@ struct App {
     committing: Committing,
     task_req_tx: mpsc::Sender<Request>,
     task_res_rx: mpsc::Receiver<Response>,
-    task_handler: JoinHandle<()>,
+    _task_handler: JoinHandle<()>,
     task_status: Arc<RwLock<TaskStatus>>,
 }
 
@@ -350,7 +349,7 @@ impl App {
             committing: Default::default(),
             task_req_tx: req_tx,
             task_res_rx: res_rx,
-            task_handler,
+            _task_handler: task_handler,
             task_status,
         };
         app.refresh_items()?;
@@ -367,6 +366,174 @@ fn result2text<T: fmt::Debug, E: fmt::Debug>(r: &Option<Result<T, E>>) -> RichTe
         Some(ok) => RichText::new(format!("{ok:?}"))
             .background_color(Color32::LIGHT_GREEN)
             .color(Color32::BLACK),
+    }
+}
+
+impl App {
+    // Item view panel
+    fn update_item_view_ui(&mut self, ui: &mut Ui) {
+        let item = self.item_view.selected_item.map(|i| &self.items[i]);
+        egui::Grid::new("item title").show(ui, |ui| {
+            ui.set_min_height(32.0);
+            ui.heading("Item: ");
+            let frame = Frame::default().inner_margin(4.0);
+            let (_, dropped_payload) = ui.dnd_drop_zone::<usize, ()>(frame, |ui| {
+                if let Some(item) = item {
+                    ui.heading(item.name.to_string());
+                } else {
+                    ui.heading("...");
+                }
+            });
+            ui.end_row();
+            if let Some(selected_item) = dropped_payload {
+                self.item_view.select(*selected_item);
+            }
+        });
+        ui.separator();
+
+        if let Some(item) = item {
+            egui::ScrollArea::horizontal()
+                .id_salt("item properties scroll")
+                .show(ui, |ui| {
+                    egui::Grid::new("item properties").show(ui, |ui| {
+                        ui.label("path:");
+                        ui.label(format!("{:?}", item.path));
+                        ui.end_row();
+                        ui.label("id:");
+                        ui.label(RichText::new(format!("{:#}", item.id)).monospace().small());
+                        ui.end_row();
+                    });
+                });
+            ui.horizontal(|ui| {
+                if ui.button("Verify").clicked() {
+                    let result = item.crafted_item.pod.pod.verify();
+                    // TODO: Verify commit on-chain via synchronizer
+                    self.item_view.verify_result = Some(result.map_err(|e| anyhow!("{e}")));
+                }
+                ui.label(result2text(&self.item_view.verify_result));
+            });
+            ui.heading("Statements:");
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                let sts = &item.crafted_item.pod.public_statements;
+                ui.separator();
+                for st in sts {
+                    let mut st_str = String::new();
+                    pretty_st(&mut st_str, st);
+                    ui.add(Label::new(RichText::new(&st_str).monospace()).wrap());
+                    ui.add_space(4.0);
+                }
+            });
+        }
+    }
+
+    // Crafting panel
+    fn update_crafting_ui(&mut self, ui: &mut Ui) {
+        let mut selected_recipe = self.crafting.selected_recipe;
+        egui::Grid::new("crafting title").show(ui, |ui| {
+            ui.set_min_height(32.0);
+            ui.heading("Crafting");
+            ui.end_row();
+        });
+        ui.separator();
+        egui::ComboBox::from_label("")
+            .selected_text(selected_recipe.map(|r| r.to_string()).unwrap_or_default())
+            .show_ui(ui, |ui| {
+                for recipe in &self.recipes {
+                    ui.selectable_value(&mut selected_recipe, Some(*recipe), recipe.to_string());
+                }
+            });
+        if let Some(selected_recipe) = selected_recipe {
+            self.crafting.select(selected_recipe);
+        }
+
+        if let Some(recipe) = self.crafting.selected_recipe {
+            let inputs = recipe_inputs(&recipe);
+            if !inputs.is_empty() {
+                ui.heading("Inputs:");
+            }
+            egui::Grid::new("crafting inputs").show(ui, |ui| {
+                for (input_index, input) in inputs.iter().enumerate() {
+                    ui.label(format!("{input}:"));
+                    let frame = Frame::default().inner_margin(4.0);
+                    let (_, dropped_payload) = ui.dnd_drop_zone::<usize, ()>(frame, |ui| {
+                        if let Some(index) = self.crafting.input_items.get(&input_index) {
+                            ui.label(self.items[*index].name.to_string());
+                        } else {
+                            ui.label("...");
+                        }
+                    });
+                    ui.end_row();
+                    if let Some(index) = dropped_payload {
+                        self.crafting.input_items.insert(input_index, *index);
+                    }
+                }
+            });
+
+            ui.horizontal(|ui| {
+                ui.label("filename:");
+                ui.text_edit_singleline(&mut self.crafting.output_filename);
+            });
+            let button_craft_response = ui
+                .horizontal(|ui| {
+                    let button_craft_response = ui.button("Craft");
+                    ui.label(result2text(&self.crafting.result));
+                    button_craft_response
+                })
+                .inner;
+            if button_craft_response.clicked() {
+                if self.crafting.output_filename.is_empty() {
+                    self.crafting.result = Some(Err(anyhow!("Please enter a filename.")));
+                } else {
+                    let output =
+                        Path::new(&self.cfg.pods_path).join(&self.crafting.output_filename);
+                    let input_paths = (0..inputs.len())
+                        .map(|i| {
+                            self.crafting
+                                .input_items
+                                .get(&i)
+                                .map(|i| self.items[*i].path.clone())
+                        })
+                        .collect::<Option<Vec<_>>>();
+
+                    match input_paths {
+                        None => {
+                            self.crafting.result = Some(Err(anyhow!("Please provide all inputs.")))
+                        }
+                        Some(input_paths) => {
+                            self.task_req_tx
+                                .send(Request::Craft {
+                                    params: self.params.clone(),
+                                    recipe,
+                                    output,
+                                    input_paths,
+                                })
+                                .unwrap();
+                        }
+                    }
+                };
+            }
+
+            if ui.button("Commit").clicked() {
+                let _input_path =
+                    Path::new(&self.cfg.pods_path).join(&self.crafting.output_filename);
+
+                todo!();
+            }
+
+            let commit_result_string = match &self.committing.result {
+                None => "".into(),
+                Some(Ok(())) => "Commit successful!".into(),
+                Some(Err(e)) => format!("{e:?}"),
+            };
+            ui.label(commit_result_string);
+
+            ui.heading("Statement:");
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                ui.separator();
+                let s = recipe_statement(&recipe);
+                ui.add(Label::new(RichText::new(s).monospace()).wrap());
+            });
+        }
     }
 }
 
@@ -397,7 +564,7 @@ impl eframe::App for App {
             return;
         }
 
-        let frame = Frame::default().inner_margin(4.0);
+        // Left side panel "Item list"
         egui::SidePanel::left("item list").show(ctx, |ui| {
             ui.heading("Item list");
             ui.separator();
@@ -410,182 +577,16 @@ impl eframe::App for App {
             });
         });
 
-        let item = self.item_view.selected_item.map(|i| &self.items[i]);
-        let mut selected_recipe = self.crafting.selected_recipe;
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.columns_const(|[item_view_ui, crafting_ui]| {
                 item_view_ui.vertical(|ui| {
-                    egui::Grid::new("item title").show(ui, |ui| {
-                        ui.set_min_height(32.0);
-                        ui.heading("Item: ");
-                        let (_, dropped_payload) = ui.dnd_drop_zone::<usize, ()>(frame, |ui| {
-                            if let Some(item) = item {
-                                ui.heading(item.name.to_string());
-                            } else {
-                                ui.heading("...");
-                            }
-                        });
-                        ui.end_row();
-                        if let Some(selected_item) = dropped_payload {
-                            self.item_view.select(*selected_item);
-                        }
-                    });
-                    ui.separator();
-
-                    if let Some(item) = item {
-                        egui::ScrollArea::horizontal()
-                            .id_salt("item properties scroll")
-                            .show(ui, |ui| {
-                                egui::Grid::new("item properties").show(ui, |ui| {
-                                    ui.label("path:");
-                                    ui.label(format!("{:?}", item.path));
-                                    ui.end_row();
-                                    ui.label("id:");
-                                    ui.label(
-                                        RichText::new(format!("{:#}", item.id)).monospace().small(),
-                                    );
-                                    ui.end_row();
-                                });
-                            });
-                        ui.horizontal(|ui| {
-                            if ui.button("Verify").clicked() {
-                                let result = item.crafted_item.pod.pod.verify();
-                                // TODO: Verify commit on-chain via synchronizer
-                                self.item_view.verify_result =
-                                    Some(result.map_err(|e| anyhow!("{e}")));
-                            }
-                            ui.label(result2text(&self.item_view.verify_result));
-                        });
-                        ui.heading("Statements:");
-                        egui::ScrollArea::vertical().show(ui, |ui| {
-                            let sts = &item.crafted_item.pod.public_statements;
-                            ui.separator();
-                            for st in sts {
-                                let mut st_str = String::new();
-                                pretty_st(&mut st_str, st);
-                                ui.add(Label::new(RichText::new(&st_str).monospace()).wrap());
-                                ui.add_space(4.0);
-                            }
-                        });
-                    }
+                    self.update_item_view_ui(ui);
                 });
 
                 crafting_ui.vertical(|ui| {
-                    egui::Grid::new("crafting title").show(ui, |ui| {
-                        ui.set_min_height(32.0);
-                        ui.heading("Crafting");
-                        ui.end_row();
-                    });
-                    ui.separator();
-                    egui::ComboBox::from_label("")
-                        .selected_text(selected_recipe.map(|r| r.to_string()).unwrap_or_default())
-                        .show_ui(ui, |ui| {
-                            for recipe in &self.recipes {
-                                ui.selectable_value(
-                                    &mut selected_recipe,
-                                    Some(*recipe),
-                                    recipe.to_string(),
-                                );
-                            }
-                        });
-                    if let Some(recipe) = self.crafting.selected_recipe {
-                        let inputs = recipe_inputs(&recipe);
-                        if !inputs.is_empty() {
-                            ui.heading("Inputs:");
-                        }
-                        egui::Grid::new("crafting inputs").show(ui, |ui| {
-                            for (input_index, input) in inputs.iter().enumerate() {
-                                ui.label(format!("{input}:"));
-                                let (_, dropped_payload) =
-                                    ui.dnd_drop_zone::<usize, ()>(frame, |ui| {
-                                        if let Some(index) =
-                                            self.crafting.input_items.get(&input_index)
-                                        {
-                                            ui.label(self.items[*index].name.to_string());
-                                        } else {
-                                            ui.label("...");
-                                        }
-                                    });
-                                ui.end_row();
-                                if let Some(index) = dropped_payload {
-                                    self.crafting.input_items.insert(input_index, *index);
-                                }
-                            }
-                        });
-
-                        ui.horizontal(|ui| {
-                            ui.label("filename:");
-                            ui.text_edit_singleline(&mut self.crafting.output_filename);
-                        });
-                        let button_craft_response = ui
-                            .horizontal(|ui| {
-                                let button_craft_response = ui.button("Craft");
-                                ui.label(result2text(&self.crafting.result));
-                                button_craft_response
-                            })
-                            .inner;
-                        if button_craft_response.clicked() {
-                            if self.crafting.output_filename.is_empty() {
-                                self.crafting.result =
-                                    Some(Err(anyhow!("Please enter a filename.")));
-                            } else {
-                                let output = Path::new(&self.cfg.pods_path)
-                                    .join(&self.crafting.output_filename);
-                                let input_paths = (0..inputs.len())
-                                    .map(|i| {
-                                        self.crafting
-                                            .input_items
-                                            .get(&i)
-                                            .map(|i| self.items[*i].path.clone())
-                                    })
-                                    .collect::<Option<Vec<_>>>();
-
-                                match input_paths {
-                                    None => {
-                                        self.crafting.result =
-                                            Some(Err(anyhow!("Please provide all inputs.")))
-                                    }
-                                    Some(input_paths) => {
-                                        self.task_req_tx
-                                            .send(Request::Craft {
-                                                params: self.params.clone(),
-                                                recipe,
-                                                output,
-                                                input_paths,
-                                            })
-                                            .unwrap();
-                                    }
-                                }
-                            };
-                        }
-
-                        if ui.button("Commit").clicked() {
-                            let input_path =
-                                Path::new(&self.cfg.pods_path).join(&self.crafting.output_filename);
-
-                            todo!();
-                        }
-
-                        let commit_result_string = match &self.committing.result {
-                            None => "".into(),
-                            Some(Ok(())) => "Commit successful!".into(),
-                            Some(Err(e)) => format!("{e:?}"),
-                        };
-                        ui.label(commit_result_string);
-
-                        ui.heading("Statement:");
-                        egui::ScrollArea::vertical().show(ui, |ui| {
-                            ui.separator();
-                            let s = recipe_statement(&recipe);
-                            ui.add(Label::new(RichText::new(s).monospace()).wrap());
-                        });
-                    }
+                    self.update_crafting_ui(ui);
                 });
             });
-
-            if let Some(selected_recipe) = selected_recipe {
-                self.crafting.select(selected_recipe);
-            }
         });
     }
 
