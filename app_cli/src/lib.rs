@@ -1,9 +1,3 @@
-//! Examples of usage
-//!
-//! - craft new copper item:
-//!   RUST_LOG=app=debug cargo run --release -p app -- craft --output ./item0 --recipe copper
-//! - commit the crafted item:
-//!   RUST_LOG=app=debug cargo run --release -p app -- commit --input ./item0
 use std::{
     array, fmt,
     path::{Path, PathBuf},
@@ -11,12 +5,10 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::{anyhow, bail};
-use app::{Config, eth::send_payload, log_init};
-use clap::{Parser, Subcommand};
+use alloy::primitives::Address;
+use anyhow::{Context as _, Result, anyhow, bail};
 use commitlib::{ItemBuilder, ItemDef, predicates::CommitPredicates};
 use common::{
-    load_dotenv,
     payload::{Payload, PayloadProof},
     set_from_value,
     shrink::{ShrunkMainPodSetup, shrink_compress_pod},
@@ -32,7 +24,7 @@ use craftlib::{
 };
 use plonky2::field::types::Field;
 use pod2::{
-    backends::plonky2::{mainpod::Prover, primitives::merkletree::MerkleProof},
+    backends::plonky2::mainpod::Prover,
     frontend::{MainPod, MainPodBuilder},
     middleware::{
         CustomPredicateBatch, DEFAULT_VD_SET, F, Params, Pod, RawValue, VDSet, containers::Set,
@@ -42,16 +34,68 @@ use pod2utils::macros::BuildContext;
 use rand::{RngCore, SeedableRng, rngs::StdRng};
 use serde::{Deserialize, Serialize};
 use tracing::info;
+use tracing_subscriber::{EnvFilter, prelude::*};
 
-#[derive(Parser)]
-#[command(version, about, long_about = None)]
-struct Cli {
-    #[command(subcommand)]
-    command: Option<Commands>,
+use crate::eth::send_payload;
+
+pub mod eth;
+
+#[derive(Clone, Debug)]
+pub struct Config {
+    // The URL for the Beacon API
+    pub beacon_url: String,
+    // The URL for the Ethereum RPC API
+    pub rpc_url: String,
+    // Ethereum private key to send txs
+    pub priv_key: String,
+    // The URL for the Synchronizer API
+    pub sync_url: String,
+    // The path to the pod storage directory
+    pub pods_path: String,
+    // The address that receives DO update via blobs
+    pub to_addr: Address,
+    pub tx_watch_timeout: u64,
 }
 
-#[derive(Debug, Clone, Copy)]
-enum Recipe {
+impl Config {
+    pub fn from_env() -> Result<Self> {
+        fn var(v: &str) -> Result<String> {
+            dotenvy::var(v).with_context(|| v.to_string())
+        }
+        Ok(Self {
+            beacon_url: var("BEACON_URL")?,
+            rpc_url: var("RPC_URL")?,
+            priv_key: var("PRIV_KEY")?,
+            sync_url: var("SYNC_URL")?,
+            pods_path: var("PODS_PATH")?,
+            to_addr: Address::from_str(&var("TO_ADDR")?)?,
+            tx_watch_timeout: u64::from_str(&var("TX_WATCH_TIMEOUT")?)?,
+        })
+    }
+}
+
+pub fn log_init() {
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+}
+
+pub fn load_item(input: &Path) -> anyhow::Result<CraftedItem> {
+    let mut file = std::fs::File::open(input)?;
+    let crafted_item: CraftedItem = serde_json::from_reader(&mut file)?;
+    crafted_item.pod.pod.verify()?;
+    Ok(crafted_item)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CraftedItem {
+    pub pod: MainPod,
+    pub def: ItemDef,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Recipe {
     Copper,
     Tin,
     Bronze,
@@ -80,95 +124,9 @@ impl fmt::Display for Recipe {
     }
 }
 
-#[derive(Subcommand)]
-enum Commands {
-    /// Craft an item locally
-    Craft {
-        #[arg(long, value_name = "RECIPE")]
-        recipe: String,
-        #[arg(long, value_name = "FILE")]
-        output: PathBuf,
-        #[arg(long = "input", value_name = "FILE")]
-        inputs: Vec<PathBuf>,
-    },
-    /// Commit a crafted item on-chain
-    Commit {
-        #[arg(long, value_name = "FILE")]
-        input: PathBuf,
-    },
-    /// Verify a committed item
-    Verify {
-        #[arg(long, value_name = "FILE")]
-        input: PathBuf,
-    },
-}
-
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    let cli = Cli::parse();
-
-    log_init();
-    load_dotenv()?;
-    let cfg = Config::from_env()?;
-    info!(?cfg, "Loaded config");
-
-    let params = Params::default();
-
-    match cli.command {
-        Some(Commands::Craft {
-            recipe,
-            output,
-            inputs,
-        }) => {
-            let recipe = Recipe::from_str(&recipe)?;
-            craft_item(&params, recipe, &output, &inputs)?;
-        }
-        Some(Commands::Commit { input }) => {
-            commit_item(&params, &cfg, &input).await?;
-        }
-        Some(Commands::Verify { input }) => {
-            let crafted_item = load_item(&input)?;
-
-            // Verify that the item exists on-blob-space:
-            // first get the merkle proof of item existence from the Synchronizer
-            let item = RawValue::from(crafted_item.def.item_hash(&params)?);
-            let item_hex: String = format!("{item:#}");
-            let (epoch, _): (u64, RawValue) =
-                reqwest::blocking::get(format!("{}/created_items_root", cfg.sync_url,))?.json()?;
-            println!("Verifying commitment of item {item:#} via synchronizer at epoch {epoch}");
-            let (epoch, mtp): (u64, MerkleProof) = reqwest::blocking::get(format!(
-                "{}/created_item/{}",
-                cfg.sync_url,
-                &item_hex[2..]
-            ))?
-            .json()?;
-            println!("mtp at epoch {epoch}: {mtp:?}");
-
-            // fetch the associated Merkle root
-            let merkle_root: RawValue =
-                reqwest::blocking::get(format!("{}/created_items_root/{}", cfg.sync_url, &epoch))?
-                    .json()?;
-
-            // verify the obtained merkle proof
-            Set::verify(
-                params.max_depth_mt_containers,
-                merkle_root.into(),
-                &mtp,
-                &item.into(),
-            )?;
-
-            println!("Crafted item at {input:?} successfully verified!");
-        }
-        None => {}
-    }
-
-    Ok(())
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct CraftedItem {
-    pub pod: MainPod,
-    pub def: ItemDef,
+fn rand_raw_value() -> RawValue {
+    let mut rng = StdRng::from_os_rng();
+    RawValue(array::from_fn(|_| F::from_noncanonical_u64(rng.next_u64())))
 }
 
 struct Helper {
@@ -225,7 +183,7 @@ impl Helper {
                 item_builder.ctx.builder.reveal(st_input_craft);
             }
 
-            println!("Proving nullifiers_pod...");
+            info!("Proving nullifiers_pod...");
             let nullifiers_pod = builder.prove(prover).unwrap();
             nullifiers_pod.pod.verify().unwrap();
             builder = MainPodBuilder::new(&self.params, &self.vd_set);
@@ -269,7 +227,7 @@ impl Helper {
         builder.reveal(&st_nullifiers); // 2: Required for committing via CommitCreation
         builder.reveal(&st_craft); // 3: App layer predicate
 
-        println!("Proving item_pod");
+        info!("Proving item_pod");
         let item_key_pod = builder.prove(prover).unwrap();
         item_key_pod.pod.verify().unwrap();
 
@@ -296,7 +254,7 @@ impl Helper {
         )?;
         builder.reveal(&st_commit_creation);
         let prover = &Prover {};
-        println!("Proving commit_pod...");
+        info!("Proving commit_pod...");
         let pod = builder.prove(prover)?;
         pod.pod.verify().unwrap();
 
@@ -304,19 +262,7 @@ impl Helper {
     }
 }
 
-fn load_item(input: &Path) -> anyhow::Result<CraftedItem> {
-    let mut file = std::fs::File::open(input)?;
-    let crafted_item: CraftedItem = serde_json::from_reader(&mut file)?;
-    crafted_item.pod.pod.verify()?;
-    Ok(crafted_item)
-}
-
-fn rand_raw_value() -> RawValue {
-    let mut rng = StdRng::from_os_rng();
-    RawValue(array::from_fn(|_| F::from_noncanonical_u64(rng.next_u64())))
-}
-
-fn craft_item(
+pub fn craft_item(
     params: &Params,
     recipe: Recipe,
     output: &Path,
@@ -324,7 +270,7 @@ fn craft_item(
 ) -> anyhow::Result<()> {
     let vd_set = DEFAULT_VD_SET.clone();
     let key = rand_raw_value();
-    println!("About to craft \"{recipe}\" with key {key:#}");
+    info!("About to craft \"{recipe}\" with key {key:#}");
     let (item_def, input_items, pow_pod) = match recipe {
         Recipe::Copper => {
             if !inputs.is_empty() {
@@ -397,12 +343,12 @@ fn craft_item(
     let crafted_item = CraftedItem { pod, def: item_def };
     let mut file = std::fs::File::create(output)?;
     serde_json::to_writer(&mut file, &crafted_item)?;
-    println!("Stored crafted item mined with recipe {recipe} to {output:?}");
+    info!("Stored crafted item mined with recipe {recipe} to {output:?}");
 
     Ok(())
 }
 
-async fn commit_item(params: &Params, cfg: &Config, input: &Path) -> anyhow::Result<()> {
+pub async fn commit_item(params: &Params, cfg: &Config, input: &Path) -> anyhow::Result<()> {
     let mut file = std::fs::File::open(input)?;
     let crafted_item: CraftedItem = serde_json::from_reader(&mut file)?;
 
@@ -431,7 +377,7 @@ async fn commit_item(params: &Params, cfg: &Config, input: &Path) -> anyhow::Res
 
     let tx_hash = send_payload(cfg, payload_bytes).await?;
 
-    println!("Committed item in tx={tx_hash}");
+    info!("Committed item in tx={tx_hash}");
 
     Ok(())
 }
