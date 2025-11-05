@@ -8,6 +8,7 @@ use std::{
     collections::HashMap,
     fmt::{self, Write},
     fs::{self},
+    mem,
     path::{Path, PathBuf},
     sync::{
         Arc, RwLock,
@@ -22,7 +23,12 @@ use app_cli::{Config, CraftedItem, Recipe, commit_item, craft_item, load_item, l
 use common::load_dotenv;
 use egui::{Color32, Frame, Label, RichText, Ui};
 use itertools::Itertools;
-use pod2::middleware::{Hash, Params, Statement, StatementArg, TypedValue, Value};
+use pod2::{
+    backends::plonky2::primitives::merkletree::MerkleProof,
+    middleware::{
+        Hash, Params, RawValue, Statement, StatementArg, TypedValue, Value, containers::Set,
+    },
+};
 use tokio::runtime::Runtime;
 use tracing::{error, info};
 
@@ -300,8 +306,8 @@ fn handle_req(task_status: &RwLock<TaskStatus>, req: Request) -> Response {
             set_busy_task(task_status, "Committing");
 
             Runtime::new().unwrap();
-            // let r = commit_item(&params, &cfg, &input);
-            let r: Result<()> = todo!();
+            let rt = Runtime::new().unwrap();
+            let r = rt.block_on(async { commit_item(&params, &cfg, &input).await });
             task_status.write().unwrap().busy = None;
             Response::Commit(r.map(|_| input))
         }
@@ -336,6 +342,44 @@ impl App {
         for entry in fs::read_dir(&self.cfg.pods_path)? {
             self.load_item(&(entry?.path()))?;
         }
+        Ok(())
+    }
+
+    fn verify_item(&self, item: &Item) -> Result<()> {
+        item.crafted_item.pod.pod.verify()?;
+
+        // Verify that the item exists on-blob-space:
+        // first get the merkle proof of item existence from the Synchronizer
+        let item_id = RawValue::from(item.crafted_item.def.item_hash(&self.params)?);
+        let item_hex: String = format!("{item_id:#}");
+        let (epoch, _): (u64, RawValue) =
+            reqwest::blocking::get(format!("{}/created_items_root", self.cfg.sync_url,))?.json()?;
+        info!("Verifying commitment of item {item_id:#} via synchronizer at epoch {epoch}");
+        let (epoch, mtp): (u64, MerkleProof) = reqwest::blocking::get(format!(
+            "{}/created_item/{}",
+            self.cfg.sync_url,
+            &item_hex[2..]
+        ))?
+        .json()?;
+        info!("mtp at epoch {epoch}: {mtp:?}");
+
+        // fetch the associated Merkle root
+        let merkle_root: RawValue = reqwest::blocking::get(format!(
+            "{}/created_items_root/{}",
+            self.cfg.sync_url, &epoch
+        ))?
+        .json()?;
+
+        // verify the obtained merkle proof
+        Set::verify(
+            self.params.max_depth_mt_containers,
+            merkle_root.into(),
+            &mtp,
+            &item_id.into(),
+        )?;
+
+        info!("Crafted item at {:?} successfully verified!", item.path);
+
         Ok(())
     }
 
@@ -415,6 +459,7 @@ impl App {
         ui.separator();
 
         if let Some(item) = item {
+            let mut verify_clicked = false;
             egui::ScrollArea::horizontal()
                 .id_salt("item properties scroll")
                 .show(ui, |ui| {
@@ -424,15 +469,12 @@ impl App {
                         ui.end_row();
                         ui.label("id:");
                         ui.label(RichText::new(format!("{:#}", item.id)).monospace());
-                        ui.label("test");
                         ui.end_row();
                     });
                 });
-            ui.horizontal(|ui| {
+            egui::Grid::new("item buttons").show(ui, |ui| {
                 if ui.button("Verify").clicked() {
-                    let result = item.crafted_item.pod.pod.verify();
-                    // TODO: Verify commit on-chain via synchronizer
-                    self.item_view.verify_result = Some(result.map_err(|e| anyhow!("{e}")));
+                    verify_clicked = true;
                 }
                 ui.label(result2text(&self.item_view.verify_result));
             });
@@ -447,6 +489,10 @@ impl App {
                     ui.add_space(4.0);
                 }
             });
+
+            if verify_clicked {
+                self.item_view.verify_result = Some(self.verify_item(item));
+            }
         }
     }
 
@@ -543,10 +589,18 @@ impl App {
             }
 
             if button_commit_clicked {
-                let _input_path =
-                    Path::new(&self.cfg.pods_path).join(&self.crafting.output_filename);
-
-                todo!();
+                if self.crafting.output_filename.is_empty() {
+                    self.crafting.commit_result = Some(Err(anyhow!("Please enter a filename.")));
+                } else {
+                    let input = Path::new(&self.cfg.pods_path).join(&self.crafting.output_filename);
+                    self.task_req_tx
+                        .send(Request::Commit {
+                            params: self.params.clone(),
+                            cfg: self.cfg.clone(),
+                            input,
+                        })
+                        .unwrap();
+                }
             }
 
             ui.heading("Predicate:");
@@ -568,11 +622,10 @@ impl eframe::App for App {
                     if let Ok(entry) = &r {
                         self.load_item(entry).unwrap();
                     }
-                    self.crafting.craft_result = Some(r)
+                    self.crafting.craft_result = Some(r);
+                    self.crafting.commit_result = None;
                 }
-                Response::Commit(r) => {
-                    todo!()
-                }
+                Response::Commit(r) => self.crafting.commit_result = Some(r),
                 Response::Null => {}
             }
         }
