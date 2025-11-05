@@ -3,15 +3,15 @@ use std::{
     fmt::Write,
     fs::{self},
     io,
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
 use anyhow::{Result, anyhow};
-use app::{Config, CraftedItem, Recipe, load_item, log_init};
+use app::{Config, CraftedItem, Recipe, craft_item, load_item, log_init};
 use common::load_dotenv;
 use eframe::egui;
 use itertools::Itertools;
-use pod2::middleware::{Hash, Statement, StatementArg, TypedValue, Value};
+use pod2::middleware::{Hash, Params, Statement, StatementArg, TypedValue, Value};
 use tracing::info;
 
 fn main() -> Result<()> {
@@ -24,7 +24,8 @@ fn main() -> Result<()> {
         viewport: egui::ViewportBuilder::default().with_maximized(true),
         ..Default::default()
     };
-    let app = Box::new(App::new(cfg)?);
+    let params = Params::default();
+    let app = Box::new(App::new(cfg, params)?);
     eframe::run_native(
         "PODCraft",
         options,
@@ -46,22 +47,22 @@ fn _indent(w: &mut impl Write, indent: usize) {
 
 fn _pretty_val(w: &mut impl Write, indent: usize, v: &Value) {
     match v.typed() {
-        TypedValue::Raw(v) => write!(w, "{:#}", v).unwrap(),
+        TypedValue::Raw(v) => write!(w, "{v:#}").unwrap(),
         TypedValue::Array(a) => {
             if a.array().is_empty() {
                 write!(w, "[]").unwrap();
                 return;
             }
-            write!(w, "[\n").unwrap();
+            writeln!(w, "[").unwrap();
             _indent(w, indent + 1);
             for (i, v) in a.array().iter().enumerate() {
                 if i > 0 {
-                    write!(w, ",\n").unwrap();
+                    writeln!(w, ",").unwrap();
                     _indent(w, indent + 1);
                 }
                 _pretty_val(w, indent + 1, v);
             }
-            write!(w, "\n").unwrap();
+            writeln!(w).unwrap();
             _indent(w, indent);
             write!(w, "]").unwrap()
         }
@@ -71,16 +72,16 @@ fn _pretty_val(w: &mut impl Write, indent: usize, v: &Value) {
                 write!(w, "#[]").unwrap();
                 return;
             }
-            write!(w, "#[\n").unwrap();
+            writeln!(w, "#[").unwrap();
             _indent(w, indent + 1);
             for (i, v) in values.iter().enumerate() {
                 if i > 0 {
-                    write!(w, ",\n").unwrap();
+                    writeln!(w, ",").unwrap();
                     _indent(w, indent + 1);
                 }
                 _pretty_val(w, indent + 1, v);
             }
-            write!(w, "\n").unwrap();
+            writeln!(w).unwrap();
             _indent(w, indent);
             write!(w, "]").unwrap()
         }
@@ -90,21 +91,21 @@ fn _pretty_val(w: &mut impl Write, indent: usize, v: &Value) {
                 write!(w, "{{}}").unwrap();
                 return;
             }
-            write!(w, "{{\n").unwrap();
+            writeln!(w, "{{").unwrap();
             _indent(w, indent + 1);
             for (i, (k, v)) in kvs.iter().enumerate() {
                 if i > 0 {
-                    write!(w, ",\n").unwrap();
+                    writeln!(w, ",").unwrap();
                     _indent(w, indent + 1);
                 }
-                write!(w, "{}: ", k).unwrap();
+                write!(w, "{k}: ").unwrap();
                 _pretty_val(w, indent + 1, v);
             }
-            write!(w, "\n").unwrap();
+            writeln!(w).unwrap();
             _indent(w, indent);
             write!(w, "}}").unwrap()
         }
-        _ => write!(w, "{}", v).unwrap(),
+        _ => write!(w, "{v}").unwrap(),
     }
 }
 
@@ -112,16 +113,16 @@ fn _pretty_arg(w: &mut impl Write, indent: usize, arg: &StatementArg) {
     match arg {
         StatementArg::None => write!(w, "  none").unwrap(),
         StatementArg::Literal(v) => _pretty_val(w, indent, v),
-        StatementArg::Key(ak) => write!(w, "  {}", ak).unwrap(),
+        StatementArg::Key(ak) => write!(w, "  {ak}").unwrap(),
     }
 }
 
 fn _pretty_st(w: &mut impl Write, st: &Statement) {
-    write!(w, "{}(\n", st.predicate()).unwrap();
+    writeln!(w, "{}(", st.predicate()).unwrap();
     _indent(w, 1);
     for (i, arg) in st.args().iter().enumerate() {
         if i != 0 {
-            write!(w, ",\n").unwrap();
+            writeln!(w, ",").unwrap();
             _indent(w, 1);
         }
         _pretty_arg(w, 1, arg);
@@ -149,6 +150,8 @@ struct Crafting {
     selected_recipe: Option<Recipe>,
     // Input index to item index
     input_items: HashMap<usize, usize>,
+    output_filename: String,
+    result: Option<Result<()>>,
 }
 
 impl Crafting {
@@ -160,6 +163,11 @@ impl Crafting {
     }
 }
 
+#[derive(Default)]
+struct Committing {
+    result: Option<Result<()>>,
+}
+
 struct Item {
     name: String,
     id: Hash,
@@ -169,9 +177,11 @@ struct Item {
 
 struct App {
     cfg: Config,
+    params: Params,
     items: Vec<Item>,
     item_view: ItemView,
     crafting: Crafting,
+    committing: Committing,
 }
 
 impl App {
@@ -195,7 +205,7 @@ impl App {
             items.push(Item {
                 name,
                 id,
-                crafted_item: crafted_item,
+                crafted_item,
                 path: entry,
             });
         }
@@ -203,12 +213,14 @@ impl App {
         Ok(())
     }
 
-    fn new(cfg: Config) -> Result<Self> {
+    fn new(cfg: Config, params: Params) -> Result<Self> {
         let mut app = Self {
             cfg,
+            params,
             items: vec![],
             item_view: Default::default(),
             crafting: Default::default(),
+            committing: Default::default(),
         };
         app.refresh_items()?;
         Ok(app)
@@ -243,7 +255,7 @@ impl eframe::App for App {
                         ui.heading("Item: ");
                         let (_, dropped_payload) = ui.dnd_drop_zone::<usize, ()>(frame, |ui| {
                             if let Some(item) = item {
-                                ui.heading(format!("{}", item.name));
+                                ui.heading(item.name.to_string());
                             } else {
                                 ui.heading("...");
                             }
@@ -308,11 +320,13 @@ impl eframe::App for App {
                             }
                         });
                     if let Some(recipe) = self.crafting.selected_recipe {
-                        ui.heading("Inputs:");
                         let inputs = match recipe {
                             Recipe::Bronze => vec!["tin", "copper"],
                             _ => vec![],
                         };
+                        if !inputs.is_empty() {
+                            ui.heading("Inputs:");
+                        }
                         egui::Grid::new("crafting inputs").show(ui, |ui| {
                             for (input_index, input) in inputs.iter().enumerate() {
                                 ui.label(format!("{input}:"));
@@ -321,7 +335,7 @@ impl eframe::App for App {
                                         if let Some(index) =
                                             self.crafting.input_items.get(&input_index)
                                         {
-                                            ui.label(format!("{}", self.items[*index].name));
+                                            ui.label(self.items[*index].name.to_string());
                                         } else {
                                             ui.label("...");
                                         }
@@ -333,12 +347,53 @@ impl eframe::App for App {
                             }
                         });
 
+                        ui.text_edit_singleline(&mut self.crafting.output_filename);
                         if ui.button("Craft").clicked() {
-                            ui.label("todo");
+                            self.crafting.result = if self.crafting.output_filename.is_empty() {
+                                Some(Err(anyhow!("Please enter a filename.")))
+                            } else {
+                                let output = Path::new(&self.cfg.pods_path)
+                                    .join(&self.crafting.output_filename);
+                                let input_paths = (0..inputs.len())
+                                    .map(|i| {
+                                        self.crafting
+                                            .input_items
+                                            .get(&i)
+                                            .map(|i| self.items[*i].path.clone())
+                                    })
+                                    .collect::<Option<Vec<_>>>();
+
+                                match input_paths {
+                                    None => Some(Err(anyhow!("Please provide all inputs."))),
+                                    Some(input_paths) => Some(craft_item(
+                                        &self.params,
+                                        recipe,
+                                        &output,
+                                        &input_paths,
+                                    )),
+                                }
+                            };
                         }
+                        let crafting_result_string = match &self.crafting.result {
+                            None => "".into(),
+                            Some(Ok(())) => "Crafting successful!".into(),
+                            Some(Err(e)) => format!("{e:?}"),
+                        };
+                        ui.label(crafting_result_string);
+
                         if ui.button("Commit").clicked() {
-                            ui.label("todo");
+                            let input_path =
+                                Path::new(&self.cfg.pods_path).join(&self.crafting.output_filename);
+
+                            todo!();
                         }
+
+                        let commit_result_string = match &self.committing.result {
+                            None => "".into(),
+                            Some(Ok(())) => "Commit successful!".into(),
+                            Some(Err(e)) => format!("{e:?}"),
+                        };
+                        ui.label(commit_result_string);
                     }
                 });
             });
