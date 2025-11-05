@@ -1017,7 +1017,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a23eb6b1614318a8071c9b2521f36b424b2c83db5eb3a0fead4a6c0809af6e61"
 
 [[package]]
-name = "app"
+name = "app_cli"
 version = "0.1.0"
 dependencies = [
  "alloy",
@@ -1027,6 +1027,37 @@ dependencies = [
  "common",
  "craftlib",
  "dotenvy",
+ "itertools 0.14.0",
+ "log",
+ "plonky2",
+ "pod2",
+ "pod2utils",
+ "rand 0.9.2",
+ "reqwest 0.12.24",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "app_gui"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "anyhow",
+ "app_cli",
+ "clap",
+ "commitlib",
+ "common",
+ "craftlib",
+ "dotenvy",
+ "eframe",
+ "egui",
+ "egui_extras",
+ "egui_glow",
+ "env_logger",
  "itertools 0.14.0",
  "log",
  "plonky2",
@@ -3413,37 +3444,6 @@ dependencies = [
  "ff",
  "rand_core 0.6.4",
  "subtle",
-]
-
-[[package]]
-name = "gui_app"
-version = "0.1.0"
-dependencies = [
- "alloy",
- "anyhow",
- "app",
- "clap",
- "commitlib",
- "common",
- "craftlib",
- "dotenvy",
- "eframe",
- "egui",
- "egui_extras",
- "egui_glow",
- "env_logger",
- "itertools 0.14.0",
- "log",
- "plonky2",
- "pod2",
- "pod2utils",
- "rand 0.9.2",
- "reqwest 0.12.24",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]

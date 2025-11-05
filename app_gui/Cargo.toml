@@ -1,5 +1,5 @@
 [package]
-name = "app"
+name = "app_gui"
 version = "0.1.0"
 edition = "2024"
 
@@ -16,6 +16,7 @@ tracing = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing-subscriber = { workspace = true }
+env_logger = { workspace = true }
 clap = { version = "4.5.47", features = ["derive"] }
 reqwest = { version = "0.12.24", features = ["blocking"] }
 rand = { version = "0.9.2", features = ["std_rng"] }
@@ -24,3 +25,10 @@ common = { path = "../common" }
 craftlib = { path = "../craftlib" }
 commitlib = { path = "../commitlib" }
 pod2utils = { path = "../pod2utils" }
+app_cli = { path = "../app_cli" }
+
+# GUI
+eframe = { version = "0.33.0", features = [ "default" ] }
+egui_extras = { version = "0.33.0", features = ["default", "image"] }
+egui_glow = "0.33.0"
+egui = "0.33.0"

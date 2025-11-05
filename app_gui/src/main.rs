@@ -18,7 +18,7 @@ use std::{
 };
 
 use anyhow::{Result, anyhow};
-use app::{Config, CraftedItem, Recipe, commit_item, craft_item, load_item, log_init};
+use app_cli::{Config, CraftedItem, Recipe, commit_item, craft_item, load_item, log_init};
 use common::load_dotenv;
 use egui::{Color32, Frame, Label, RichText, Ui};
 use itertools::Itertools;
@@ -167,7 +167,8 @@ struct Crafting {
     // Input index to item index
     input_items: HashMap<usize, usize>,
     output_filename: String,
-    result: Option<Result<PathBuf>>,
+    craft_result: Option<Result<PathBuf>>,
+    commit_result: Option<Result<PathBuf>>,
 }
 
 impl Crafting {
@@ -496,16 +497,20 @@ impl App {
                 ui.label("filename:");
                 ui.text_edit_singleline(&mut self.crafting.output_filename);
             });
-            let button_craft_response = ui
-                .horizontal(|ui| {
-                    let button_craft_response = ui.button("Craft");
-                    ui.label(result2text(&self.crafting.result));
-                    button_craft_response
-                })
-                .inner;
-            if button_craft_response.clicked() {
+
+            let mut button_craft_clicked = false;
+            let mut button_commit_clicked = false;
+            egui::Grid::new("crafting buttons").show(ui, |ui| {
+                button_craft_clicked = ui.button("Craft").clicked();
+                ui.label(result2text(&self.crafting.craft_result));
+                ui.end_row();
+                button_commit_clicked = ui.button("Commit").clicked();
+                ui.label(result2text(&self.crafting.commit_result));
+                ui.end_row();
+            });
+            if button_craft_clicked {
                 if self.crafting.output_filename.is_empty() {
-                    self.crafting.result = Some(Err(anyhow!("Please enter a filename.")));
+                    self.crafting.craft_result = Some(Err(anyhow!("Please enter a filename.")));
                 } else {
                     let output =
                         Path::new(&self.cfg.pods_path).join(&self.crafting.output_filename);
@@ -520,7 +525,8 @@ impl App {
 
                     match input_paths {
                         None => {
-                            self.crafting.result = Some(Err(anyhow!("Please provide all inputs.")))
+                            self.crafting.craft_result =
+                                Some(Err(anyhow!("Please provide all inputs.")))
                         }
                         Some(input_paths) => {
                             self.task_req_tx
@@ -536,21 +542,14 @@ impl App {
                 };
             }
 
-            if ui.button("Commit").clicked() {
+            if button_commit_clicked {
                 let _input_path =
                     Path::new(&self.cfg.pods_path).join(&self.crafting.output_filename);
 
                 todo!();
             }
 
-            let commit_result_string = match &self.committing.result {
-                None => "".into(),
-                Some(Ok(())) => "Commit successful!".into(),
-                Some(Err(e)) => format!("{e:?}"),
-            };
-            ui.label(commit_result_string);
-
-            ui.heading("Statement:");
+            ui.heading("Predicate:");
             egui::ScrollArea::vertical().show(ui, |ui| {
                 ui.separator();
                 let s = recipe_statement(&recipe);
@@ -569,7 +568,7 @@ impl eframe::App for App {
                     if let Ok(entry) = &r {
                         self.load_item(entry).unwrap();
                     }
-                    self.crafting.result = Some(r)
+                    self.crafting.craft_result = Some(r)
                 }
                 Response::Commit(r) => {
                     todo!()

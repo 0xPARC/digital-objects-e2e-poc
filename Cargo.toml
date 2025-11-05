@@ -5,8 +5,8 @@ members = [
     "synchronizer",
     "common",
     "pod2utils",
-    "app",
-    "gui_app",
+    "app_cli",
+    "app_gui",
 ]
 resolver = "3"
 

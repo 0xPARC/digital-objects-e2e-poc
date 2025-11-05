@@ -1,12 +1,12 @@
 //! Examples of usage
 //!
 //! - craft new copper item:
-//!   RUST_LOG=app=debug cargo run --release -p app -- craft --output ./item0 --recipe copper
+//!   RUST_LOG=app=debug cargo run --release -p app_cli -- craft --output ./item0 --recipe copper
 //! - commit the crafted item:
-//!   RUST_LOG=app=debug cargo run --release -p app -- commit --input ./item0
+//!   RUST_LOG=app=debug cargo run --release -p app_cli -- commit --input ./item0
 use std::{path::PathBuf, str::FromStr};
 
-use app::{Config, Recipe, commit_item, craft_item, load_item, log_init};
+use app_cli::{Config, Recipe, commit_item, craft_item, load_item, log_init};
 use clap::{Parser, Subcommand};
 use common::load_dotenv;
 use pod2::{
