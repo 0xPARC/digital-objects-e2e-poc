@@ -21,3 +21,17 @@ Once having the `.env` file ready with the `PRIV_KEY` and `RPC_URL` properly fil
 - `./full-flow.sh`
 
 This will generate all the needed files, and it will open a new tmux session with 2 panels; one for the Synchronizer and one to run the cli app which will be crafting and committing the materials.
+
+### Testing the gui
+
+Requires the same "Requirements" as "Full flow testing".  Make sure you fulfill them.
+
+Run the synchronizer in the background:
+```
+./flow-synchronizer.sh
+```
+
+Start the gui app and begin crafting, committing, vieweing and verifying items
+```
+RUST_LOG=gui_app=debug,info cargo run --release -p gui_app
+```
