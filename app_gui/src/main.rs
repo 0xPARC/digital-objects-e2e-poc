@@ -371,6 +371,9 @@ impl App {
     }
 
     fn refresh_items(&mut self) -> Result<()> {
+        // create 'pods_path' & 'pods_path/used' dir in case they do not exist
+        fs::create_dir_all(format!("{}/used", &self.cfg.pods_path))?;
+
         self.items = Vec::new();
         self.used_items = Vec::new();
         log::info!("Loading items...");
@@ -382,6 +385,7 @@ impl App {
             }
         }
 
+        log::info!("Loading used items...");
         for entry in fs::read_dir(format!("{}/used", &self.cfg.pods_path))? {
             let entry = entry?;
             // skip dirs
