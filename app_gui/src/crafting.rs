@@ -272,8 +272,6 @@ impl App {
         let language: String = "js".to_string();
 
         if self.modal_new_predicates {
-            let mut open_modal = self.modal_new_predicates;
-
             let theme = egui_extras::syntax_highlighting::CodeTheme::default();
             let mut layouter = |ui: &egui::Ui, buf: &dyn egui::TextBuffer, wrap_width: f32| {
                 let mut layout_job = egui_extras::syntax_highlighting::highlight(
@@ -292,7 +290,7 @@ impl App {
                 .movable(true)
                 .resizable([true, true])
                 .title_bar(true)
-                .open(&mut open_modal)
+                .open(&mut self.modal_new_predicates)
                 .show(ctx, |ui| {
                     let size = egui::vec2(ui.available_width(), 200.0);
                     ui.add_sized(
@@ -307,10 +305,6 @@ impl App {
                     );
 
                     egui::Grid::new("modal btns").show(ui, |ui| {
-                        if ui.button("Close").clicked() {
-                            self.modal_new_predicates = false;
-                            self.selected_tab = 99; // unselect tab
-                        }
                         ui.add_enabled(false, egui::Button::new("Create!"));
                     });
                 });
