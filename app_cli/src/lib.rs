@@ -112,7 +112,7 @@ impl fmt::Display for ProductionType {
             ProductionType::Mine => "Mine",
             ProductionType::Craft => "Craft",
         };
-        write!(f, "{}", text)
+        write!(f, "{text}")
     }
 }
 

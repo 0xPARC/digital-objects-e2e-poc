@@ -115,18 +115,28 @@ impl App {
                         self.crafting.selected_recipe = None;
                         self.selected_tab = 1;
                     }
+                    if ui
+                        .selectable_label(self.selected_tab == 2, "+ New Predicate")
+                        .clicked()
+                    {
+                        self.modal_new_predicates = true;
+                        self.crafting.selected_recipe = None;
+                        self.selected_tab = 2;
+                    }
                 });
                 ui.separator();
                 match self.selected_tab {
                     0 => self.ui_produce(ctx, ui, ProductionType::Mine),
                     1 => self.ui_produce(ctx, ui, ProductionType::Craft),
-                    _ => log::error!("unexpected tab"),
+                    2 => self.ui_new_predicate(ctx, ui),
+                    _ => {}
                 }
             });
             ui.end_row();
         });
     }
 
+    // UI for producing new items through Mine & Craft
     fn ui_produce(&mut self, ctx: &egui::Context, ui: &mut Ui, production_type: ProductionType) {
         let mut selected_recipe = self.crafting.selected_recipe;
         egui::Grid::new("mine title").show(ui, |ui| {
@@ -248,11 +258,62 @@ impl App {
             }
 
             ui.heading("Predicate:");
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                ui.separator();
-                let s = recipe_statement(&recipe);
-                ui.add(Label::new(RichText::new(s).monospace()).wrap());
-            });
+            egui::ScrollArea::vertical()
+                .min_scrolled_height(200.0)
+                .show(ui, |ui| {
+                    ui.separator();
+                    let s = recipe_statement(&recipe);
+                    ui.add(Label::new(RichText::new(s).monospace()).wrap());
+                });
+        }
+    }
+
+    fn ui_new_predicate(&mut self, ctx: &egui::Context, ui: &mut Ui) {
+        let language: String = "js".to_string();
+
+        if self.modal_new_predicates {
+            let mut open_modal = self.modal_new_predicates;
+
+            let theme = egui_extras::syntax_highlighting::CodeTheme::default();
+            let mut layouter = |ui: &egui::Ui, buf: &dyn egui::TextBuffer, wrap_width: f32| {
+                let mut layout_job = egui_extras::syntax_highlighting::highlight(
+                    ui.ctx(),
+                    ui.style(),
+                    &theme,
+                    buf.as_str(),
+                    &language,
+                );
+                layout_job.wrap.max_width = wrap_width;
+                ui.fonts_mut(|f| f.layout_job(layout_job))
+            };
+
+            egui::Window::new("New Predicate")
+                .collapsible(true)
+                .movable(true)
+                .resizable([true, true])
+                .title_bar(true)
+                .open(&mut open_modal)
+                .show(ctx, |ui| {
+                    let size = egui::vec2(ui.available_width(), 200.0);
+                    ui.add_sized(
+                        size,
+                        egui::TextEdit::multiline(&mut self.code_editor_content)
+                            .font(egui::TextStyle::Monospace)
+                            .code_editor()
+                            .desired_rows(10)
+                            .lock_focus(true)
+                            .desired_width(f32::INFINITY)
+                            .layouter(&mut layouter),
+                    );
+
+                    egui::Grid::new("modal btns").show(ui, |ui| {
+                        if ui.button("Close").clicked() {
+                            self.modal_new_predicates = false;
+                            self.selected_tab = 99; // unselect tab
+                        }
+                        ui.add_enabled(false, egui::Button::new("Create!"));
+                    });
+                });
         }
     }
 }
