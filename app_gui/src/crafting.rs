@@ -13,7 +13,9 @@ use std::{
 };
 
 use anyhow::{Result, anyhow};
-use app_cli::{Config, CraftedItem, Recipe, commit_item, craft_item, load_item, log_init};
+use app_cli::{
+    Config, CraftedItem, ProductionType, Recipe, commit_item, craft_item, load_item, log_init,
+};
 use common::load_dotenv;
 use egui::{Color32, Frame, Label, RichText, Ui};
 use itertools::Itertools;
@@ -94,11 +96,42 @@ IsBronze(item, private: ingredients, inputs, key, work) = AND(
 
 impl App {
     // Crafting panel
-    pub fn update_crafting_ui(&mut self, ui: &mut Ui) {
-        let mut selected_recipe = self.crafting.selected_recipe;
-        egui::Grid::new("crafting title").show(ui, |ui| {
+    pub fn update_crafting_ui(&mut self, ctx: &egui::Context, ui: &mut Ui) {
+        egui::Grid::new("production title").show(ui, |ui| {
             ui.set_min_height(32.0);
-            ui.heading("Crafting");
+            ui.vertical(|ui| {
+                ui.horizontal(|ui| {
+                    if ui
+                        .selectable_label(self.selected_tab == 0, "Mine")
+                        .clicked()
+                    {
+                        self.crafting.selected_recipe = None;
+                        self.selected_tab = 0;
+                    }
+                    if ui
+                        .selectable_label(self.selected_tab == 1, "Craft")
+                        .clicked()
+                    {
+                        self.crafting.selected_recipe = None;
+                        self.selected_tab = 1;
+                    }
+                });
+                ui.separator();
+                match self.selected_tab {
+                    0 => self.ui_produce(ctx, ui, ProductionType::Mine),
+                    1 => self.ui_produce(ctx, ui, ProductionType::Craft),
+                    _ => log::error!("unexpected tab"),
+                }
+            });
+            ui.end_row();
+        });
+    }
+
+    fn ui_produce(&mut self, ctx: &egui::Context, ui: &mut Ui, production_type: ProductionType) {
+        let mut selected_recipe = self.crafting.selected_recipe;
+        egui::Grid::new("mine title").show(ui, |ui| {
+            ui.set_min_height(32.0);
+            ui.heading(production_type.to_string());
             ui.end_row();
         });
         ui.separator();
@@ -106,7 +139,13 @@ impl App {
             .selected_text(selected_recipe.map(|r| r.to_string()).unwrap_or_default())
             .show_ui(ui, |ui| {
                 for recipe in &self.recipes {
-                    ui.selectable_value(&mut selected_recipe, Some(*recipe), recipe.to_string());
+                    if recipe.production_type() == production_type {
+                        ui.selectable_value(
+                            &mut selected_recipe,
+                            Some(*recipe),
+                            recipe.to_string(),
+                        );
+                    }
                 }
             });
         if let Some(selected_recipe) = selected_recipe {

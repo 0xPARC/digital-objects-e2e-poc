@@ -51,6 +51,7 @@ pub struct App {
     pub task_res_rx: mpsc::Receiver<Response>,
     pub _task_handler: JoinHandle<()>,
     pub task_status: Arc<RwLock<TaskStatus>>,
+    pub selected_tab: usize,
 }
 
 impl App {
@@ -90,6 +91,7 @@ impl App {
             task_res_rx: res_rx,
             _task_handler: task_handler,
             task_status,
+            selected_tab: 0,
         };
         app.refresh_items()?;
         Ok(app)

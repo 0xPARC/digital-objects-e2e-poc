@@ -101,6 +101,30 @@ pub enum Recipe {
     Bronze,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ProductionType {
+    Mine,
+    Craft,
+}
+impl fmt::Display for ProductionType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let text = match self {
+            ProductionType::Mine => "Mine",
+            ProductionType::Craft => "Craft",
+        };
+        write!(f, "{}", text)
+    }
+}
+
+impl Recipe {
+    pub fn production_type(&self) -> ProductionType {
+        match self {
+            Self::Copper => ProductionType::Mine,
+            Self::Tin => ProductionType::Mine,
+            Self::Bronze => ProductionType::Craft,
+        }
+    }
+}
 impl FromStr for Recipe {
     type Err = anyhow::Error;
 

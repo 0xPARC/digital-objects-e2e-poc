@@ -125,17 +125,19 @@ impl eframe::App for App {
                 }
             });
             ui.separator();
-            ui.heading("Used items");
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                for (i, item) in self.used_items.iter().enumerate() {
-                    ui.dnd_drag_source(
-                        egui::Id::new(item.name.clone()),
-                        self.items.len() + i,
-                        |ui| {
-                            ui.label(&item.name);
-                        },
-                    );
-                }
+            egui::Grid::new("used items title").show(ui, |ui| {
+                ui.heading("Used items");
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    for (i, item) in self.used_items.iter().enumerate() {
+                        ui.dnd_drag_source(
+                            egui::Id::new(item.name.clone()),
+                            self.items.len() + i,
+                            |ui| {
+                                ui.label(&item.name);
+                            },
+                        );
+                    }
+                });
             });
         });
 
@@ -146,7 +148,7 @@ impl eframe::App for App {
                 });
 
                 crafting_ui.vertical(|ui| {
-                    self.update_crafting_ui(ui);
+                    self.update_crafting_ui(ctx, ui);
                 });
             });
         });
