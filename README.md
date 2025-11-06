@@ -42,7 +42,7 @@ RUST_LOG=gui_app=debug,info cargo run --release -p gui_app
 
 Requires docker.
 
-linux specific:
+Linux specific:
 ```
 wget 'https://github.com/kurtosis-tech/kurtosis-cli-release-artifacts/releases/download/1.12.1/kurtosis-cli_1.12.1_linux_amd64.tar.gz'
 tar xf kurtosis-cli_1.12.1_linux_amd64.tar.gz
