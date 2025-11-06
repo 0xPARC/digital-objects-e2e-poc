@@ -268,6 +268,7 @@ struct TaskStatus {
 enum Request {
     Craft {
         params: Params,
+        pods_path: String,
         recipe: Recipe,
         output: PathBuf,
         input_paths: Vec<PathBuf>,
@@ -294,6 +295,7 @@ fn handle_req(task_status: &RwLock<TaskStatus>, req: Request) -> Response {
     match req {
         Request::Craft {
             params,
+            pods_path,
             recipe,
             output,
             input_paths,
@@ -303,16 +305,17 @@ fn handle_req(task_status: &RwLock<TaskStatus>, req: Request) -> Response {
             let r = craft_item(&params, recipe, &output, &input_paths);
 
             // move the files of the used inputs into the `used` subdir
+            let used_path = Path::new(&pods_path).join("used");
             for input in input_paths {
-                let parent_path = input.parent().unwrap().display();
+                let parent_path = input.parent().unwrap();
                 // if original file is not in 'used' subdir, move it there, ignore if it already is
                 // in that subdir
-                if !parent_path.to_string().contains("used") {
+                if parent_path != used_path {
                     fs::rename(
                         input.clone(),
                         format!(
                             "{}/used/{}",
-                            parent_path,
+                            parent_path.display(),
                             input.file_name().unwrap().display()
                         ),
                     )
@@ -351,20 +354,16 @@ impl App {
                 .unwrap()
                 .raw(),
         );
+        let item = Item {
+            name,
+            id,
+            crafted_item,
+            path: entry.to_path_buf(),
+        };
         if used {
-            self.used_items.push(Item {
-                name,
-                id,
-                crafted_item,
-                path: entry.to_path_buf(),
-            });
+            self.used_items.push(item);
         } else {
-            self.items.push(Item {
-                name,
-                id,
-                crafted_item,
-                path: entry.to_path_buf(),
-            });
+            self.items.push(item);
         }
         self.items.sort_by_key(|item| item.name.clone());
         self.used_items.sort_by_key(|item| item.name.clone());
@@ -488,7 +487,6 @@ fn result2text<T: fmt::Debug, E: fmt::Debug>(r: &Option<Result<T, E>>) -> RichTe
 impl App {
     // Item view panel
     fn update_item_view_ui(&mut self, ui: &mut Ui) {
-        // let item = self.item_view.selected_item.map(|i| &self.items[i]);
         let item = self
             .item_view
             .selected_item
@@ -638,6 +636,7 @@ impl App {
                             self.task_req_tx
                                 .send(Request::Craft {
                                     params: self.params.clone(),
+                                    pods_path: self.cfg.pods_path.clone(),
                                     recipe,
                                     output,
                                     input_paths,
