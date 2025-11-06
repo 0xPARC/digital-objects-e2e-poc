@@ -3,3 +3,5 @@
 tmp
 *.pprof
 predicates.md
+kurtosis
+scripts
