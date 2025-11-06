@@ -1,0 +1,106 @@
+use std::{
+    collections::HashMap,
+    fmt::{self, Write},
+    fs::{self},
+    mem,
+    path::{Path, PathBuf},
+    sync::{
+        Arc, RwLock,
+        mpsc::{self, channel},
+    },
+    thread::{self, JoinHandle},
+    time,
+};
+
+use anyhow::{Result, anyhow};
+use app_cli::{Config, CraftedItem, Recipe, commit_item, craft_item, load_item, log_init};
+use common::load_dotenv;
+use egui::{Color32, Frame, Label, RichText, Ui};
+use itertools::Itertools;
+use pod2::{
+    backends::plonky2::primitives::merkletree::MerkleProof,
+    middleware::{
+        Hash, Params, RawValue, Statement, StatementArg, TypedValue, Value, containers::Set,
+    },
+};
+use tokio::runtime::Runtime;
+use tracing::{error, info};
+
+#[derive(Default, Clone)]
+pub struct TaskStatus {
+    pub busy: Option<String>,
+}
+
+pub enum Request {
+    Craft {
+        params: Params,
+        pods_path: String,
+        recipe: Recipe,
+        output: PathBuf,
+        input_paths: Vec<PathBuf>,
+    },
+    Commit {
+        params: Params,
+        cfg: Config,
+        input: PathBuf,
+    },
+    Exit,
+}
+
+pub enum Response {
+    Craft(Result<PathBuf>),
+    Commit(Result<PathBuf>),
+    Null,
+}
+
+pub fn handle_req(task_status: &RwLock<TaskStatus>, req: Request) -> Response {
+    fn set_busy_task(task_status: &RwLock<TaskStatus>, task: &str) {
+        let mut task_status = task_status.write().unwrap();
+        task_status.busy = Some(task.to_string());
+    }
+    match req {
+        Request::Craft {
+            params,
+            pods_path,
+            recipe,
+            output,
+            input_paths,
+        } => {
+            set_busy_task(task_status, "Crafting");
+
+            let r = craft_item(&params, recipe, &output, &input_paths);
+
+            // move the files of the used inputs into the `used` subdir
+            let used_path = Path::new(&pods_path).join("used");
+            for input in input_paths {
+                let parent_path = input.parent().unwrap();
+                // if original file is not in 'used' subdir, move it there, ignore if it already is
+                // in that subdir
+                if parent_path != used_path {
+                    fs::rename(
+                        input.clone(),
+                        format!(
+                            "{}/used/{}",
+                            parent_path.display(),
+                            input.file_name().unwrap().display()
+                        ),
+                    )
+                    .unwrap();
+                }
+            }
+
+            task_status.write().unwrap().busy = None;
+            Response::Craft(r.map(|_| output))
+        }
+        Request::Commit { params, cfg, input } => {
+            set_busy_task(task_status, "Committing");
+
+            Runtime::new().unwrap();
+            let rt = Runtime::new().unwrap();
+            let r = rt.block_on(async { commit_item(&params, &cfg, &input).await });
+            task_status.write().unwrap().busy = None;
+            Response::Commit(r.map(|_| input))
+        }
+        Request::Exit => Response::Null,
+    }
+}
