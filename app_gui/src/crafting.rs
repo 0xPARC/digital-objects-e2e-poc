@@ -13,7 +13,9 @@ use std::{
 };
 
 use anyhow::{Result, anyhow};
-use app_cli::{Config, CraftedItem, Recipe, commit_item, craft_item, load_item, log_init};
+use app_cli::{
+    Config, CraftedItem, ProductionType, Recipe, commit_item, craft_item, load_item, log_init,
+};
 use common::load_dotenv;
 use egui::{Color32, Frame, Label, RichText, Ui};
 use itertools::Itertools;
@@ -94,11 +96,52 @@ IsBronze(item, private: ingredients, inputs, key, work) = AND(
 
 impl App {
     // Crafting panel
-    pub fn update_crafting_ui(&mut self, ui: &mut Ui) {
-        let mut selected_recipe = self.crafting.selected_recipe;
-        egui::Grid::new("crafting title").show(ui, |ui| {
+    pub fn update_crafting_ui(&mut self, ctx: &egui::Context, ui: &mut Ui) {
+        egui::Grid::new("production title").show(ui, |ui| {
             ui.set_min_height(32.0);
-            ui.heading("Crafting");
+            ui.vertical(|ui| {
+                ui.horizontal(|ui| {
+                    if ui
+                        .selectable_label(self.selected_tab == 0, "Mine")
+                        .clicked()
+                    {
+                        self.crafting.selected_recipe = None;
+                        self.selected_tab = 0;
+                    }
+                    if ui
+                        .selectable_label(self.selected_tab == 1, "Craft")
+                        .clicked()
+                    {
+                        self.crafting.selected_recipe = None;
+                        self.selected_tab = 1;
+                    }
+                    if ui
+                        .selectable_label(self.selected_tab == 2, "+ New Predicate")
+                        .clicked()
+                    {
+                        self.modal_new_predicates = true;
+                        self.crafting.selected_recipe = None;
+                        self.selected_tab = 2;
+                    }
+                });
+                ui.separator();
+                match self.selected_tab {
+                    0 => self.ui_produce(ctx, ui, ProductionType::Mine),
+                    1 => self.ui_produce(ctx, ui, ProductionType::Craft),
+                    2 => self.ui_new_predicate(ctx, ui),
+                    _ => {}
+                }
+            });
+            ui.end_row();
+        });
+    }
+
+    // UI for producing new items through Mine & Craft
+    fn ui_produce(&mut self, ctx: &egui::Context, ui: &mut Ui, production_type: ProductionType) {
+        let mut selected_recipe = self.crafting.selected_recipe;
+        egui::Grid::new("mine title").show(ui, |ui| {
+            ui.set_min_height(32.0);
+            ui.heading(production_type.to_string());
             ui.end_row();
         });
         ui.separator();
@@ -106,7 +149,13 @@ impl App {
             .selected_text(selected_recipe.map(|r| r.to_string()).unwrap_or_default())
             .show_ui(ui, |ui| {
                 for recipe in &self.recipes {
-                    ui.selectable_value(&mut selected_recipe, Some(*recipe), recipe.to_string());
+                    if recipe.production_type() == production_type {
+                        ui.selectable_value(
+                            &mut selected_recipe,
+                            Some(*recipe),
+                            recipe.to_string(),
+                        );
+                    }
                 }
             });
         if let Some(selected_recipe) = selected_recipe {
@@ -209,11 +258,56 @@ impl App {
             }
 
             ui.heading("Predicate:");
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                ui.separator();
-                let s = recipe_statement(&recipe);
-                ui.add(Label::new(RichText::new(s).monospace()).wrap());
-            });
+            egui::ScrollArea::vertical()
+                .min_scrolled_height(200.0)
+                .show(ui, |ui| {
+                    ui.separator();
+                    let s = recipe_statement(&recipe);
+                    ui.add(Label::new(RichText::new(s).monospace()).wrap());
+                });
+        }
+    }
+
+    fn ui_new_predicate(&mut self, ctx: &egui::Context, ui: &mut Ui) {
+        let language: String = "js".to_string();
+
+        if self.modal_new_predicates {
+            let theme = egui_extras::syntax_highlighting::CodeTheme::default();
+            let mut layouter = |ui: &egui::Ui, buf: &dyn egui::TextBuffer, wrap_width: f32| {
+                let mut layout_job = egui_extras::syntax_highlighting::highlight(
+                    ui.ctx(),
+                    ui.style(),
+                    &theme,
+                    buf.as_str(),
+                    &language,
+                );
+                layout_job.wrap.max_width = wrap_width;
+                ui.fonts_mut(|f| f.layout_job(layout_job))
+            };
+
+            egui::Window::new("New Predicate")
+                .collapsible(true)
+                .movable(true)
+                .resizable([true, true])
+                .title_bar(true)
+                .open(&mut self.modal_new_predicates)
+                .show(ctx, |ui| {
+                    let size = egui::vec2(ui.available_width(), 200.0);
+                    ui.add_sized(
+                        size,
+                        egui::TextEdit::multiline(&mut self.code_editor_content)
+                            .font(egui::TextStyle::Monospace)
+                            .code_editor()
+                            .desired_rows(10)
+                            .lock_focus(true)
+                            .desired_width(f32::INFINITY)
+                            .layouter(&mut layouter),
+                    );
+
+                    egui::Grid::new("modal btns").show(ui, |ui| {
+                        ui.add_enabled(false, egui::Button::new("Create!"));
+                    });
+                });
         }
     }
 }

@@ -29,6 +29,6 @@ app_cli = { path = "../app_cli" }
 
 # GUI
 eframe = { version = "0.33.0", features = [ "default" ] }
-egui_extras = { version = "0.33.0", features = ["default", "image"] }
+egui_extras = { version = "0.33.0", features = ["default", "image", "syntect"] }
 egui_glow = "0.33.0"
 egui = "0.33.0"

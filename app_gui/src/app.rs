@@ -51,6 +51,9 @@ pub struct App {
     pub task_res_rx: mpsc::Receiver<Response>,
     pub _task_handler: JoinHandle<()>,
     pub task_status: Arc<RwLock<TaskStatus>>,
+    pub selected_tab: usize,
+    pub modal_new_predicates: bool, // modal for writing new predicates
+    pub code_editor_content: String,
 }
 
 impl App {
@@ -77,6 +80,21 @@ impl App {
             }
         });
         let recipes = vec![Recipe::Copper, Recipe::Tin, Recipe::Bronze];
+        let code: String = r#"
+IsTinPremium(item, private: ingredients, inputs, key, work) = AND(
+    ItemDef(item, ingredients, inputs, key, work)
+    DictContains(ingredients, "blueprint", "tinpremium")
+
+    // 2 ingredients
+    SetInsert(s1, {}, tin1)
+    SetInsert(inputs, s1, tin2)
+
+    // Recursively prove the ingredients are correct.
+    IsTin(tin1)
+    IsTin(tin2)
+)"#
+        .into();
+
         let mut app = Self {
             cfg,
             params,
@@ -90,6 +108,9 @@ impl App {
             task_res_rx: res_rx,
             _task_handler: task_handler,
             task_status,
+            selected_tab: 0,
+            modal_new_predicates: false,
+            code_editor_content: code.clone(),
         };
         app.refresh_items()?;
         Ok(app)
