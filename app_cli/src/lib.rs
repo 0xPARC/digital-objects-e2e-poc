@@ -405,3 +405,11 @@ pub async fn commit_item(params: &Params, cfg: &Config, input: &Path) -> anyhow:
 
     Ok(())
 }
+
+pub async fn destroy_item(_params: &Params, _cfg: &Config, item: &PathBuf) -> anyhow::Result<()> {
+    // TODO: Nullify
+    std::fs::remove_file(&item)?;    
+    info!("Deleted item at {}", item.display());
+
+    Ok(())
+}

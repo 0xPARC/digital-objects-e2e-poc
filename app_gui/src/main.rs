@@ -34,12 +34,14 @@ use tracing::{error, info};
 
 mod app;
 mod crafting;
+mod destruction;
 mod item_view;
 mod task_system;
 mod utils;
 
 use app::*;
 use crafting::*;
+use destruction::*;
 use item_view::*;
 use task_system::*;
 
@@ -92,6 +94,11 @@ impl eframe::App for App {
                     self.crafting.craft_result = Some(r)
                 }
                 Response::Commit(r) => self.crafting.commit_result = Some(r),
+                Response::Destroy(r) => {
+                    self.refresh_items().unwrap();
+                    self.destruction.item_index = None;
+                    self.destruction.result = Some(r)
+                }
                 Response::Null => {}
             }
         }
@@ -143,13 +150,17 @@ impl eframe::App for App {
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.columns_const(|[item_view_ui, crafting_ui]| {
+            ui.columns_const(|[item_view_ui, crafting_ui, destruction_ui]| {
                 item_view_ui.vertical(|ui| {
                     self.update_item_view_ui(ui);
                 });
 
                 crafting_ui.vertical(|ui| {
                     self.update_crafting_ui(ctx, ui);
+                });
+
+                destruction_ui.vertical(|ui| {
+                    self.update_destruction_ui(ctx, ui);
                 });
             });
         });
