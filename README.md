@@ -33,7 +33,7 @@ Run the synchronizer in the background:
 
 Start the gui app and begin crafting, committing, vieweing and verifying items
 ```
-RUST_LOG=gui_app=debug,info cargo run --release -p gui_app
+RUST_LOG=app_gui=debug,info cargo run --release -p app_gui
 ```
 
 ### Running a local testnet:
