@@ -58,7 +58,7 @@ impl App {
             ui.end_row();
         });
         ui.separator();
-        egui::ComboBox::from_label("")
+        egui::ComboBox::from_id_salt("destroyable items")
             .selected_text(
                 item_to_destroy
                     .map(|i| all_items[i].name.clone())

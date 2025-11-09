@@ -145,7 +145,7 @@ impl App {
             ui.end_row();
         });
         ui.separator();
-        egui::ComboBox::from_label("")
+        egui::ComboBox::from_id_salt("items to mine/craft")
             .selected_text(selected_recipe.map(|r| r.to_string()).unwrap_or_default())
             .show_ui(ui, |ui| {
                 for recipe in &self.recipes {
