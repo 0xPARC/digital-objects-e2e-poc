@@ -37,19 +37,8 @@ pub struct Destruction {
 }
 
 impl App {
-    // Destruction panel
-    pub fn update_destruction_ui(&mut self, ctx: &egui::Context, ui: &mut Ui) {
-        egui::Grid::new("destruction").show(ui, |ui| {
-            ui.set_min_height(32.0);
-            ui.vertical(|ui| {
-                self.ui_destroy(ctx, ui);
-                ui.end_row();
-            });
-        });
-    }
-
     // UI for the destruction of items.
-    fn ui_destroy(&mut self, ctx: &egui::Context, ui: &mut Ui) {
+    pub(crate) fn ui_destroy(&mut self, ctx: &egui::Context, ui: &mut Ui) {
         let mut item_to_destroy = self.destruction.item_index;
         let all_items = self.all_items();
         egui::Grid::new("destruction").show(ui, |ui| {
