@@ -84,7 +84,7 @@ impl App {
                 }
             }
         });
-        let recipes = vec![Recipe::Copper, Recipe::Tin, Recipe::Bronze];
+        let recipes = Recipe::list();
         let code: String = r#"
 IsTinPremium(item, private: ingredients, inputs, key, work) = AND(
     ItemDef(item, ingredients, inputs, key, work)

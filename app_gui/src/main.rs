@@ -122,17 +122,19 @@ impl eframe::App for App {
             ui.separator();
             egui::Grid::new("used items title").show(ui, |ui| {
                 ui.collapsing("Used items", |ui| {
-                    egui::ScrollArea::vertical().show(ui, |ui| {
-                        for (i, item) in self.used_items.iter().enumerate() {
-                            ui.dnd_drag_source(
-                                egui::Id::new(item.name.clone()),
-                                self.items.len() + i,
-                                |ui| {
-                                    ui.label(&item.name);
-                                },
-                            );
-                        }
-                    })
+                    egui::ScrollArea::vertical()
+                        .min_scrolled_height(100.0)
+                        .show(ui, |ui| {
+                            for (i, item) in self.used_items.iter().enumerate() {
+                                ui.dnd_drag_source(
+                                    egui::Id::new(item.name.clone()),
+                                    self.items.len() + i,
+                                    |ui| {
+                                        ui.label(&item.name);
+                                    },
+                                );
+                            }
+                        })
                 })
             });
         });
