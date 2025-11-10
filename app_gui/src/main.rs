@@ -70,9 +70,7 @@ fn main() -> Result<()> {
         }),
     )
     .map_err(|e| anyhow::anyhow!("{e}"))?;
-    // app.task_handler
-    //     .join()
-    //     .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+
     Ok(())
 }
 
@@ -103,18 +101,6 @@ impl eframe::App for App {
                 }
                 Response::Null => {}
             }
-        }
-
-        // If the task is busy, display a spinner and the task name
-        let task_status = self.task_status.read().unwrap().clone();
-        if let Some(task) = task_status.busy {
-            egui::CentralPanel::default().show(ctx, |ui| {
-                ui.vertical_centered(|ui| {
-                    ui.spinner();
-                    ui.heading(task);
-                });
-            });
-            return;
         }
 
         // Left side panel "Item list"
@@ -151,16 +137,24 @@ impl eframe::App for App {
             });
         });
 
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.columns_const(|[item_view_ui, action_ui, destruction_ui]| {
-                item_view_ui.vertical(|ui| {
-                    self.update_item_view_ui(ui);
-                });
+        egui::CentralPanel::default().show(ctx, |ui| self.update_item_view_ui(ui));
 
-                action_ui.vertical(|ui| {
-                    self.update_action_ui(ctx, ui);
+        // If the task is busy, display a spinner and the task name,
+        // else display the action UI.
+        let task_status = self.task_status.read().unwrap().clone();
+        egui::SidePanel::right("actions").show(ctx, |ui| {
+            if let Some(task) = task_status.busy {
+                ui.horizontal_centered(|ui| {
+                    ui.spinner();
+                    ui.heading(task);
                 });
-            });
+            } else {
+                self.update_action_ui(ctx, ui);
+            }
+            // Display window(s).
+            if self.modal_new_predicates {
+                self.ui_new_predicate(ctx, ui);
+            }
         });
     }
 
@@ -199,12 +193,10 @@ impl App {
                         self.selected_tab = 2;
                     }
                     if ui
-                        .selectable_label(self.selected_tab == 3, "+ New Predicate")
+                        .selectable_label(self.modal_new_predicates, "+ New Predicate")
                         .clicked()
                     {
                         self.modal_new_predicates = true;
-                        self.crafting.selected_recipe = None;
-                        self.selected_tab = 3;
                     }
                 });
                 ui.separator();
@@ -212,7 +204,6 @@ impl App {
                     0 => self.ui_produce(ctx, ui, ProductionType::Mine),
                     1 => self.ui_produce(ctx, ui, ProductionType::Craft),
                     2 => self.ui_destroy(ctx, ui),
-                    3 => self.ui_new_predicate(ctx, ui),
                     _ => {}
                 }
             });

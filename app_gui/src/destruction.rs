@@ -58,23 +58,16 @@ impl App {
                     ui.selectable_value(&mut item_to_destroy, Some(i), &item.name);
                 }
             });
-        if let Some(i) = item_to_destroy {
-            self.destruction.item_index = Some(i);
-        }
 
         let mut button_destroy_clicked = false;
+
         egui::Grid::new("destruction buttons").show(ui, |ui| {
-            button_destroy_clicked = ui.button("Destroy").clicked();
-            ui.label(result2text(&self.destruction.result));
-            ui.end_row();
-        });
-        if button_destroy_clicked {
-            match self.destruction.item_index {
-                None => {
-                    self.destruction.result =
-                        Some(Err(anyhow!("Please select an item to destroy.")));
-                }
-                Some(i) => {
+            if let Some(i) = item_to_destroy {
+                self.destruction.item_index = Some(i);
+                self.destruction.result = None;
+                button_destroy_clicked = ui.button("Destroy").clicked();
+
+                if button_destroy_clicked {
                     let item = all_items[i].path.clone();
                     self.task_req_tx
                         .send(Request::Destroy {
@@ -85,6 +78,8 @@ impl App {
                         .unwrap();
                 }
             }
-        }
+            ui.label(result2text(&self.destruction.result));
+            ui.end_row();
+        });
     }
 }
