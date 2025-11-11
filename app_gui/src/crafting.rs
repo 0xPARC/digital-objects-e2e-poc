@@ -52,6 +52,7 @@ impl Crafting {
 pub fn recipe_inputs(r: &Recipe) -> Vec<Recipe> {
     match r {
         Recipe::Bronze => vec![Recipe::Tin, Recipe::Copper],
+        Recipe::BronzeAxe => vec![Recipe::Wood, Recipe::Bronze],
         _ => vec![],
     }
 }
@@ -76,6 +77,14 @@ IsTin(item, private: ingredients, inputs, key, work) = AND(
     DictContains(ingredients, "blueprint", "tin")
 )"#
         }
+        Recipe::Wood => {
+            r#"
+IsWood(item, private: ingredients, inputs, key, work) = AND(
+    ItemDef(item, ingredients, inputs, key, work)
+    Equal(inputs, {})
+    DictContains(ingredients, "blueprint", "wood")
+)"#
+        }
         Recipe::Bronze => {
             r#"
 IsBronze(item, private: ingredients, inputs, key, work) = AND(
@@ -86,9 +95,24 @@ IsBronze(item, private: ingredients, inputs, key, work) = AND(
     SetInsert(s1, {}, tin)
     SetInsert(inputs, s1, copper)
 
-    // Recursively prove the ingredients are correct.
+    // prove the ingredients are correct.
     IsTin(tin)
     IsCopper(copper)
+)"#
+        }
+        Recipe::BronzeAxe => {
+            r#"
+IsBronzeAxe(item, private: ingredients, inputs, key, work) = AND(
+    ItemDef(item, ingredients, inputs, key, work)
+    DictContains(ingredients, "blueprint", "bronze-axe")
+
+    // 2 ingredients
+    SetInsert(s1, {}, wood)
+    SetInsert(inputs, s1, bronze)
+
+    // prove the ingredients are correct.
+    IsWood(wood)
+    IsBronze(bronze)
 )"#
         }
     }
@@ -152,13 +176,11 @@ impl App {
 
             ui.horizontal(|ui| {
                 ui.label("filename:");
-                // suggest a default name for the file
-                self.crafting.output_filename = format!(
-                    "{}/{:?}_{}",
-                    self.cfg.pods_path,
-                    recipe,
-                    self.items.len() + self.used_items.len()
-                );
+                if self.crafting.output_filename.is_empty() {
+                    // suggest a default name for the file
+                    self.crafting.output_filename =
+                        format!("{:?}_{}", recipe, self.items.len() + self.used_items.len());
+                }
                 ui.text_edit_singleline(&mut self.crafting.output_filename);
             });
 

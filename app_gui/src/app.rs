@@ -84,7 +84,7 @@ impl App {
                 }
             }
         });
-        let recipes = vec![Recipe::Copper, Recipe::Tin, Recipe::Bronze];
+        let recipes = Recipe::list();
         let code: String = r#"
 IsTinPremium(item, private: ingredients, inputs, key, work) = AND(
     ItemDef(item, ingredients, inputs, key, work)
@@ -94,7 +94,7 @@ IsTinPremium(item, private: ingredients, inputs, key, work) = AND(
     SetInsert(s1, {}, tin1)
     SetInsert(inputs, s1, tin2)
 
-    // Recursively prove the ingredients are correct.
+    // prove the ingredients are correct.
     IsTin(tin1)
     IsTin(tin2)
 )"#

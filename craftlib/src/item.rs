@@ -5,7 +5,9 @@ use log;
 use pod2::middleware::{EMPTY_VALUE, Hash, Params, RawValue, Statement, ToFields, Value};
 use pod2utils::{macros::BuildContext, set, st_custom};
 
-use crate::constants::{BRONZE_BLUEPRINT, COPPER_BLUEPRINT, TIN_BLUEPRINT};
+use crate::constants::{
+    BRONZE_AXE_BLUEPRINT, BRONZE_BLUEPRINT, COPPER_BLUEPRINT, TIN_BLUEPRINT, WOOD_BLUEPRINT,
+};
 
 // Reusable recipe for an item to be mined, not including the variable
 // cryptographic values.
@@ -101,6 +103,20 @@ impl<'a> CraftBuilder<'a> {
             ))?)
     }
 
+    pub fn st_is_wood(
+        &mut self,
+        item_def: ItemDef,
+        st_item_def: Statement,
+    ) -> anyhow::Result<Statement> {
+        // Build IsWood(item)
+        Ok(st_custom!(self.ctx,
+            IsWood() = (
+                st_item_def,
+                Equal(item_def.ingredients.inputs_set(self.params)?, EMPTY_VALUE),
+                DictContains(item_def.ingredients.dict(self.params)?, "blueprint", WOOD_BLUEPRINT)
+            ))?)
+    }
+
     fn st_bronze_inputs(
         &mut self,
         st_is_tin: Statement,
@@ -136,6 +152,44 @@ impl<'a> CraftBuilder<'a> {
                 st_item_def,
                 DictContains(item_def.ingredients.dict(self.params)?, "blueprint", BRONZE_BLUEPRINT),
                 st_bronze_inputs
+            ))?)
+    }
+
+    fn st_bronze_axe_inputs(
+        &mut self,
+        st_is_wood: Statement,
+        st_is_bronze: Statement,
+    ) -> anyhow::Result<Statement> {
+        let wood = st_is_wood.args()[0].literal().unwrap();
+        let bronze = st_is_bronze.args()[0].literal().unwrap();
+        let empty_set = set!(self.params.max_depth_mt_containers).unwrap();
+        let mut s1 = empty_set.clone();
+        s1.insert(&wood).unwrap();
+        let mut inputs = s1.clone();
+        inputs.insert(&bronze).unwrap();
+        Ok(st_custom!(self.ctx,
+            BronzeAxeInputs() = (
+                SetInsert(s1, empty_set, wood),
+                SetInsert(inputs, s1, bronze),
+                st_is_wood,
+                st_is_bronze
+            ))?)
+    }
+
+    pub fn st_is_bronze_axe(
+        &mut self,
+        item_def: ItemDef,
+        st_item_def: Statement,
+        st_is_wood: Statement,
+        st_is_bronze: Statement,
+    ) -> anyhow::Result<Statement> {
+        let st_bronze_axe_inputs = self.st_bronze_axe_inputs(st_is_wood, st_is_bronze)?;
+        // Build IsBronzeAxe(item)
+        Ok(st_custom!(self.ctx,
+            IsBronzeAxe() = (
+                st_item_def,
+                DictContains(item_def.ingredients.dict(self.params)?, "blueprint", BRONZE_AXE_BLUEPRINT),
+                st_bronze_axe_inputs
             ))?)
     }
 }

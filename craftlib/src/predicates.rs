@@ -17,9 +17,10 @@ impl ItemPredicates {
         // 4 predicates per batch
         // 8 arguments per predicate, at most 5 of which are public
         // 5 statements per predicate
-        let batch_defs = [r#"
+        let batch_defs = [
+            r#"
             use intro Pow(count, input, output) from 0x3493488bc23af15ac5fabe38c3cb6c4b66adb57e3898adf201ae50cc57183f65 // powpod vd hash
-
+        
             // Example of a mined item with no inputs or sequential work.
             // Copper requires working in a copper mine (blueprint="copper") and
             // 10 leading 0s.
@@ -29,7 +30,7 @@ impl ItemPredicates {
                 DictContains(ingredients, "blueprint", "copper")
                 Pow(3, ingredients, work)
             )
-
+        
             // Example of a mined item which is more common but takes more work to
             // extract.
             IsTin(item, private: ingredients, inputs, key, work) = AND(
@@ -39,27 +40,52 @@ impl ItemPredicates {
                 // TODO input POD: SequentialWork(ingredients, work, 5)
                 // TODO input POD: HashInRange(0, 1<<5, ingredients)
             )
-
+        
+            IsWood(item, private: ingredients, inputs, key, work) = AND(
+                ItemDef(item, ingredients, inputs, key, work)
+                Equal(inputs, {})
+                DictContains(ingredients, "blueprint", "wood")
+            )
+            "#,
+            r#"
             BronzeInputs(inputs, private: s1, tin, copper) = AND(
                 // 2 ingredients
                 SetInsert(s1, {}, tin)
                 SetInsert(inputs, s1, copper)
-
-                // Recursively prove the ingredients are correct.
+        
+                // prove the ingredients are correct.
                 IsTin(tin)
                 IsCopper(copper)
             )
-
+        
             // Combining Copper and Tin to get Bronze is easy (no sequential work).
             // TODO: Require a smelter as a tool
             IsBronze(item, private: ingredients, inputs, key, work) = AND(
                 ItemDef(item, ingredients, inputs, key, work)
                 DictContains(ingredients, "blueprint", "bronze")
-
+        
                 BronzeInputs(inputs)
             )
-            "#];
-
+        
+            // Bronze Axe:
+            BronzeAxeInputs(inputs, private: s1, wood, bronze) = AND(
+                // 2 ingredients
+                SetInsert(s1, {}, wood)
+                SetInsert(inputs, s1, bronze)
+        
+                // prove the ingredients are correct.
+                IsWood(wood)
+                IsBronze(bronze)
+            )
+            // Combine Wood and Bronze to get BronzeAxe.
+            IsBronzeAxe(item, private: ingredients, inputs, key, work) = AND(
+                ItemDef(item, ingredients, inputs, key, work)
+                DictContains(ingredients, "blueprint", "bronze-axe")
+        
+                BronzeAxeInputs(inputs)
+            )
+            "#,
+        ];
         let defs = PredicateDefs::new(params, &batch_defs, slice::from_ref(&commit_preds.defs));
 
         ItemPredicates {
@@ -95,7 +121,7 @@ mod tests {
         assert!(commit_preds.defs.batches.len() == 2);
 
         let item_preds = ItemPredicates::compile(&params, &commit_preds);
-        assert!(item_preds.defs.batches.len() == 1);
+        assert!(item_preds.defs.batches.len() == 2);
     }
 
     #[test]
