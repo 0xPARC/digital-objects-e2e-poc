@@ -115,7 +115,7 @@ impl eframe::App for App {
             });
             ui.separator();
             egui::ScrollArea::vertical().show(ui, |ui| {
-                for (i, item) in self.items.clone().iter().enumerate() {
+                for (i, item) in self.items.iter().enumerate() {
                     ui.dnd_drag_source(egui::Id::new(item.name.clone()), i, |ui| {
                         self.name_with_img(ui, &item.name);
                     });
@@ -201,7 +201,7 @@ impl App {
         });
     }
 
-    pub fn name_with_img(&mut self, ui: &mut Ui, name: &String) {
+    pub fn name_with_img(&self, ui: &mut Ui, name: &String) {
         ui.horizontal(|ui| {
             ui.add(
                 egui::Image::new(if name.contains("Axe") {
