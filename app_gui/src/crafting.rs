@@ -196,7 +196,7 @@ impl App {
                     ui.label(result2text(&self.crafting.commit_result));
                     ui.end_row();
                 } else {
-                    button_craft_and_commit_clicked = ui.button("Craft").clicked();
+                    button_craft_and_commit_clicked = ui.button("Execute process").clicked();
                     ui.label(result2text(&self.crafting.commit_result));
                     ui.end_row();
                 }

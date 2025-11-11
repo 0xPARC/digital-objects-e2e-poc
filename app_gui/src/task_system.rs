@@ -93,15 +93,22 @@ pub fn handle_req(task_status: &RwLock<TaskStatus>, req: Request) -> Response {
             output,
             input_paths,
         } => {
-            craft(
+            if let Response::Craft(Result::Err(e)) = craft(
                 task_status,
                 &params,
                 pods_path,
                 recipe,
                 output.clone(),
                 input_paths,
-            );
-            commit(task_status, &params, cfg, output)
+            ) {
+                return Response::CraftAndCommit(Result::Err(e));
+            };
+            let res = commit(task_status, &params, cfg, output.clone());
+            let r = match res {
+                Response::Commit(result) => result,
+                _ => Err(anyhow!("unexpected response")),
+            };
+            Response::CraftAndCommit(r)
         }
         Request::Destroy { params, cfg, item } => {
             set_busy_task(task_status, "Destroying");
