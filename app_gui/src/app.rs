@@ -30,7 +30,8 @@ use tokio::runtime::Runtime;
 use tracing::{error, info};
 
 use crate::{
-    Committing, Crafting, Destruction, ItemView, Request, Response, TaskStatus,
+    Committing, Crafting, ItemView, Request, Response, TaskStatus,
+    crafting::{Process, Verb},
     task_system::handle_req,
 };
 
@@ -51,7 +52,6 @@ pub struct App {
     pub item_view: ItemView,
     pub crafting: Crafting,
     pub committing: Committing,
-    pub destruction: Destruction,
     pub task_req_tx: mpsc::Sender<Request>,
     pub task_res_rx: mpsc::Receiver<Response>,
     pub _task_handler: JoinHandle<()>,
@@ -110,7 +110,6 @@ IsTinPremium(item, private: ingredients, inputs, key, work) = AND(
             item_view: Default::default(),
             crafting: Default::default(),
             committing: Default::default(),
-            destruction: Default::default(),
             task_req_tx: req_tx,
             task_res_rx: res_rx,
             _task_handler: task_handler,
