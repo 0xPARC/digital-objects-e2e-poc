@@ -182,13 +182,6 @@ impl App {
             });
             ui.separator();
             self.ui_craft(ctx, ui);
-            // match self.selected_tab {
-            //     0 => self.ui_produce(ctx, ui, ProductionType::Mine),
-            //     1 => self.ui_produce(ctx, ui, ProductionType::Craft),
-            //     2 => self.ui_destroy(ctx, ui),
-            //     _ => {}
-            // }
         });
-        ui.end_row();
     }
 }
