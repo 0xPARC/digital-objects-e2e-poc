@@ -94,7 +94,7 @@ IsTinPremium(item, private: ingredients, inputs, key, work) = AND(
     SetInsert(s1, {}, tin1)
     SetInsert(inputs, s1, tin2)
 
-    // Recursively prove the ingredients are correct.
+    // prove the ingredients are correct.
     IsTin(tin1)
     IsTin(tin2)
 )"#

@@ -95,7 +95,7 @@ IsBronze(item, private: ingredients, inputs, key, work) = AND(
     SetInsert(s1, {}, tin)
     SetInsert(inputs, s1, copper)
 
-    // Recursively prove the ingredients are correct.
+    // prove the ingredients are correct.
     IsTin(tin)
     IsCopper(copper)
 )"#
@@ -110,7 +110,7 @@ IsBronzeAxe(item, private: ingredients, inputs, key, work) = AND(
     SetInsert(s1, {}, wood)
     SetInsert(inputs, s1, bronze)
 
-    // Recursively prove the ingredients are correct.
+    // prove the ingredients are correct.
     IsWood(wood)
     IsBronze(bronze)
 )"#

@@ -53,7 +53,7 @@ impl ItemPredicates {
                 SetInsert(s1, {}, tin)
                 SetInsert(inputs, s1, copper)
         
-                // Recursively prove the ingredients are correct.
+                // prove the ingredients are correct.
                 IsTin(tin)
                 IsCopper(copper)
             )
@@ -73,7 +73,7 @@ impl ItemPredicates {
                 SetInsert(s1, {}, wood)
                 SetInsert(inputs, s1, bronze)
         
-                // Recursively prove the ingredients are correct.
+                // prove the ingredients are correct.
                 IsWood(wood)
                 IsBronze(bronze)
             )
