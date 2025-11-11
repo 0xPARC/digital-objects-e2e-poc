@@ -47,18 +47,12 @@ pub enum Request {
         cfg: Config,
         input: PathBuf,
     },
-    Destroy {
-        params: Params,
-        cfg: Config,
-        item: PathBuf,
-    },
     Exit,
 }
 
 pub enum Response {
     Craft(Result<PathBuf>),
     Commit(Result<PathBuf>),
-    Destroy(Result<PathBuf>),
     Null,
 }
 
@@ -110,15 +104,6 @@ pub fn handle_req(task_status: &RwLock<TaskStatus>, req: Request) -> Response {
             let r = rt.block_on(async { commit_item(&params, &cfg, &input).await });
             task_status.write().unwrap().busy = None;
             Response::Commit(r.map(|_| input))
-        }
-        Request::Destroy { params, cfg, item } => {
-            set_busy_task(task_status, "Destroying");
-
-            Runtime::new().unwrap();
-            let rt = Runtime::new().unwrap();
-            let r = rt.block_on(async { destroy_item(&params, &cfg, &item).await });
-            task_status.write().unwrap().busy = None;
-            Response::Destroy(r.map(|_| item))
         }
         Request::Exit => Response::Null,
     }

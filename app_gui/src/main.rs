@@ -36,14 +36,12 @@ use tracing::{error, info};
 
 mod app;
 mod crafting;
-mod destruction;
 mod item_view;
 mod task_system;
 mod utils;
 
 use app::*;
 use crafting::*;
-use destruction::*;
 use item_view::*;
 use task_system::*;
 
@@ -94,11 +92,6 @@ impl eframe::App for App {
                     self.crafting.craft_result = Some(r)
                 }
                 Response::Commit(r) => self.crafting.commit_result = Some(r),
-                Response::Destroy(r) => {
-                    self.refresh_items().unwrap();
-                    self.destruction.item_index = None;
-                    self.destruction.result = Some(r)
-                }
                 Response::Null => {}
             }
         }
@@ -171,26 +164,14 @@ impl App {
     pub fn update_action_ui(&mut self, ctx: &egui::Context, ui: &mut Ui) {
         ui.vertical(|ui| {
             ui.horizontal(|ui| {
-                if ui
-                    .selectable_label(self.selected_tab == 0, "Mine")
-                    .clicked()
-                {
-                    self.crafting.selected_recipe = None;
-                    self.selected_tab = 0;
-                }
-                if ui
-                    .selectable_label(self.selected_tab == 1, "Craft")
-                    .clicked()
-                {
-                    self.crafting.selected_recipe = None;
-                    self.selected_tab = 1;
-                }
-                if ui
-                    .selectable_label(self.selected_tab == 2, "Destroy")
-                    .clicked()
-                {
-                    self.destruction.item_index = None;
-                    self.selected_tab = 2;
+                for verb in Verb::list() {
+                    if ui
+                        .selectable_label(Some(verb) == self.crafting.selected_verb, verb.as_str())
+                        .clicked()
+                    {
+                        self.crafting.selected_verb = Some(verb);
+                        self.crafting.selected_process = verb.default_process();
+                    }
                 }
                 if ui
                     .selectable_label(self.modal_new_predicates, "+ New Predicate")
@@ -200,12 +181,13 @@ impl App {
                 }
             });
             ui.separator();
-            match self.selected_tab {
-                0 => self.ui_produce(ctx, ui, ProductionType::Mine),
-                1 => self.ui_produce(ctx, ui, ProductionType::Craft),
-                2 => self.ui_destroy(ctx, ui),
-                _ => {}
-            }
+            self.ui_craft(ctx, ui);
+            // match self.selected_tab {
+            //     0 => self.ui_produce(ctx, ui, ProductionType::Mine),
+            //     1 => self.ui_produce(ctx, ui, ProductionType::Craft),
+            //     2 => self.ui_destroy(ctx, ui),
+            //     _ => {}
+            // }
         });
         ui.end_row();
     }

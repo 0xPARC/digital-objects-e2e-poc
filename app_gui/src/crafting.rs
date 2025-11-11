@@ -17,49 +17,46 @@ use app_cli::{
     Config, CraftedItem, ProductionType, Recipe, commit_item, craft_item, load_item, log_init,
 };
 use common::load_dotenv;
+use craftlib::constants::COPPER_WORK;
 use egui::{Color32, Frame, Label, RichText, Ui};
+use enum_iterator::{Sequence, all};
 use itertools::Itertools;
+use lazy_static::lazy_static;
 use pod2::{
     backends::plonky2::primitives::merkletree::MerkleProof,
     middleware::{
         Hash, Params, RawValue, Statement, StatementArg, TypedValue, Value, containers::Set,
     },
 };
+use strum::IntoStaticStr;
 use tokio::runtime::Runtime;
 use tracing::{error, info};
 
 use crate::{App, Committing, ItemView, Request, Response, TaskStatus, utils::result2text};
 
-#[derive(Default)]
-pub struct Crafting {
-    pub selected_recipe: Option<Recipe>,
-    // Input index to item index
-    pub input_items: HashMap<usize, usize>,
-    pub output_filename: String,
-    pub craft_result: Option<Result<PathBuf>>,
-    pub commit_result: Option<Result<PathBuf>>,
+#[derive(Debug, Clone, Copy, PartialEq, IntoStaticStr)]
+pub enum Process {
+    Copper,
+    Tin,
+    Wood,
+    Bronze,
+    BronzeAxe,
+    Mock(&'static str),
 }
 
-impl Crafting {
-    pub fn select(&mut self, recipe: Recipe) {
-        if Some(recipe) != self.selected_recipe {
-            *self = Self::default();
-            self.selected_recipe = Some(recipe);
-        }
-    }
+pub struct ProcessData {
+    description: &'static str,
+    predicate: &'static str,
+    inputs: &'static [&'static str],
+    outputs: &'static [&'static str],
 }
 
-pub fn recipe_inputs(r: &Recipe) -> Vec<Recipe> {
-    match r {
-        Recipe::Bronze => vec![Recipe::Tin, Recipe::Copper],
-        Recipe::BronzeAxe => vec![Recipe::Wood, Recipe::Bronze],
-        _ => vec![],
-    }
-}
-pub fn recipe_statement(r: &Recipe) -> &'static str {
-    match r {
-        Recipe::Copper => {
-            r#"
+lazy_static! {
+    static ref COPPER_DATA: ProcessData = ProcessData {
+        description: "Copper.  Hard to find.",
+        inputs: &[],
+        outputs: &["Copper"],
+        predicate: r#"
 use intro Pow(count, input, output) from 0x3493488bc23af15ac5fabe38c3cb6c4b66adb57e3898adf201ae50cc57183f65
 
 IsCopper(item, private: ingredients, inputs, key, work) = AND(
@@ -67,26 +64,35 @@ IsCopper(item, private: ingredients, inputs, key, work) = AND(
     Equal(inputs, {})
     DictContains(ingredients, "blueprint", "copper")
     Pow(3, ingredients, work)
-)"#
-        }
-        Recipe::Tin => {
-            r#"
+)"#,
+    };
+    static ref TIN_DATA: ProcessData = ProcessData {
+        description: "Tin.  Easily available.",
+        inputs: &[],
+        outputs: &["Tin"],
+        predicate: r#"
 IsTin(item, private: ingredients, inputs, key, work) = AND(
     ItemDef(item, ingredients, inputs, key, work)
     Equal(inputs, {})
     DictContains(ingredients, "blueprint", "tin")
-)"#
-        }
-        Recipe::Wood => {
-            r#"
+)"#,
+    };
+    static ref WOOD_DATA: ProcessData = ProcessData {
+        description: "Wood.  Easily available.",
+        inputs: &[],
+        outputs: &["Wood"],
+        predicate: r#"
 IsWood(item, private: ingredients, inputs, key, work) = AND(
     ItemDef(item, ingredients, inputs, key, work)
     Equal(inputs, {})
     DictContains(ingredients, "blueprint", "wood")
-)"#
-        }
-        Recipe::Bronze => {
-            r#"
+)"#,
+    };
+    static ref BRONZE_DATA: ProcessData = ProcessData {
+        description: "Bronze.  Easy to craft.",
+        inputs: &["Tin", "Copper"],
+        outputs: &["Bronze"],
+        predicate: r#"
 IsBronze(item, private: ingredients, inputs, key, work) = AND(
     ItemDef(item, ingredients, inputs, key, work)
     DictContains(ingredients, "blueprint", "bronze")
@@ -98,10 +104,13 @@ IsBronze(item, private: ingredients, inputs, key, work) = AND(
     // prove the ingredients are correct.
     IsTin(tin)
     IsCopper(copper)
-)"#
-        }
-        Recipe::BronzeAxe => {
-            r#"
+)"#,
+    };
+    static ref BRONZE_AXE_DATA: ProcessData = ProcessData {
+        description: "Bronze Axe.  Easy to craft.",
+        inputs: &["Wood", "Bronze"],
+        outputs: &["Bronze Axe"],
+        predicate: r#"
 IsBronzeAxe(item, private: ingredients, inputs, key, work) = AND(
     ItemDef(item, ingredients, inputs, key, work)
     DictContains(ingredients, "blueprint", "bronze-axe")
@@ -113,46 +122,219 @@ IsBronzeAxe(item, private: ingredients, inputs, key, work) = AND(
     // prove the ingredients are correct.
     IsWood(wood)
     IsBronze(bronze)
-)"#
+)"#,
+    };
+    // Mock
+    static ref DESTROY_DATA: ProcessData = ProcessData {
+        description: "Destroy an object.",
+        inputs: &[],
+        outputs: &[],
+        predicate: r#"
+Destroy(void, private: ingredients, inputs, key, work) = AND(
+    ItemDef(void, ingredients, inputs, key, work)
+    SetInsert(inputs, {}, item)
+)"#,
+    };
+    static ref TOMATO_DATA: ProcessData = ProcessData {
+        description: "Produces a Tomato.  Requires a Tomato Farm.",
+        inputs: &["Tomato Farm", "Tomato Seed"],
+        outputs: &["Tomato"],
+        predicate: r#"
+IsTomato(item, private: ingredients, inputs, key, work) = AND(
+    ItemDef(item, ingredients, inputs, key, work)
+    DictContains(ingredients, "blueprint", "tomato")
+
+    SetInsert(s1, {}, tomato_farm)
+    SetInsert(inputs, s1, tomato_seed)
+    IsTomatoFarm(tomato_farm)
+    IsTomatoSeed(tomato_seed)
+)"#,
+    };
+    static ref DIS_H2O_DATA: ProcessData = ProcessData {
+        description: "Disassemble H2O into 2xH and 1xO.",
+        inputs: &["H2O"],
+        outputs: &["H", "H", "O"],
+        predicate: r#"
+DisassembleH2O(items, private: ingredients, inputs, key, work) = AND(
+    ItemDef(items, ingredients, inputs, key, work)
+    DictContains(ingredients, "blueprint_0", "H")
+    DictContains(ingredients, "blueprint_1", "H")
+    DictContains(ingredients, "blueprint_2", "O")
+
+    SetInsert(inputs, {}, h2o)
+    IsH2O(h2o)
+)"#,
+    };
+    static ref REFINED_URANIUM_DATA: ProcessData = ProcessData {
+        description: "Produces refined Uranium.  It takes about 30 minutes.",
+        inputs: &["Uranium"],
+        outputs: &["Refined Uranium"],
+        predicate: r#"
+RefinedUranium(items, private: ingredients, inputs, key, work) = AND(
+    ItemDef(item, ingredients, inputs, key, work)
+    DictContains(ingredients, "blueprint", "refined_uranium")
+
+    SetInsert(inputs, {}, uranium)
+    IsUranium(uranium)
+    Pow(100, ingredients, work)
+)"#,
+    };
+    static ref STONE_DATA: ProcessData = ProcessData {
+        description: "Mine a stone.  Requires a Pick Axe with >= 50% durability.",
+        inputs: &["Pick Axe"],
+        outputs: &["Stone"],
+        predicate: r#"
+IsStone(item, private: ingredients, inputs, key, work) = AND(
+    ItemDef(item, ingredients, inputs, key, work)
+    DictContains(ingredients, "blueprint", "stone")
+
+    SetInsert(inputs, {}, pick_axe)
+    IsPickAxe(pick_axe, durability)
+    GtEq(durability, 50)
+)"#,
+    };
+}
+
+impl Process {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Mock("Disassemble-H2O") => "H2O",
+            Self::Mock("Refine-Uranium") => "Uranium",
+            Self::Mock(s) => s,
+            v => self.into(),
+        }
+    }
+    // Returns None if the Process is mock
+    pub fn recipe(&self) -> Option<Recipe> {
+        match self {
+            Self::Copper => Some(Recipe::Copper),
+            Self::Tin => Some(Recipe::Tin),
+            Self::Wood => Some(Recipe::Wood),
+            Self::Bronze => Some(Recipe::Bronze),
+            Self::BronzeAxe => Some(Recipe::BronzeAxe),
+            Self::Mock(_) => None,
+        }
+    }
+
+    pub fn data(&self) -> &'static ProcessData {
+        match self {
+            Self::Copper => &COPPER_DATA,
+            Self::Tin => &TIN_DATA,
+            Self::Wood => &WOOD_DATA,
+            Self::Bronze => &BRONZE_DATA,
+            Self::BronzeAxe => &BRONZE_AXE_DATA,
+            Self::Mock("Destroy") => &DESTROY_DATA,
+            Self::Mock("Tomato") => &TOMATO_DATA,
+            Self::Mock("Disassemble-H2O") => &DIS_H2O_DATA,
+            Self::Mock("Refine-Uranium") => &REFINED_URANIUM_DATA,
+            Self::Mock("Stone") => &STONE_DATA,
+            Self::Mock(v) => unreachable!("data for mock {v}"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Sequence, IntoStaticStr)]
+pub enum Verb {
+    Gather,
+    Mine,
+    Refine,
+    Craft,
+    Farm,
+    Disassemble,
+    Destroy,
+}
+
+impl Verb {
+    pub fn as_str(&self) -> &'static str {
+        let s: &'static str = self.into();
+        s
+    }
+    pub fn list() -> Vec<Verb> {
+        all::<Verb>().collect()
+    }
+
+    pub fn processes(&self) -> Vec<Process> {
+        use Process::*;
+        match self {
+            Self::Mine => vec![Mock("Stone")],
+            Self::Gather => vec![Copper, Tin, Wood],
+            Self::Refine => vec![Mock("Refine-Uranium")],
+            Self::Craft => vec![Bronze, BronzeAxe],
+            Self::Farm => vec![Mock("Tomato")],
+            Self::Disassemble => vec![Mock("Disassemble-H2O")],
+            Self::Destroy => vec![Mock("Destroy")],
+        }
+    }
+
+    pub fn default_process(&self) -> Option<Process> {
+        match self {
+            Self::Destroy => Some(Process::Mock("Destroy")),
+            _ => None,
+        }
+    }
+
+    #[allow(clippy::match_like_matches_macro)]
+    pub fn hide_process(&self) -> bool {
+        match self {
+            Self::Destroy => true,
+            _ => false,
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct Crafting {
+    pub selected_verb: Option<Verb>,
+    pub selected_process: Option<Process>,
+    pub selected_recipe: Option<Recipe>,
+    // Input index to item index
+    pub input_items: HashMap<usize, usize>,
+    pub output_filename: String,
+    pub craft_result: Option<Result<PathBuf>>,
+    pub commit_result: Option<Result<PathBuf>>,
+}
+
+impl Crafting {
+    pub fn select(&mut self, process: Process) {
+        if Some(process) != self.selected_process {
+            let verb = self.selected_verb;
+            *self = Self::default();
+            self.selected_verb = verb;
+            self.selected_process = Some(process);
         }
     }
 }
 
 impl App {
-    // Crafting panel
-    // UI for producing new items through Mine & Craft
-    pub(crate) fn ui_produce(
-        &mut self,
-        ctx: &egui::Context,
-        ui: &mut Ui,
-        production_type: ProductionType,
-    ) {
-        let mut selected_recipe = self.crafting.selected_recipe;
-        egui::Grid::new("mine title").show(ui, |ui| {
+    // Generic ui for all verbs
+    pub(crate) fn ui_craft(&mut self, ctx: &egui::Context, ui: &mut Ui) {
+        let selected_verb = match self.crafting.selected_verb {
+            None => return,
+            Some(v) => v,
+        };
+        let mut selected_process = self.crafting.selected_process;
+        egui::Grid::new("verb title").show(ui, |ui| {
             ui.set_min_height(32.0);
-            ui.heading(production_type.to_string());
+            ui.heading(selected_verb.as_str());
             ui.end_row();
         });
         ui.separator();
-        egui::ComboBox::from_id_salt("items to mine/craft")
-            .selected_text(selected_recipe.map(|r| r.to_string()).unwrap_or_default())
-            .show_ui(ui, |ui| {
-                for recipe in &self.recipes {
-                    if recipe.production_type() == production_type {
-                        ui.selectable_value(
-                            &mut selected_recipe,
-                            Some(*recipe),
-                            recipe.to_string(),
-                        );
+        if !selected_verb.hide_process() {
+            egui::ComboBox::from_id_salt("process selection")
+                .selected_text(selected_process.map(|r| r.as_str()).unwrap_or_default())
+                .show_ui(ui, |ui| {
+                    for process in selected_verb.processes() {
+                        ui.selectable_value(&mut selected_process, Some(process), process.as_str());
                     }
-                }
-            });
-        if let Some(selected_recipe) = selected_recipe {
-            self.crafting.select(selected_recipe);
+                });
+            if let Some(process) = selected_process {
+                self.crafting.select(process);
+            }
         }
 
-        if let Some(recipe) = self.crafting.selected_recipe {
-            let inputs = recipe_inputs(&recipe);
+        if let Some(process) = self.crafting.selected_process {
+            let process_data = process.data();
+            let inputs = process_data.inputs;
             if !inputs.is_empty() {
                 ui.heading("Inputs:");
             }
@@ -173,16 +355,23 @@ impl App {
                     }
                 }
             });
+            let outputs = process_data.outputs;
+            if !outputs.is_empty() {
+                ui.heading("Outputs:");
+                ui.horizontal(|ui| {
+                    for (i, output) in outputs.iter().enumerate() {
+                        if i != 0 {
+                            ui.label(", ");
+                        }
+                        ui.label(*output);
+                    }
+                });
+            }
 
-            ui.horizontal(|ui| {
-                ui.label("filename:");
-                if self.crafting.output_filename.is_empty() {
-                    // suggest a default name for the file
-                    self.crafting.output_filename =
-                        format!("{:?}_{}", recipe, self.items.len() + self.used_items.len());
-                }
-                ui.text_edit_singleline(&mut self.crafting.output_filename);
-            });
+            // NOTE: If we don't show filenames in the left panel, then we shouldn't ask for a
+            // filename either.
+            self.crafting.output_filename =
+                format!("{:?}_{}", process, self.items.len() + self.used_items.len());
 
             let mut button_craft_clicked = false;
             let mut button_commit_clicked = false;
@@ -215,15 +404,18 @@ impl App {
                                 Some(Err(anyhow!("Please provide all inputs.")))
                         }
                         Some(input_paths) => {
-                            self.task_req_tx
-                                .send(Request::Craft {
-                                    params: self.params.clone(),
-                                    pods_path: self.cfg.pods_path.clone(),
-                                    recipe,
-                                    output,
-                                    input_paths,
-                                })
-                                .unwrap();
+                            // This only goes through on non-mock processes
+                            if let Some(recipe) = process.recipe() {
+                                self.task_req_tx
+                                    .send(Request::Craft {
+                                        params: self.params.clone(),
+                                        pods_path: self.cfg.pods_path.clone(),
+                                        recipe,
+                                        output,
+                                        input_paths,
+                                    })
+                                    .unwrap();
+                            }
                         }
                     }
                 };
@@ -243,14 +435,16 @@ impl App {
                         .unwrap();
                 }
             }
+            ui.heading("Description:");
+            ui.separator();
+            ui.add(Label::new(RichText::new(process_data.description)).wrap());
 
             ui.heading("Predicate:");
             egui::ScrollArea::vertical()
                 .min_scrolled_height(200.0)
                 .show(ui, |ui| {
                     ui.separator();
-                    let s = recipe_statement(&recipe);
-                    ui.add(Label::new(RichText::new(s).monospace()).wrap());
+                    ui.add(Label::new(RichText::new(process_data.predicate).monospace()).wrap());
                 });
         }
     }
