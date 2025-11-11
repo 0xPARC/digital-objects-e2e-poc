@@ -141,7 +141,31 @@ impl eframe::App for App {
             });
         });
 
-        egui::CentralPanel::default().show(ctx, |ui| self.update_item_view_ui(ui));
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.columns_const(|[item_view_ui, crafting_ui]| {
+                item_view_ui.vertical(|ui| {
+                    self.update_item_view_ui(ui);
+                });
+                {
+                    let ui = crafting_ui;
+                    let task_status = self.task_status.read().unwrap().clone();
+                    // If the task is busy, display a spinner and the task name,
+                    // else display the action UI.
+                    if let Some(task) = task_status.busy {
+                        ui.horizontal_centered(|ui| {
+                            ui.spinner();
+                            ui.heading(task);
+                        });
+                    } else {
+                        self.update_action_ui(ctx, ui);
+                    }
+                    // Display window(s).
+                    if self.modal_new_predicates {
+                        self.ui_new_predicate(ctx, ui);
+                    }
+                }
+            });
+        });
 
         // Shortcuts:
         // Alt + D: toggle 'dev_mode'
@@ -149,24 +173,6 @@ impl eframe::App for App {
             self.dev_mode = !self.dev_mode;
             log::info!("dev_mode={:?}", self.dev_mode);
         }
-
-        // If the task is busy, display a spinner and the task name,
-        // else display the action UI.
-        let task_status = self.task_status.read().unwrap().clone();
-        egui::SidePanel::right("actions").show(ctx, |ui| {
-            if let Some(task) = task_status.busy {
-                ui.horizontal_centered(|ui| {
-                    ui.spinner();
-                    ui.heading(task);
-                });
-            } else {
-                self.update_action_ui(ctx, ui);
-            }
-            // Display window(s).
-            if self.modal_new_predicates {
-                self.ui_new_predicate(ctx, ui);
-            }
-        });
     }
 
     fn on_exit(&mut self, _gl: Option<&egui_glow::glow::Context>) {
@@ -180,6 +186,7 @@ impl App {
     pub fn update_action_ui(&mut self, ctx: &egui::Context, ui: &mut Ui) {
         ui.vertical(|ui| {
             ui.horizontal(|ui| {
+                ui.set_min_height(32.0);
                 for verb in Verb::list() {
                     if ui
                         .selectable_label(Some(verb) == self.crafting.selected_verb, verb.as_str())
