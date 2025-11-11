@@ -13,9 +13,7 @@ use std::{
 };
 
 use anyhow::{Result, anyhow};
-use app_cli::{
-    Config, CraftedItem, ProductionType, Recipe, commit_item, craft_item, load_item, log_init,
-};
+use app_cli::{Config, CraftedItem, ProductionType, Recipe, commit_item, craft_item, load_item};
 use common::load_dotenv;
 use craftlib::constants::COPPER_WORK;
 use egui::{Color32, Frame, Label, RichText, Ui};

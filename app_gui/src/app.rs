@@ -15,7 +15,6 @@ use std::{
 use anyhow::{Result, anyhow};
 use app_cli::{
     Config, CraftedItem, Recipe, USED_ITEM_SUBDIR_NAME, commit_item, craft_item, load_item,
-    log_init,
 };
 use common::load_dotenv;
 use egui::{Color32, Frame, Label, RichText, Ui};

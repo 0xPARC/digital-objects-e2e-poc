@@ -20,8 +20,9 @@ dotenvy = "0.15.7"
 env_logger = { version = "0.11" }
 log = { version = "0.4.14", features = ["kv_unstable"] }
 tracing = "0.1.19"
-tracing-subscriber = { version = "0.3", features = ["registry", "env-filter" ] }
+tracing-subscriber = { version = "0.3", features = ["registry", "env-filter", "fmt", "time"] }
 tracing-log = "0.1.1"
+time = { version = "0.3.44", features = ["formatting", "local-offset"] }
 
 # pod
 pod2 = { git="https://github.com/0xPARC/pod2", rev = "7f1222015d9f35f35823a7575c3a9203f01ad749", default-features = false, features = ["backend_plonky2", "disk_cache", "zk"]}

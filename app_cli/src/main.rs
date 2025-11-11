@@ -6,9 +6,9 @@
 //!   RUST_LOG=app=debug cargo run --release -p app_cli -- commit --input ./item0
 use std::{path::PathBuf, str::FromStr};
 
-use app_cli::{Config, Recipe, commit_item, craft_item, load_item, log_init};
+use app_cli::{Config, Recipe, commit_item, craft_item, load_item};
 use clap::{Parser, Subcommand};
-use common::load_dotenv;
+use common::{load_dotenv, log_init};
 use pod2::{
     backends::plonky2::primitives::merkletree::MerkleProof,
     middleware::{Params, RawValue, containers::Set},

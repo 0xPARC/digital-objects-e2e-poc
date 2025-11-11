@@ -19,10 +19,8 @@ use std::{
 };
 
 use anyhow::{Result, anyhow};
-use app_cli::{
-    Config, CraftedItem, ProductionType, Recipe, commit_item, craft_item, load_item, log_init,
-};
-use common::load_dotenv;
+use app_cli::{Config, CraftedItem, ProductionType, Recipe, commit_item, craft_item, load_item};
+use common::{load_dotenv, log_init};
 use egui::{Color32, Frame, Label, RichText, Ui};
 use itertools::Itertools;
 use pod2::{
@@ -146,8 +144,7 @@ impl eframe::App for App {
                 item_view_ui.vertical(|ui| {
                     self.update_item_view_ui(ui);
                 });
-                {
-                    let ui = crafting_ui;
+                crafting_ui.vertical(|ui| {
                     let task_status = self.task_status.read().unwrap().clone();
                     // If the task is busy, display a spinner and the task name,
                     // else display the action UI.
@@ -163,7 +160,7 @@ impl eframe::App for App {
                     if self.modal_new_predicates {
                         self.ui_new_predicate(ctx, ui);
                     }
-                }
+                });
             });
         });
 
@@ -172,6 +169,10 @@ impl eframe::App for App {
         if ctx.input(|i| i.key_released(egui::Key::D) && i.modifiers.alt) {
             self.dev_mode = !self.dev_mode;
             log::info!("dev_mode={:?}", self.dev_mode);
+        }
+        // Ctrl + Q: quit
+        if ctx.input(|i| i.key_released(egui::Key::Q) && i.modifiers.ctrl) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
     }
 
