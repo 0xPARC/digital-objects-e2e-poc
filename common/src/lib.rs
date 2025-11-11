@@ -86,8 +86,7 @@ pub fn log_init() {
     // Full date: `[year]-[month padding:zero]-[day padding:zero]`
     let timer = time::format_description::parse("[hour]:[minute]:[second].[subsecond digits:2]")
         .expect("valid format");
-    let time_offset =
-        time::UtcOffset::current_local_offset().unwrap_or(time::UtcOffset::UTC);
+    let time_offset = time::UtcOffset::current_local_offset().unwrap_or(time::UtcOffset::UTC);
     let timer = OffsetTime::new(time_offset, timer);
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer().with_timer(timer))
