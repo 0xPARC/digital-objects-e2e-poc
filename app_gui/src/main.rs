@@ -94,6 +94,15 @@ impl eframe::App for App {
                     self.crafting.craft_result = Some(r)
                 }
                 Response::Commit(r) => self.crafting.commit_result = Some(r),
+                Response::CraftAndCommit(r) => {
+                    if let Ok(entry) = &r {
+                        self.load_item(entry, false).unwrap();
+                    }
+                    self.refresh_items().unwrap();
+                    self.crafting.input_items = HashMap::new();
+                    self.crafting.commit_result = None;
+                    self.crafting.craft_result = Some(r)
+                }
                 Response::Destroy(r) => {
                     self.refresh_items().unwrap();
                     self.destruction.item_index = None;
@@ -106,7 +115,7 @@ impl eframe::App for App {
         // Left side panel "Item list"
         egui::SidePanel::left("item list").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.heading("Digital Objects");
+                ui.heading("My Objects");
                 if ui.button("Refresh").clicked() {
                     self.refresh_items().unwrap();
                 }
@@ -121,7 +130,7 @@ impl eframe::App for App {
             });
             ui.separator();
             egui::Grid::new("used items title").show(ui, |ui| {
-                ui.collapsing("Used items", |ui| {
+                ui.collapsing("Consumed objects", |ui| {
                     egui::ScrollArea::vertical()
                         .min_scrolled_height(100.0)
                         .show(ui, |ui| {
@@ -140,6 +149,13 @@ impl eframe::App for App {
         });
 
         egui::CentralPanel::default().show(ctx, |ui| self.update_item_view_ui(ui));
+
+        // Shortcuts:
+        // Alt + D: toggle 'dev_mode'
+        if ctx.input(|i| i.key_released(egui::Key::D) && i.modifiers.alt) {
+            self.dev_mode = !self.dev_mode;
+            log::info!("dev_mode={:?}", self.dev_mode);
+        }
 
         // If the task is busy, display a spinner and the task name,
         // else display the action UI.
