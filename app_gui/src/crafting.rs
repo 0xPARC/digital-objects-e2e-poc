@@ -535,4 +535,23 @@ impl App {
                 });
         }
     }
+
+    pub(crate) fn ui_danger(&self, ctx: &egui::Context, ui: &mut Ui) {
+        if !self.danger {
+            return;
+        }
+        let hover_pos = ctx.input(|input| {
+            let pointer = &input.pointer;
+            pointer.hover_pos()
+        });
+        let painter = ui.painter();
+
+        if let Some(mousepos) = hover_pos {
+            let pos = mousepos + egui::Vec2::splat(16.0);
+            let rect = egui::Rect::from_min_size(pos, egui::Vec2::splat(64.0));
+            egui::Image::new(egui::include_image!("../assets/water.png"))
+                .corner_radius(5)
+                .paint_at(ui, rect);
+        }
+    }
 }

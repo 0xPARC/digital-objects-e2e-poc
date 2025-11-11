@@ -80,3 +80,7 @@ DO_GENESIS_SLOT="0"
 ```
 ./kurtosis enclave rm -f local-testnet
 ```
+
+---
+
+TODO asset license: `water.png`: <a href="https://www.flaticon.com/free-icons/shark" title="shark icons">Shark icons created by Freepik - Flaticon</a>

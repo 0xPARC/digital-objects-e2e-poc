@@ -50,7 +50,8 @@ fn main() -> Result<()> {
     info!(?cfg, "Loaded config");
 
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_maximized(true),
+        // viewport: egui::ViewportBuilder::default().with_maximized(true),
+        viewport: egui::ViewportBuilder::default(),
         ..Default::default()
     };
     let params = Params::default();
@@ -162,6 +163,8 @@ impl eframe::App for App {
                     }
                 });
             });
+
+            self.ui_danger(ctx, ui);
         });
 
         // Shortcuts:
@@ -173,6 +176,10 @@ impl eframe::App for App {
         // Ctrl + Q: quit
         if ctx.input(|i| i.key_released(egui::Key::Q) && i.modifiers.ctrl) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+        // Alt + S: danger
+        if ctx.input(|i| i.key_released(egui::Key::S) && i.modifiers.alt) {
+            self.danger = !self.danger;
         }
     }
 

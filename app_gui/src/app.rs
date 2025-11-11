@@ -59,6 +59,7 @@ pub struct App {
     pub modal_new_predicates: bool, // modal for writing new predicates
     pub code_editor_content: String,
     pub dev_mode: bool,
+    pub danger: bool,
 }
 
 impl App {
@@ -117,6 +118,7 @@ IsTinPremium(item, private: ingredients, inputs, key, work) = AND(
             modal_new_predicates: false,
             code_editor_content: code.clone(),
             dev_mode: false,
+            danger: false,
         };
         app.refresh_items()?;
         Ok(app)
