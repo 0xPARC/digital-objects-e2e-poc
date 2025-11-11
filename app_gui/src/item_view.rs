@@ -98,7 +98,6 @@ impl App {
                 for st in sts {
                     let mut st_str = String::new();
                     pretty_st(&mut st_str, st);
-                    println!("{}", st_str);
                     ui.add(Label::new(RichText::new(&st_str).monospace()).wrap());
                     ui.add_space(4.0);
                 }
