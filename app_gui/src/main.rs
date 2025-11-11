@@ -167,47 +167,44 @@ impl eframe::App for App {
 
 impl App {
     pub fn update_action_ui(&mut self, ctx: &egui::Context, ui: &mut Ui) {
-        egui::Grid::new("action UI").show(ui, |ui| {
-            ui.set_min_height(32.0);
-            ui.vertical(|ui| {
-                ui.horizontal(|ui| {
-                    if ui
-                        .selectable_label(self.selected_tab == 0, "Mine")
-                        .clicked()
-                    {
-                        self.crafting.selected_recipe = None;
-                        self.selected_tab = 0;
-                    }
-                    if ui
-                        .selectable_label(self.selected_tab == 1, "Craft")
-                        .clicked()
-                    {
-                        self.crafting.selected_recipe = None;
-                        self.selected_tab = 1;
-                    }
-                    if ui
-                        .selectable_label(self.selected_tab == 2, "Destroy")
-                        .clicked()
-                    {
-                        self.destruction.item_index = None;
-                        self.selected_tab = 2;
-                    }
-                    if ui
-                        .selectable_label(self.modal_new_predicates, "+ New Predicate")
-                        .clicked()
-                    {
-                        self.modal_new_predicates = true;
-                    }
-                });
-                ui.separator();
-                match self.selected_tab {
-                    0 => self.ui_produce(ctx, ui, ProductionType::Mine),
-                    1 => self.ui_produce(ctx, ui, ProductionType::Craft),
-                    2 => self.ui_destroy(ctx, ui),
-                    _ => {}
+        ui.vertical(|ui| {
+            ui.horizontal(|ui| {
+                if ui
+                    .selectable_label(self.selected_tab == 0, "Mine")
+                    .clicked()
+                {
+                    self.crafting.selected_recipe = None;
+                    self.selected_tab = 0;
+                }
+                if ui
+                    .selectable_label(self.selected_tab == 1, "Craft")
+                    .clicked()
+                {
+                    self.crafting.selected_recipe = None;
+                    self.selected_tab = 1;
+                }
+                if ui
+                    .selectable_label(self.selected_tab == 2, "Destroy")
+                    .clicked()
+                {
+                    self.destruction.item_index = None;
+                    self.selected_tab = 2;
+                }
+                if ui
+                    .selectable_label(self.modal_new_predicates, "+ New Predicate")
+                    .clicked()
+                {
+                    self.modal_new_predicates = true;
                 }
             });
-            ui.end_row();
+            ui.separator();
+            match self.selected_tab {
+                0 => self.ui_produce(ctx, ui, ProductionType::Mine),
+                1 => self.ui_produce(ctx, ui, ProductionType::Craft),
+                2 => self.ui_destroy(ctx, ui),
+                _ => {}
+            }
         });
+        ui.end_row();
     }
 }

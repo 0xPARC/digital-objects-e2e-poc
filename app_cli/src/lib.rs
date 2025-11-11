@@ -40,6 +40,8 @@ use crate::eth::send_payload;
 
 pub mod eth;
 
+pub const USED_ITEM_SUBDIR_NAME: &str = "used";
+
 #[derive(Clone, Debug)]
 pub struct Config {
     // The URL for the Beacon API
@@ -408,8 +410,13 @@ pub async fn commit_item(params: &Params, cfg: &Config, input: &Path) -> anyhow:
 
 pub async fn destroy_item(_params: &Params, _cfg: &Config, item: &PathBuf) -> anyhow::Result<()> {
     // TODO: Nullify
-    std::fs::remove_file(item)?;
-    info!("Deleted item at {}", item.display());
+    let (file_name, parent_dir) = item
+        .file_name()
+        .and_then(|name| Some((name.display(), item.parent()?.display())))
+        .ok_or(anyhow!("Item at {} is not a file.", item.display()))?;
+    let used_item = PathBuf::from(format!("{parent_dir}/{USED_ITEM_SUBDIR_NAME}/{file_name}"));
+    std::fs::rename(item, used_item)?;
+    info!("Destroyed item at {}", item.display());
 
     Ok(())
 }

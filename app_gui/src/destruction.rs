@@ -39,7 +39,6 @@ pub struct Destruction {
 impl App {
     // UI for the destruction of items.
     pub(crate) fn ui_destroy(&mut self, ctx: &egui::Context, ui: &mut Ui) {
-        let mut item_to_destroy = self.destruction.item_index;
         let all_items = self.all_items();
         egui::Grid::new("destruction").show(ui, |ui| {
             ui.set_min_height(32.0);
@@ -47,24 +46,34 @@ impl App {
             ui.end_row();
         });
         ui.separator();
-        egui::ComboBox::from_id_salt("destroyable items")
-            .selected_text(
-                item_to_destroy
-                    .map(|i| all_items[i].name.clone())
-                    .unwrap_or_default(),
-            )
-            .show_ui(ui, |ui| {
-                for (i, item) in all_items.iter().enumerate() {
-                    ui.selectable_value(&mut item_to_destroy, Some(i), &item.name);
+        let frame = Frame::default().inner_margin(4.0);
+        let (_, dropped_payload) =
+            ui.dnd_drop_zone::<usize, ()>(frame, |ui| match &self.destruction.item_index {
+                Some(i) => {
+                    if let Some(name) = self.items.get(*i).map(|item| item.name.to_string()) {
+                        self.destruction.result = None;
+                        ui.label(name);
+                    } else {
+                        self.destruction.result = Some(Err(anyhow!(
+                            "Item '{}' has already been used or destroyed!",
+                            all_items[*i].name
+                        )));
+                        ui.label("...");
+                    }
+                }
+                _ => {
+                    ui.label("...");
                 }
             });
+        ui.end_row();
+        if let Some(i) = dropped_payload {
+            self.destruction.item_index = Some(*i);
+        }
 
         let mut button_destroy_clicked = false;
 
         egui::Grid::new("destruction buttons").show(ui, |ui| {
-            if let Some(i) = item_to_destroy {
-                self.destruction.item_index = Some(i);
-                self.destruction.result = None;
+            if let (Some(i), None) = (self.destruction.item_index, &self.destruction.result) {
                 button_destroy_clicked = ui.button("Destroy").clicked();
 
                 if button_destroy_clicked {

@@ -14,7 +14,8 @@ use std::{
 
 use anyhow::{Result, anyhow};
 use app_cli::{
-    Config, CraftedItem, Recipe, commit_item, craft_item, destroy_item, load_item, log_init,
+    Config, CraftedItem, Recipe, USED_ITEM_SUBDIR_NAME, commit_item, craft_item, destroy_item,
+    load_item, log_init,
 };
 use common::load_dotenv;
 use egui::{Color32, Frame, Label, RichText, Ui};
@@ -79,7 +80,7 @@ pub fn handle_req(task_status: &RwLock<TaskStatus>, req: Request) -> Response {
             let r = craft_item(&params, recipe, &output, &input_paths);
 
             // move the files of the used inputs into the `used` subdir
-            let used_path = Path::new(&pods_path).join("used");
+            let used_path = Path::new(&pods_path).join(USED_ITEM_SUBDIR_NAME);
             for input in input_paths {
                 let parent_path = input.parent().unwrap();
                 // if original file is not in 'used' subdir, move it there, ignore if it already is
@@ -88,8 +89,9 @@ pub fn handle_req(task_status: &RwLock<TaskStatus>, req: Request) -> Response {
                     fs::rename(
                         input.clone(),
                         format!(
-                            "{}/used/{}",
+                            "{}/{}/{}",
                             parent_path.display(),
+                            USED_ITEM_SUBDIR_NAME,
                             input.file_name().unwrap().display()
                         ),
                     )
