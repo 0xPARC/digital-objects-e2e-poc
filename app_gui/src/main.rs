@@ -115,9 +115,9 @@ impl eframe::App for App {
             });
             ui.separator();
             egui::ScrollArea::vertical().show(ui, |ui| {
-                for (i, item) in self.items.iter().enumerate() {
+                for (i, item) in self.items.clone().iter().enumerate() {
                     ui.dnd_drag_source(egui::Id::new(item.name.clone()), i, |ui| {
-                        ui.label(&item.name);
+                        self.name_with_img(ui, &item.name);
                     });
                 }
             });
@@ -199,5 +199,39 @@ impl App {
             ui.separator();
             self.ui_craft(ctx, ui);
         });
+    }
+
+    pub fn name_with_img(&mut self, ui: &mut Ui, name: &String) {
+        ui.horizontal(|ui| {
+            ui.add(
+                egui::Image::new(if name.contains("Axe") {
+                    egui::include_image!("../assets/axe.png")
+                } else if name.contains("Bronze") {
+                    egui::include_image!("../assets/bronze.png")
+                } else if name.contains("Wood") {
+                    egui::include_image!("../assets/wood.png")
+                } else if name.contains("Copper") {
+                    egui::include_image!("../assets/copper.png")
+                } else if name.contains("Tin") {
+                    egui::include_image!("../assets/tin.png")
+                } else {
+                    egui::include_image!("../assets/empty.png")
+                })
+                .max_width(18.0),
+            );
+            if self.dev_mode {
+                ui.label(name);
+            } else {
+                ui.label(strip_suffix(name));
+            }
+        });
+    }
+}
+
+fn strip_suffix(s: &str) -> &str {
+    if let Some(pos) = s.rfind('_') {
+        &s[..pos]
+    } else {
+        s
     }
 }

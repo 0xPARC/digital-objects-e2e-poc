@@ -127,7 +127,7 @@ IsBronzeAxe(item, private: ingredients, inputs, key, work) = AND(
     // Mock
     static ref DESTROY_DATA: ProcessData = ProcessData {
         description: "Destroy an object.",
-        inputs: &[],
+        inputs: &["Item to destroy"],
         outputs: &[],
         predicate: r#"
 Destroy(void, private: ingredients, inputs, key, work) = AND(
@@ -344,7 +344,7 @@ impl App {
                     let frame = Frame::default().inner_margin(4.0);
                     let (_, dropped_payload) = ui.dnd_drop_zone::<usize, ()>(frame, |ui| {
                         if let Some(index) = self.crafting.input_items.get(&input_index) {
-                            ui.label(self.all_items()[*index].name.to_string());
+                            self.name_with_img(ui, &self.all_items()[*index].name.to_string());
                         } else {
                             ui.label("...");
                         }
@@ -363,7 +363,7 @@ impl App {
                         if i != 0 {
                             ui.label(", ");
                         }
-                        ui.label(*output);
+                        self.name_with_img(ui, &output.to_string());
                     }
                 });
             }
