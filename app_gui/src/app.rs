@@ -59,6 +59,7 @@ pub struct App {
     pub selected_tab: usize,
     pub modal_new_predicates: bool, // modal for writing new predicates
     pub code_editor_content: String,
+    pub dev_mode: bool,
 }
 
 impl App {
@@ -116,6 +117,7 @@ IsTinPremium(item, private: ingredients, inputs, key, work) = AND(
             selected_tab: 0,
             modal_new_predicates: false,
             code_editor_content: code.clone(),
+            dev_mode: false,
         };
         app.refresh_items()?;
         Ok(app)

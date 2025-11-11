@@ -375,13 +375,20 @@ impl App {
 
             let mut button_craft_clicked = false;
             let mut button_commit_clicked = false;
+            let mut button_craft_and_commit_clicked = false;
             egui::Grid::new("crafting buttons").show(ui, |ui| {
-                button_craft_clicked = ui.button("Craft").clicked();
-                ui.label(result2text(&self.crafting.craft_result));
-                ui.end_row();
-                button_commit_clicked = ui.button("Commit").clicked();
-                ui.label(result2text(&self.crafting.commit_result));
-                ui.end_row();
+                if self.dev_mode {
+                    button_craft_clicked = ui.button("Craft (without Commit)").clicked();
+                    ui.label(result2text(&self.crafting.craft_result));
+                    ui.end_row();
+                    button_commit_clicked = ui.button("Commit").clicked();
+                    ui.label(result2text(&self.crafting.commit_result));
+                    ui.end_row();
+                } else {
+                    button_craft_and_commit_clicked = ui.button("Execute process").clicked();
+                    ui.label(result2text(&self.crafting.commit_result));
+                    ui.end_row();
+                }
             });
             if button_craft_clicked {
                 if self.crafting.output_filename.is_empty() {
@@ -438,6 +445,45 @@ impl App {
             ui.heading("Description:");
             ui.separator();
             ui.add(Label::new(RichText::new(process_data.description)).wrap());
+
+            if button_craft_and_commit_clicked {
+                if self.crafting.output_filename.is_empty() {
+                    self.crafting.craft_result = Some(Err(anyhow!("Please enter a filename.")));
+                } else {
+                    let output =
+                        Path::new(&self.cfg.pods_path).join(&self.crafting.output_filename);
+                    let input_paths = (0..inputs.len())
+                        .map(|i| {
+                            self.crafting
+                                .input_items
+                                .get(&i)
+                                .map(|i| self.all_items()[*i].path.clone())
+                        })
+                        .collect::<Option<Vec<_>>>();
+
+                    match input_paths {
+                        None => {
+                            self.crafting.craft_result =
+                                Some(Err(anyhow!("Please provide all inputs.")))
+                        }
+                        Some(input_paths) => {
+                            // This only goes through on non-mock processes
+                            if let Some(recipe) = process.recipe() {
+                                self.task_req_tx
+                                    .send(Request::CraftAndCommit {
+                                        params: self.params.clone(),
+                                        cfg: self.cfg.clone(),
+                                        pods_path: self.cfg.pods_path.clone(),
+                                        recipe,
+                                        output,
+                                        input_paths,
+                                    })
+                                    .unwrap();
+                            }
+                        }
+                    }
+                };
+            }
 
             ui.heading("Predicate:");
             egui::ScrollArea::vertical()
