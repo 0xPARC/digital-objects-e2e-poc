@@ -19,7 +19,9 @@ use std::{
 };
 
 use anyhow::{Result, anyhow};
-use app_cli::{Config, CraftedItem, Recipe, commit_item, craft_item, load_item, log_init};
+use app_cli::{
+    Config, CraftedItem, ProductionType, Recipe, commit_item, craft_item, load_item, log_init,
+};
 use common::load_dotenv;
 use egui::{Color32, Frame, Label, RichText, Ui};
 use itertools::Itertools;
@@ -34,12 +36,14 @@ use tracing::{error, info};
 
 mod app;
 mod crafting;
+mod destruction;
 mod item_view;
 mod task_system;
 mod utils;
 
 use app::*;
 use crafting::*;
+use destruction::*;
 use item_view::*;
 use task_system::*;
 
@@ -66,9 +70,7 @@ fn main() -> Result<()> {
         }),
     )
     .map_err(|e| anyhow::anyhow!("{e}"))?;
-    // app.task_handler
-    //     .join()
-    //     .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+
     Ok(())
 }
 
@@ -92,20 +94,13 @@ impl eframe::App for App {
                     self.crafting.craft_result = Some(r)
                 }
                 Response::Commit(r) => self.crafting.commit_result = Some(r),
+                Response::Destroy(r) => {
+                    self.refresh_items().unwrap();
+                    self.destruction.item_index = None;
+                    self.destruction.result = Some(r)
+                }
                 Response::Null => {}
             }
-        }
-
-        // If the task is busy, display a spinner and the task name
-        let task_status = self.task_status.read().unwrap().clone();
-        if let Some(task) = task_status.busy {
-            egui::CentralPanel::default().show(ctx, |ui| {
-                ui.vertical_centered(|ui| {
-                    ui.spinner();
-                    ui.heading(task);
-                });
-            });
-            return;
         }
 
         // Left side panel "Item list"
@@ -142,16 +137,24 @@ impl eframe::App for App {
             });
         });
 
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.columns_const(|[item_view_ui, crafting_ui]| {
-                item_view_ui.vertical(|ui| {
-                    self.update_item_view_ui(ui);
-                });
+        egui::CentralPanel::default().show(ctx, |ui| self.update_item_view_ui(ui));
 
-                crafting_ui.vertical(|ui| {
-                    self.update_crafting_ui(ctx, ui);
+        // If the task is busy, display a spinner and the task name,
+        // else display the action UI.
+        let task_status = self.task_status.read().unwrap().clone();
+        egui::SidePanel::right("actions").show(ctx, |ui| {
+            if let Some(task) = task_status.busy {
+                ui.horizontal_centered(|ui| {
+                    ui.spinner();
+                    ui.heading(task);
                 });
-            });
+            } else {
+                self.update_action_ui(ctx, ui);
+            }
+            // Display window(s).
+            if self.modal_new_predicates {
+                self.ui_new_predicate(ctx, ui);
+            }
         });
     }
 
@@ -159,5 +162,49 @@ impl eframe::App for App {
         self.task_req_tx.send(Request::Exit).unwrap();
         // if the task is not busy it should terminate before 100 ms
         thread::sleep(time::Duration::from_millis(100));
+    }
+}
+
+impl App {
+    pub fn update_action_ui(&mut self, ctx: &egui::Context, ui: &mut Ui) {
+        ui.vertical(|ui| {
+            ui.horizontal(|ui| {
+                if ui
+                    .selectable_label(self.selected_tab == 0, "Mine")
+                    .clicked()
+                {
+                    self.crafting.selected_recipe = None;
+                    self.selected_tab = 0;
+                }
+                if ui
+                    .selectable_label(self.selected_tab == 1, "Craft")
+                    .clicked()
+                {
+                    self.crafting.selected_recipe = None;
+                    self.selected_tab = 1;
+                }
+                if ui
+                    .selectable_label(self.selected_tab == 2, "Destroy")
+                    .clicked()
+                {
+                    self.destruction.item_index = None;
+                    self.selected_tab = 2;
+                }
+                if ui
+                    .selectable_label(self.modal_new_predicates, "+ New Predicate")
+                    .clicked()
+                {
+                    self.modal_new_predicates = true;
+                }
+            });
+            ui.separator();
+            match self.selected_tab {
+                0 => self.ui_produce(ctx, ui, ProductionType::Mine),
+                1 => self.ui_produce(ctx, ui, ProductionType::Craft),
+                2 => self.ui_destroy(ctx, ui),
+                _ => {}
+            }
+        });
+        ui.end_row();
     }
 }

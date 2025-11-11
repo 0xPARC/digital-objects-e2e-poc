@@ -13,7 +13,10 @@ use std::{
 };
 
 use anyhow::{Result, anyhow};
-use app_cli::{Config, CraftedItem, Recipe, commit_item, craft_item, load_item, log_init};
+use app_cli::{
+    Config, CraftedItem, Recipe, USED_ITEM_SUBDIR_NAME, commit_item, craft_item, load_item,
+    log_init,
+};
 use common::load_dotenv;
 use egui::{Color32, Frame, Label, RichText, Ui};
 use itertools::Itertools;
@@ -27,7 +30,8 @@ use tokio::runtime::Runtime;
 use tracing::{error, info};
 
 use crate::{
-    Committing, Crafting, ItemView, Request, Response, TaskStatus, task_system::handle_req,
+    Committing, Crafting, Destruction, ItemView, Request, Response, TaskStatus,
+    task_system::handle_req,
 };
 
 #[derive(Clone)]
@@ -47,6 +51,7 @@ pub struct App {
     pub item_view: ItemView,
     pub crafting: Crafting,
     pub committing: Committing,
+    pub destruction: Destruction,
     pub task_req_tx: mpsc::Sender<Request>,
     pub task_res_rx: mpsc::Receiver<Response>,
     pub _task_handler: JoinHandle<()>,
@@ -104,6 +109,7 @@ IsTinPremium(item, private: ingredients, inputs, key, work) = AND(
             item_view: Default::default(),
             crafting: Default::default(),
             committing: Default::default(),
+            destruction: Default::default(),
             task_req_tx: req_tx,
             task_res_rx: res_rx,
             _task_handler: task_handler,
@@ -149,7 +155,7 @@ IsTinPremium(item, private: ingredients, inputs, key, work) = AND(
 
     pub fn refresh_items(&mut self) -> Result<()> {
         // create 'pods_path' & 'pods_path/used' dir in case they do not exist
-        fs::create_dir_all(format!("{}/used", &self.cfg.pods_path))?;
+        fs::create_dir_all(format!("{}/{}", &self.cfg.pods_path, USED_ITEM_SUBDIR_NAME))?;
 
         self.items = Vec::new();
         self.used_items = Vec::new();
@@ -163,7 +169,7 @@ IsTinPremium(item, private: ingredients, inputs, key, work) = AND(
         }
 
         log::info!("Loading used items...");
-        for entry in fs::read_dir(format!("{}/used", &self.cfg.pods_path))? {
+        for entry in fs::read_dir(format!("{}/{}", &self.cfg.pods_path, USED_ITEM_SUBDIR_NAME))? {
             let entry = entry?;
             // skip dirs
             if !entry.file_type()?.is_dir() {

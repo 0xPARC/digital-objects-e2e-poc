@@ -96,48 +96,13 @@ IsBronze(item, private: ingredients, inputs, key, work) = AND(
 
 impl App {
     // Crafting panel
-    pub fn update_crafting_ui(&mut self, ctx: &egui::Context, ui: &mut Ui) {
-        egui::Grid::new("production title").show(ui, |ui| {
-            ui.set_min_height(32.0);
-            ui.vertical(|ui| {
-                ui.horizontal(|ui| {
-                    if ui
-                        .selectable_label(self.selected_tab == 0, "Mine")
-                        .clicked()
-                    {
-                        self.crafting.selected_recipe = None;
-                        self.selected_tab = 0;
-                    }
-                    if ui
-                        .selectable_label(self.selected_tab == 1, "Craft")
-                        .clicked()
-                    {
-                        self.crafting.selected_recipe = None;
-                        self.selected_tab = 1;
-                    }
-                    if ui
-                        .selectable_label(self.selected_tab == 2, "+ New Predicate")
-                        .clicked()
-                    {
-                        self.modal_new_predicates = true;
-                        self.crafting.selected_recipe = None;
-                        self.selected_tab = 2;
-                    }
-                });
-                ui.separator();
-                match self.selected_tab {
-                    0 => self.ui_produce(ctx, ui, ProductionType::Mine),
-                    1 => self.ui_produce(ctx, ui, ProductionType::Craft),
-                    2 => self.ui_new_predicate(ctx, ui),
-                    _ => {}
-                }
-            });
-            ui.end_row();
-        });
-    }
-
     // UI for producing new items through Mine & Craft
-    fn ui_produce(&mut self, ctx: &egui::Context, ui: &mut Ui, production_type: ProductionType) {
+    pub(crate) fn ui_produce(
+        &mut self,
+        ctx: &egui::Context,
+        ui: &mut Ui,
+        production_type: ProductionType,
+    ) {
         let mut selected_recipe = self.crafting.selected_recipe;
         egui::Grid::new("mine title").show(ui, |ui| {
             ui.set_min_height(32.0);
@@ -145,7 +110,7 @@ impl App {
             ui.end_row();
         });
         ui.separator();
-        egui::ComboBox::from_label("")
+        egui::ComboBox::from_id_salt("items to mine/craft")
             .selected_text(selected_recipe.map(|r| r.to_string()).unwrap_or_default())
             .show_ui(ui, |ui| {
                 for recipe in &self.recipes {
@@ -268,7 +233,7 @@ impl App {
         }
     }
 
-    fn ui_new_predicate(&mut self, ctx: &egui::Context, ui: &mut Ui) {
+    pub(crate) fn ui_new_predicate(&mut self, ctx: &egui::Context, ui: &mut Ui) {
         let language: String = "js".to_string();
 
         if self.modal_new_predicates {
