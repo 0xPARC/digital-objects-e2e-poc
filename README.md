@@ -78,6 +78,7 @@ DO_GENESIS_SLOT="0"
 
 #### Stop
 ```
+./kurtosis engine stop
 ./kurtosis enclave rm -f local-testnet
 ```
 
