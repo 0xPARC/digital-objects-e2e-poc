@@ -208,6 +208,20 @@ RefinedUranium(items, private: ingredients, inputs, key, work) = AND(
 )"#,
         ..Default::default()
     };
+    static ref COAL_DATA: ProcessData = ProcessData {
+        description: "Mine coal.  Requires a Pick Axe with >= 50% durability.",
+        input_tools: &["Pick Axe"],
+        outputs: &["Coal"],
+        predicate: r#"
+IsCoal(item, private: ingredients, inputs, key, work) = AND(
+    ItemDef(item, ingredients, inputs, key, work)
+    DictContains(ingredients, "blueprint", "stone")
+    SetInsert(inputs, {}, pick_axe)
+    IsPickAxe(pick_axe, durability)
+    GtEq(durability, 50)
+)"#,
+        ..Default::default()
+    };
 }
 
 impl Process {
@@ -243,7 +257,7 @@ impl Process {
             Self::Mock("Steel Sword") => &STEEL_SWORD_DATA,
             Self::Mock("Disassemble-H2O") => &DIS_H2O_DATA,
             Self::Mock("Refine-Uranium") => &REFINED_URANIUM_DATA,
-            Self::Mock("Stone") => &STONE_DATA,
+            Self::Mock("Coal") => &COAL_DATA,
             Self::Mock(v) => unreachable!("data for mock {v}"),
         }
     }
@@ -272,7 +286,7 @@ impl Verb {
     pub fn processes(&self) -> Vec<Process> {
         use Process::*;
         match self {
-            Self::Mine => vec![Mock("Stone")],
+            Self::Mine => vec![Mock("Coal")],
             Self::Gather => vec![Stone, Stick, Wood],
             Self::Refine => vec![Mock("Refine-Uranium")],
             Self::Craft => vec![Axe, BronzeAxe],
