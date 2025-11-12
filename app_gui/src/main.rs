@@ -211,9 +211,7 @@ impl App {
                 }
             });
             ui.separator();
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                self.ui_craft(ctx, ui);
-            });
+            self.ui_craft(ctx, ui);
         });
     }
 

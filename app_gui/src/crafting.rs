@@ -495,60 +495,65 @@ impl App {
 
             // Block3: Configuration
             let inputs = process_data.input_ingredients;
-            ui.columns_const(|[inputs_ui, outputs_ui]| {
-                inputs_ui.vertical(|ui| {
-                    ui.heading("Inputs");
-                    egui::Grid::new("crafting inputs").show(ui, |ui| {
-                        for (category, inputs) in
-                            ["Production Facility", "Tools", "Ingredients"].iter().zip([
-                                process_data.input_facilities,
-                                process_data.input_tools,
-                                process_data.input_ingredients,
-                            ])
-                        {
-                            if inputs.is_empty() {
-                                continue;
-                            }
-                            ui.label(format!("    {category}:"));
-                            ui.end_row();
-                            for (input_index, input) in inputs.iter().enumerate() {
-                                ui.label(format!("        {input}:"));
-                                let frame = Frame::default().inner_margin(4.0);
-                                let (_, dropped_payload) =
-                                    ui.dnd_drop_zone::<usize, ()>(frame, |ui| {
-                                        if let Some(index) =
-                                            self.crafting.input_items.get(&input_index)
-                                        {
-                                            self.name_with_img(
-                                                ui,
-                                                &self.all_items()[*index].name.to_string(),
-                                            );
-                                        } else {
-                                            ui.label("...");
+            egui::ScrollArea::vertical()
+                .id_salt("config scroll")
+                .max_height(256.0)
+                .show(ui, |ui| {
+                    ui.columns_const(|[inputs_ui, outputs_ui]| {
+                        inputs_ui.vertical(|ui| {
+                            ui.heading("Inputs");
+                            egui::Grid::new("crafting inputs").show(ui, |ui| {
+                                for (category, inputs) in
+                                    ["Production Facility", "Tools", "Ingredients"].iter().zip([
+                                        process_data.input_facilities,
+                                        process_data.input_tools,
+                                        process_data.input_ingredients,
+                                    ])
+                                {
+                                    if inputs.is_empty() {
+                                        continue;
+                                    }
+                                    ui.label(format!("    {category}:"));
+                                    ui.end_row();
+                                    for (input_index, input) in inputs.iter().enumerate() {
+                                        ui.label(format!("        {input}:"));
+                                        let frame = Frame::default().inner_margin(4.0);
+                                        let (_, dropped_payload) =
+                                            ui.dnd_drop_zone::<usize, ()>(frame, |ui| {
+                                                if let Some(index) =
+                                                    self.crafting.input_items.get(&input_index)
+                                                {
+                                                    self.name_with_img(
+                                                        ui,
+                                                        &self.all_items()[*index].name.to_string(),
+                                                    );
+                                                } else {
+                                                    ui.label("...");
+                                                }
+                                            });
+                                        ui.end_row();
+                                        if let Some(index) = dropped_payload {
+                                            self.crafting.input_items.insert(input_index, *index);
                                         }
-                                    });
-                                ui.end_row();
-                                if let Some(index) = dropped_payload {
-                                    self.crafting.input_items.insert(input_index, *index);
+                                    }
                                 }
-                            }
-                        }
-                    });
-                });
-
-                let outputs = process_data.outputs;
-                outputs_ui.vertical(|ui| {
-                    ui.heading("Outputs:");
-                    ui.vertical(|ui| {
-                        for output in outputs.iter() {
-                            ui.horizontal(|ui| {
-                                ui.label("  ");
-                                self.name_with_img(ui, &output.to_string());
                             });
-                        }
+                        });
+
+                        let outputs = process_data.outputs;
+                        outputs_ui.vertical(|ui| {
+                            ui.heading("Outputs:");
+                            ui.vertical(|ui| {
+                                for output in outputs.iter() {
+                                    ui.horizontal(|ui| {
+                                        ui.label("  ");
+                                        self.name_with_img(ui, &output.to_string());
+                                    });
+                                }
+                            });
+                        });
                     });
                 });
-            });
 
             if !process_data.reconf_action.is_empty() {
                 ui.add_space(8.0);
@@ -580,7 +585,8 @@ impl App {
             let predicate = process_data.predicate.trim_start();
             ui.heading("Predicate:");
             egui::ScrollArea::vertical()
-                .min_scrolled_height(200.0)
+                .id_salt("predicate scroll")
+                .max_height(256.0)
                 .show(ui, |ui| {
                     ui.add(Label::new(RichText::new(predicate).monospace()).wrap());
                 });
