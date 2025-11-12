@@ -560,8 +560,10 @@ impl App {
 
             // NOTE: If we don't show filenames in the left panel, then we shouldn't ask for a
             // filename either.
-            self.crafting.output_filename =
-                format!("{:?}_{}", process, self.items.len() + self.used_items.len());
+            if self.crafting.output_filename.is_empty() {
+                self.crafting.output_filename =
+                    format!("{:?}_{}", process, self.items.len() + self.used_items.len());
+            }
 
             ui.separator();
 
