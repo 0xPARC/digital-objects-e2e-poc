@@ -240,7 +240,7 @@ impl Helper {
             CraftBuilder::new(BuildContext::new(&mut builder, &self.batches), &self.params);
         let st_craft = match recipe {
             Recipe::Stone => {
-                // unwrap safe since if we're at Copper, pow_pod is Some
+                // unwrap safe since if we're at Stone, pow_pod is Some
                 let pow_pod = pow_pod.unwrap();
                 let st_pow = pow_pod.pub_statements()[0].clone();
                 let main_pow_pod = MainPod {
@@ -378,11 +378,11 @@ pub fn craft_item(
             if inputs.len() != 2 {
                 bail!("{recipe} takes 2 inputs");
             }
-            let tin = load_item(&inputs[0])?;
-            let copper = load_item(&inputs[1])?;
+            let stick = load_item(&inputs[0])?;
+            let stone = load_item(&inputs[1])?;
             let mining_recipe = MiningRecipe::new(
                 AXE_BLUEPRINT.to_string(),
-                &[tin.def.item_hash(params)?, copper.def.item_hash(params)?],
+                &[stick.def.item_hash(params)?, stone.def.item_hash(params)?],
             );
             let ingredients_def = mining_recipe
                 .do_mining(params, key, 0, AXE_MINING_MAX)?
@@ -392,7 +392,7 @@ pub fn craft_item(
                     ingredients: ingredients_def.clone(),
                     work: AXE_WORK,
                 },
-                vec![tin, copper],
+                vec![stick, stone],
                 None,
             )
         }
