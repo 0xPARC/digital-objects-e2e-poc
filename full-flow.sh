@@ -14,7 +14,8 @@ echo -e "getting Beacon chain last slot number"
 LAST_SLOT=$(curl -X GET "$BEACON_URL/eth/v2/beacon/blocks/head" | jq -r '.data.message.slot')
 
 echo -e "updating DO_GENESIS_SLOT value in the .env file"
-sed -i "s/^DO_GENESIS_SLOT=.*/DO_GENESIS_SLOT=\"$LAST_SLOT\"/" .env
+sed -i'.bak' -e "s/^DO_GENESIS_SLOT=.*/DO_GENESIS_SLOT=\"$LAST_SLOT\"/" .env
+rm .env.bak
 
 mkdir -p tmp
 
