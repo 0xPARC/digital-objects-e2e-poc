@@ -140,8 +140,8 @@ Destroy(void, private: ingredients, inputs, key, work) = AND(
         ..Default::default()
     };
     static ref TOMATO_DATA: ProcessData = ProcessData {
-        description: "Produces a Tomato.  Requires a Tomato Farm.",
-        input_facilities: &["Tomato Farm"],
+        description: "Produces a Tomato.  Requires farm level 1.",
+        input_facilities: &["Farm level 1"],
         input_ingredients: &["Tomato Seed"],
         outputs: &["Tomato"],
         predicate: r#"
@@ -151,7 +151,7 @@ IsTomato(item, private: ingredients, inputs, key, work) = AND(
 
     SetInsert(s1, {}, tomato_farm)
     SetInsert(inputs, s1, tomato_seed)
-    IsTomatoFarm(tomato_farm)
+    IsFarmLevel1(tomato_farm)
     IsTomatoSeed(tomato_seed)
 )"#,
         ..Default::default()
@@ -248,7 +248,7 @@ pub enum Verb {
     Mine,
     Refine,
     Craft,
-    Farm,
+    Produce,
     Disassemble,
     Destroy,
 }
@@ -269,7 +269,7 @@ impl Verb {
             Self::Gather => vec![Copper, Tin, Wood],
             Self::Refine => vec![Mock("Refine-Uranium")],
             Self::Craft => vec![Bronze, BronzeAxe],
-            Self::Farm => vec![Mock("Tomato")],
+            Self::Produce => vec![Mock("Tomato")],
             Self::Disassemble => vec![Mock("Disassemble-H2O")],
             Self::Destroy => vec![Mock("Destroy")],
         }
