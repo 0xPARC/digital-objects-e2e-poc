@@ -474,13 +474,13 @@ impl App {
 
             // Block3: Configuration
             let inputs = process_data.input_ingredients;
-            egui::ScrollArea::vertical()
-                .id_salt("config scroll")
-                .max_height(256.0)
-                .show(ui, |ui| {
-                    ui.columns_const(|[inputs_ui, outputs_ui]| {
-                        inputs_ui.vertical(|ui| {
-                            ui.heading("Inputs");
+            ui.columns_const(|[inputs_ui, outputs_ui]| {
+                inputs_ui.heading("Inputs");
+                egui::ScrollArea::vertical()
+                    .id_salt("inputs scroll")
+                    .max_height(256.0)
+                    .show(inputs_ui, |ui| {
+                        ui.vertical(|ui| {
                             egui::Grid::new("crafting inputs").show(ui, |ui| {
                                 for (category, inputs) in
                                     ["Production Facility", "Tools", "Ingredients"].iter().zip([
@@ -518,10 +518,15 @@ impl App {
                                 }
                             });
                         });
+                    });
 
-                        let outputs = process_data.outputs;
-                        outputs_ui.vertical(|ui| {
-                            ui.heading("Outputs:");
+                let outputs = process_data.outputs;
+                outputs_ui.heading("Outputs:");
+                egui::ScrollArea::vertical()
+                    .id_salt("outputs scroll")
+                    .max_height(256.0)
+                    .show(outputs_ui, |ui| {
+                        ui.vertical(|ui| {
                             ui.vertical(|ui| {
                                 for output in outputs.iter() {
                                     ui.horizontal(|ui| {
@@ -532,7 +537,7 @@ impl App {
                             });
                         });
                     });
-                });
+            });
 
             if !process_data.reconf_action.is_empty() {
                 ui.add_space(8.0);
