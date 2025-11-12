@@ -208,7 +208,31 @@ RefinedUranium(items, private: ingredients, inputs, key, work) = AND(
 )"#,
         ..Default::default()
     };
+    #[derive(Debug)]
+    static ref INNER_LINES: String = {
+        let mut tree_house_is_wood_lines = String::new();
+        for i in 0..N_WOODS {
+            tree_house_is_wood_lines.push_str(&format!(
+                "\n    SetInsert(inputs, {{}}, wood{i})\n    IsWood(wood{i})"
+            ));
+        }
+        format!(r#"
+IsTreeHouse(item, private: ingredients, inputs, key, work) = AND(
+    ItemDef(item, ingredients, inputs, key, work)
+    DictContains(ingredients, "blueprint", "wood")
+    {tree_house_is_wood_lines}
+)"#)
+    };
+    static ref TREE_HOUSE_DATA: ProcessData = ProcessData {
+        description: "Produces a Tree House.",
+        input_facilities: &[],
+        input_ingredients: &["Wood";N_WOODS],
+        outputs: &["Tree House"],
+        predicate: &INNER_LINES,
+        ..Default::default()
+    };
 }
+const N_WOODS: usize = 30;
 
 impl Process {
     pub fn as_str(&self) -> &'static str {
@@ -244,6 +268,7 @@ impl Process {
             Self::Mock("Disassemble-H2O") => &DIS_H2O_DATA,
             Self::Mock("Refine-Uranium") => &REFINED_URANIUM_DATA,
             Self::Mock("Stone") => &STONE_DATA,
+            Self::Mock("Tree House") => &TREE_HOUSE_DATA,
             Self::Mock(v) => unreachable!("data for mock {v}"),
         }
     }
@@ -275,7 +300,7 @@ impl Verb {
             Self::Mine => vec![Mock("Stone")],
             Self::Gather => vec![Stone, Stick, Wood],
             Self::Refine => vec![Mock("Refine-Uranium")],
-            Self::Craft => vec![Axe, BronzeAxe],
+            Self::Craft => vec![Axe, BronzeAxe, Mock("Tree House")],
             Self::Produce => vec![Mock("Tomato"), Mock("Steel Sword")],
             Self::Disassemble => vec![Mock("Disassemble-H2O")],
             Self::Destroy => vec![Mock("Destroy")],
