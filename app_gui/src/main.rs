@@ -83,21 +83,30 @@ impl eframe::App for App {
                 Response::Craft(r) => {
                     if let Ok(entry) = &r {
                         self.load_item(entry, false).unwrap();
+                    } else {
+                        log::error!("{r:?}");
                     }
                     self.refresh_items().unwrap();
                     self.crafting.input_items = HashMap::new();
                     self.crafting.commit_result = None;
                     self.crafting.craft_result = Some(r)
                 }
-                Response::Commit(r) => self.crafting.commit_result = Some(r),
+                Response::Commit(r) => {
+                    if let Err(e) = &r {
+                        log::error!("{r:?}");
+                    }
+                    self.crafting.commit_result = Some(r)
+                }
                 Response::CraftAndCommit(r) => {
                     if let Ok(entry) = &r {
                         self.load_item(entry, false).unwrap();
+                    } else {
+                        log::error!("{r:?}");
                     }
                     self.refresh_items().unwrap();
                     self.crafting.input_items = HashMap::new();
-                    self.crafting.commit_result = None;
-                    self.crafting.craft_result = Some(r)
+                    self.crafting.commit_result = Some(r);
+                    self.crafting.craft_result = None
                 }
                 Response::Null => {}
             }
