@@ -50,6 +50,7 @@ pub struct ProcessData {
     input_tools: &'static [&'static str],
     input_ingredients: &'static [&'static str],
     outputs: &'static [&'static str],
+    reconf_action: &'static [&'static str],
 }
 
 lazy_static! {
@@ -208,6 +209,20 @@ RefinedUranium(items, private: ingredients, inputs, key, work) = AND(
 )"#,
         ..Default::default()
     };
+    static ref COAL_DATA: ProcessData = ProcessData {
+        description: "Mine coal.  Requires a Pick Axe with >= 50% durability.",
+        input_tools: &["Pick Axe"],
+        outputs: &["Coal"],
+        predicate: r#"
+IsCoal(item, private: ingredients, inputs, key, work) = AND(
+    ItemDef(item, ingredients, inputs, key, work)
+    DictContains(ingredients, "blueprint", "stone")
+    SetInsert(inputs, {}, pick_axe)
+    IsPickAxe(pick_axe, durability)
+    GtEq(durability, 50)
+)"#,
+        ..Default::default()
+    };
     #[derive(Debug)]
     static ref INNER_LINES: String = {
         let mut tree_house_is_wood_lines = String::new();
@@ -231,15 +246,91 @@ IsTreeHouse(item, private: ingredients, inputs, key, work) = AND(
         predicate: &INNER_LINES,
         ..Default::default()
     };
+    static ref RECONF_RUBIKS_CUBE: ProcessData = ProcessData {
+        description: "Move layers of a Rubik's Cube.",
+        input_ingredients: &["Rubik's Cube"],
+        reconf_action: &["U", "D", "R", "L", "F", "B", "Uw", "Dw", "Rw", "Lw", "Fw", "Bw", "x", "y", "z", "M", "E", "S"],
+        predicate: r#"
+MoveLeft(new, old, op) = AND(
+    Equal(op.name, "U")
+    RotateLayer(new.faces, old.faces, 0, "left")
+)
+
+// [...]
+
+MovedRubiksCube(new, old, op) = OR(
+    MoveLeft(new, old, op)
+    MoveRight(new, old, op)
+    MoveUp(new, old, op)
+    MoveDown(new, old, op)
+)"#,
+        ..Default::default()
+    };
+    static ref RECONF_DECK_CARDS: ProcessData = ProcessData {
+        description: "Rearrange a Deck of Cards.",
+        input_ingredients: &["Deck of Cards"],
+        reconf_action: &["Rotate Clockwise", "Rotate Counter-Clockwise", "Random Shuffle"],
+        predicate: r#"
+RotateClockwise(new, old, op) = AND(
+    Equal(op.name, "rotate-clockwise")
+    Equal(new.cards[0], old.cards[51])
+    Equal(new.cards[1], old.cards[0])
+    Equal(new.cards[2], old.cards[1])
+    // [...]
+    Equal(new.cards[51], old.cards[50])
+)
+
+// [...]
+
+RearrangedDeckOfCards(new, old, op) = OR(
+    RotateClockwise(new, old, op)
+    RotateCounterClockwise(new, old, op)
+    RandomShuffle(new, old, op)
+)"#,
+        ..Default::default()
+    };
+    static ref RECONF_REFRIGERATOR: ProcessData = ProcessData {
+        description: "Rearrange the contents of a Refrigerator.",
+        input_ingredients: &["Refrigerator"],
+        reconf_action: &["Open in Layout Editor"],
+        predicate: r#"
+RearrangedRefrigerator(new, old, op) = AND(
+    Equal(new.objects, old.objects)
+    NoOverlap(new.objects, new.positions)
+)"#,
+        ..Default::default()
+    };
+    static ref RECONF_FARM_LVL_1: ProcessData = ProcessData {
+        description: "Maintain a Farm.",
+        input_ingredients: &["Farm Level 1"],
+        reconf_action: &["Fertilize", "Till"],
+        predicate: r#"
+Fertilize(new, old, op) = AND(
+    Equal(op.name, "fertilize")
+    DictUpdate(new, old, "fertilized", true)
+)
+
+// [...]
+
+MaintainedFarm(new, old, op) = OR(
+    Fertilize(new, old, op)
+    Till(new, old, op)
+)"#,
+        ..Default::default()
+    };
 }
 const N_WOODS: usize = 30;
 
 impl Process {
+    #[allow(clippy::let_and_return)]
     pub fn as_str(&self) -> &'static str {
         match self {
-            Self::Mock("Disassemble-H2O") => "H2O",
-            Self::Mock("Refine-Uranium") => "Uranium",
-            Self::Mock(s) => s,
+            Self::Mock(s) => {
+                let s = s.strip_prefix("Disassemble-").unwrap_or(s);
+                let s = s.strip_prefix("Refine-").unwrap_or(s);
+                let s = s.strip_prefix("Reconfigure-").unwrap_or(s);
+                s
+            }
             v => self.into(),
         }
     }
@@ -267,7 +358,11 @@ impl Process {
             Self::Mock("Steel Sword") => &STEEL_SWORD_DATA,
             Self::Mock("Disassemble-H2O") => &DIS_H2O_DATA,
             Self::Mock("Refine-Uranium") => &REFINED_URANIUM_DATA,
-            Self::Mock("Stone") => &STONE_DATA,
+            Self::Mock("Coal") => &COAL_DATA,
+            Self::Mock("Reconfigure-Rubik's Cube") => &RECONF_RUBIKS_CUBE,
+            Self::Mock("Reconfigure-Deck of Cards") => &RECONF_DECK_CARDS,
+            Self::Mock("Reconfigure-Refrigerator") => &RECONF_REFRIGERATOR,
+            Self::Mock("Reconfigure-Farm Level 1") => &RECONF_FARM_LVL_1,
             Self::Mock("Tree House") => &TREE_HOUSE_DATA,
             Self::Mock(v) => unreachable!("data for mock {v}"),
         }
@@ -281,6 +376,7 @@ pub enum Verb {
     Refine,
     Craft,
     Produce,
+    Reconfigure,
     Disassemble,
     Destroy,
 }
@@ -297,9 +393,15 @@ impl Verb {
     pub fn processes(&self) -> Vec<Process> {
         use Process::*;
         match self {
-            Self::Mine => vec![Mock("Stone")],
+            Self::Mine => vec![Mock("Coal")],
             Self::Gather => vec![Stone, Stick, Wood],
             Self::Refine => vec![Mock("Refine-Uranium")],
+            Self::Reconfigure => vec![
+                Mock("Reconfigure-Rubik's Cube"),
+                Mock("Reconfigure-Deck of Cards"),
+                Mock("Reconfigure-Refrigerator"),
+                Mock("Reconfigure-Farm Level 1"),
+            ],
             Self::Craft => vec![Axe, BronzeAxe, Mock("Tree House")],
             Self::Produce => vec![Mock("Tomato"), Mock("Steel Sword")],
             Self::Disassemble => vec![Mock("Disassemble-H2O")],
@@ -327,6 +429,7 @@ impl Verb {
 pub struct Crafting {
     pub selected_verb: Option<Verb>,
     pub selected_process: Option<Process>,
+    pub selected_action: Option<&'static str>,
     pub selected_recipe: Option<Recipe>,
     // Input index to item index
     pub input_items: HashMap<usize, usize>,
@@ -371,13 +474,17 @@ impl App {
                         }
                     });
             }
+            if let Some(process) = selected_process {
+                self.crafting.select(process);
+                if process.recipe().is_none() {
+                    ui.label("(mock)");
+                }
+            }
             ui.end_row();
         });
         ui.separator();
-        if let Some(process) = selected_process {
-            self.crafting.select(process);
-        }
 
+        let mut selected_action = self.crafting.selected_action;
         if let Some(process) = self.crafting.selected_process {
             let process_data = process.data();
 
@@ -442,6 +549,25 @@ impl App {
                     });
                 });
             });
+
+            if !process_data.reconf_action.is_empty() {
+                ui.add_space(8.0);
+                ui.heading("State:");
+                ui.label("[load object first]");
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    ui.label("Action:");
+                    egui::ComboBox::from_id_salt("reconf action")
+                        .selected_text(selected_action.unwrap_or_default())
+                        .show_ui(ui, |ui| {
+                            for action in process_data.reconf_action {
+                                ui.selectable_value(&mut selected_action, Some(action), *action);
+                            }
+                        });
+                });
+            }
+
+            self.crafting.selected_action = selected_action;
 
             // NOTE: If we don't show filenames in the left panel, then we shouldn't ask for a
             // filename either.
