@@ -59,7 +59,7 @@ impl App {
             let frame = Frame::default().inner_margin(4.0);
             let (_, dropped_payload) = ui.dnd_drop_zone::<usize, ()>(frame, |ui| {
                 if let Some(item) = item.clone() {
-                    ui.heading(item.name.to_string());
+                    self.name_with_img(ui, &item.name);
                 } else {
                     ui.heading("...");
                 }
