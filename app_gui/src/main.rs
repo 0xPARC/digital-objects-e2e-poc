@@ -220,15 +220,21 @@ impl App {
     pub fn name_with_img(&self, ui: &mut Ui, name: &String) {
         ui.horizontal(|ui| {
             ui.add(
-                egui::Image::new(if name.contains("Axe") {
+                egui::Image::new(if name.starts_with("Axe") {
                     egui::include_image!("../assets/axe.png")
-                } else if name.contains("Bronze") {
+                } else if name.starts_with("Stick") {
+                    egui::include_image!("../assets/stick.png")
+                } else if name.starts_with("Stone") {
+                    egui::include_image!("../assets/stone.png")
+                } else if name.starts_with("WoodenAxe") {
+                    egui::include_image!("../assets/wooden-axe.png")
+                } else if name.starts_with("Bronze") {
                     egui::include_image!("../assets/bronze.png")
-                } else if name.contains("Wood") {
+                } else if name.starts_with("Wood") {
                     egui::include_image!("../assets/wood.png")
-                } else if name.contains("Copper") {
+                } else if name.starts_with("Copper") {
                     egui::include_image!("../assets/copper.png")
-                } else if name.contains("Tin") {
+                } else if name.starts_with("Tin") {
                     egui::include_image!("../assets/tin.png")
                 } else {
                     egui::include_image!("../assets/empty.png")

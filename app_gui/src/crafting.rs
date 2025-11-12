@@ -15,7 +15,7 @@ use std::{
 use anyhow::{Result, anyhow};
 use app_cli::{Config, CraftedItem, ProductionType, Recipe, commit_item, craft_item, load_item};
 use common::load_dotenv;
-use craftlib::constants::COPPER_WORK;
+use craftlib::constants::STONE_WORK;
 use egui::{Color32, Frame, Label, RichText, Ui};
 use enum_iterator::{Sequence, all};
 use itertools::Itertools;
@@ -38,7 +38,7 @@ pub enum Process {
     Stick,
     Wood,
     Axe,
-    BronzeAxe,
+    WoodenAxe,
     Mock(&'static str),
 }
 
@@ -97,11 +97,11 @@ IsWood(item, private: ingredients, inputs, key, work) = AND(
         predicate: r#"
 IsAxe(item, private: ingredients, inputs, key, work) = AND(
     ItemDef(item, ingredients, inputs, key, work)
-    DictContains(ingredients, "blueprint", "bronze")
+    DictContains(ingredients, "blueprint", "axe")
 
     // 2 ingredients
-    SetInsert(s1, {}, tin)
-    SetInsert(inputs, s1, copper)
+    SetInsert(s1, {}, stick)
+    SetInsert(inputs, s1, stone)
 
     // prove the ingredients are correct.
     IsStick(stick)
@@ -109,22 +109,22 @@ IsAxe(item, private: ingredients, inputs, key, work) = AND(
 )"#,
         ..Default::default()
     };
-    static ref BRONZE_AXE_DATA: ProcessData = ProcessData {
-        description: "Bronze Axe.  Easy to craft.",
-        input_ingredients: &["Wood", "Bronze"],
-        outputs: &["Bronze Axe"],
+    static ref WOODEN_AXE_DATA: ProcessData = ProcessData {
+        description: "Wooden Axe.  Easy to craft.",
+        input_ingredients: &["Wood", "Wood"],
+        outputs: &["Wooden Axe"],
         predicate: r#"
-IsBronzeAxe(item, private: ingredients, inputs, key, work) = AND(
+IsWoodenAxe(item, private: ingredients, inputs, key, work) = AND(
     ItemDef(item, ingredients, inputs, key, work)
-    DictContains(ingredients, "blueprint", "bronze-axe")
+    DictContains(ingredients, "blueprint", "wooden-axe")
 
     // 2 ingredients
-    SetInsert(s1, {}, wood)
-    SetInsert(inputs, s1, bronze)
+    SetInsert(s1, {}, wood1)
+    SetInsert(inputs, s1, wood2)
 
     // prove the ingredients are correct.
-    IsWood(wood)
-    IsBronze(bronze)
+    IsWood(wood1)
+    IsWood(wood2)
 )"#,
         ..Default::default()
     };
@@ -337,11 +337,11 @@ impl Process {
     // Returns None if the Process is mock
     pub fn recipe(&self) -> Option<Recipe> {
         match self {
-            Self::Stone => Some(Recipe::Copper),
-            Self::Stick => Some(Recipe::Tin),
+            Self::Stone => Some(Recipe::Stone),
+            Self::Stick => Some(Recipe::Stick),
             Self::Wood => Some(Recipe::Wood),
-            Self::Axe => Some(Recipe::Bronze),
-            Self::BronzeAxe => Some(Recipe::BronzeAxe),
+            Self::Axe => Some(Recipe::Axe),
+            Self::WoodenAxe => Some(Recipe::WoodenAxe),
             Self::Mock(_) => None,
         }
     }
@@ -352,7 +352,7 @@ impl Process {
             Self::Stick => &STICK_DATA,
             Self::Wood => &WOOD_DATA,
             Self::Axe => &AXE_DATA,
-            Self::BronzeAxe => &BRONZE_AXE_DATA,
+            Self::WoodenAxe => &WOODEN_AXE_DATA,
             Self::Mock("Destroy") => &DESTROY_DATA,
             Self::Mock("Tomato") => &TOMATO_DATA,
             Self::Mock("Steel Sword") => &STEEL_SWORD_DATA,
@@ -402,7 +402,7 @@ impl Verb {
                 Mock("Reconfigure-Refrigerator"),
                 Mock("Reconfigure-Farm Level 1"),
             ],
-            Self::Craft => vec![Axe, BronzeAxe, Mock("Tree House")],
+            Self::Craft => vec![Axe, WoodenAxe, Mock("Tree House")],
             Self::Produce => vec![Mock("Tomato"), Mock("Steel Sword")],
             Self::Disassemble => vec![Mock("Disassemble-H2O")],
             Self::Destroy => vec![Mock("Destroy")],

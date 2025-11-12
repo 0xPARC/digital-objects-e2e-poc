@@ -15,9 +15,9 @@ use common::{
 };
 use craftlib::{
     constants::{
-        BRONZE_AXE_BLUEPRINT, BRONZE_AXE_MINING_MAX, BRONZE_AXE_WORK, BRONZE_BLUEPRINT,
-        BRONZE_MINING_MAX, BRONZE_WORK, COPPER_BLUEPRINT, COPPER_MINING_MAX, TIN_BLUEPRINT,
-        TIN_MINING_MAX, TIN_WORK, WOOD_BLUEPRINT, WOOD_MINING_MAX, WOOD_WORK,
+        AXE_BLUEPRINT, AXE_MINING_MAX, AXE_WORK, STICK_BLUEPRINT, STICK_MINING_MAX, STICK_WORK,
+        STONE_BLUEPRINT, STONE_MINING_MAX, WOOD_BLUEPRINT, WOOD_MINING_MAX, WOOD_WORK,
+        WOODEN_AXE_BLUEPRINT, WOODEN_AXE_MINING_MAX, WOODEN_AXE_WORK,
     },
     item::{CraftBuilder, MiningRecipe},
     powpod::PowPod,
@@ -91,20 +91,20 @@ pub struct CraftedItem {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Recipe {
-    Copper,
-    Tin,
+    Stone,
+    Stick,
     Wood,
-    Bronze,
-    BronzeAxe,
+    Axe,
+    WoodenAxe,
 }
 impl Recipe {
     pub fn list() -> Vec<Recipe> {
         vec![
-            Recipe::Copper,
-            Recipe::Tin,
+            Recipe::Stone,
+            Recipe::Stick,
             Recipe::Wood,
-            Recipe::Bronze,
-            Recipe::BronzeAxe,
+            Recipe::Axe,
+            Recipe::WoodenAxe,
         ]
     }
 }
@@ -127,11 +127,11 @@ impl fmt::Display for ProductionType {
 impl Recipe {
     pub fn production_type(&self) -> ProductionType {
         match self {
-            Self::Copper => ProductionType::Mine,
-            Self::Tin => ProductionType::Mine,
+            Self::Stone => ProductionType::Mine,
+            Self::Stick => ProductionType::Mine,
             Self::Wood => ProductionType::Mine,
-            Self::Bronze => ProductionType::Craft,
-            Self::BronzeAxe => ProductionType::Craft,
+            Self::Axe => ProductionType::Craft,
+            Self::WoodenAxe => ProductionType::Craft,
         }
     }
 }
@@ -140,11 +140,11 @@ impl FromStr for Recipe {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "copper" => Ok(Self::Copper),
-            "tin" => Ok(Self::Tin),
+            "stone" => Ok(Self::Stone),
+            "stick" => Ok(Self::Stick),
             "wood" => Ok(Self::Wood),
-            "bronze" => Ok(Self::Bronze),
-            "bronze-axe" => Ok(Self::BronzeAxe),
+            "axe" => Ok(Self::Axe),
+            "wooden-axe" => Ok(Self::WoodenAxe),
             _ => Err(anyhow!("unknown recipe {s}")),
         }
     }
@@ -153,11 +153,11 @@ impl FromStr for Recipe {
 impl fmt::Display for Recipe {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
-            Self::Copper => write!(f, "copper"),
-            Self::Tin => write!(f, "tin"),
+            Self::Stone => write!(f, "stone"),
+            Self::Stick => write!(f, "stick"),
             Self::Wood => write!(f, "wood"),
-            Self::Bronze => write!(f, "bronze"),
-            Self::BronzeAxe => write!(f, "bronze-axe"),
+            Self::Axe => write!(f, "axe"),
+            Self::WoodenAxe => write!(f, "wooden-axe"),
         }
     }
 }
@@ -239,7 +239,7 @@ impl Helper {
         let mut craft_builder =
             CraftBuilder::new(BuildContext::new(&mut builder, &self.batches), &self.params);
         let st_craft = match recipe {
-            Recipe::Copper => {
+            Recipe::Stone => {
                 // unwrap safe since if we're at Copper, pow_pod is Some
                 let pow_pod = pow_pod.unwrap();
                 let st_pow = pow_pod.pub_statements()[0].clone();
@@ -249,17 +249,17 @@ impl Helper {
                     params: craft_builder.params.clone(),
                 };
                 craft_builder.ctx.builder.add_pod(main_pow_pod);
-                craft_builder.st_is_copper(item_def, st_item_def.clone(), st_pow)?
+                craft_builder.st_is_stone(item_def, st_item_def.clone(), st_pow)?
             }
-            Recipe::Tin => craft_builder.st_is_tin(item_def, st_item_def.clone())?,
+            Recipe::Stick => craft_builder.st_is_stick(item_def, st_item_def.clone())?,
             Recipe::Wood => craft_builder.st_is_wood(item_def, st_item_def.clone())?,
-            Recipe::Bronze => craft_builder.st_is_bronze(
+            Recipe::Axe => craft_builder.st_is_axe(
                 item_def,
                 st_item_def.clone(),
                 sts_input_craft[0].clone(),
                 sts_input_craft[1].clone(),
             )?,
-            Recipe::BronzeAxe => craft_builder.st_is_bronze_axe(
+            Recipe::WoodenAxe => craft_builder.st_is_wooden_axe(
                 item_def,
                 st_item_def.clone(),
                 sts_input_craft[0].clone(),
@@ -317,13 +317,13 @@ pub fn craft_item(
     let key = rand_raw_value();
     info!("About to craft \"{recipe}\" with key {key:#}");
     let (item_def, input_items, pow_pod) = match recipe {
-        Recipe::Copper => {
+        Recipe::Stone => {
             if !inputs.is_empty() {
                 bail!("{recipe} takes 0 inputs");
             }
-            let mining_recipe = MiningRecipe::new(COPPER_BLUEPRINT.to_string(), &[]);
+            let mining_recipe = MiningRecipe::new(STONE_BLUEPRINT.to_string(), &[]);
             let ingredients_def = mining_recipe
-                .do_mining(params, key, 0, COPPER_MINING_MAX)?
+                .do_mining(params, key, 0, STONE_MINING_MAX)?
                 .unwrap();
             let pow_pod = PowPod::new(
                 params,
@@ -340,18 +340,18 @@ pub fn craft_item(
                 Some(pow_pod),
             )
         }
-        Recipe::Tin => {
+        Recipe::Stick => {
             if !inputs.is_empty() {
                 bail!("{recipe} takes 0 inputs");
             }
-            let mining_recipe = MiningRecipe::new(TIN_BLUEPRINT.to_string(), &[]);
+            let mining_recipe = MiningRecipe::new(STICK_BLUEPRINT.to_string(), &[]);
             let ingredients_def = mining_recipe
-                .do_mining(params, key, 0, TIN_MINING_MAX)?
+                .do_mining(params, key, 0, STICK_MINING_MAX)?
                 .unwrap();
             (
                 ItemDef {
                     ingredients: ingredients_def.clone(),
-                    work: TIN_WORK,
+                    work: STICK_WORK,
                 },
                 vec![],
                 None,
@@ -374,47 +374,47 @@ pub fn craft_item(
                 None,
             )
         }
-        Recipe::Bronze => {
+        Recipe::Axe => {
             if inputs.len() != 2 {
                 bail!("{recipe} takes 2 inputs");
             }
             let tin = load_item(&inputs[0])?;
             let copper = load_item(&inputs[1])?;
             let mining_recipe = MiningRecipe::new(
-                BRONZE_BLUEPRINT.to_string(),
+                AXE_BLUEPRINT.to_string(),
                 &[tin.def.item_hash(params)?, copper.def.item_hash(params)?],
             );
             let ingredients_def = mining_recipe
-                .do_mining(params, key, 0, BRONZE_MINING_MAX)?
+                .do_mining(params, key, 0, AXE_MINING_MAX)?
                 .unwrap();
             (
                 ItemDef {
                     ingredients: ingredients_def.clone(),
-                    work: BRONZE_WORK,
+                    work: AXE_WORK,
                 },
                 vec![tin, copper],
                 None,
             )
         }
-        Recipe::BronzeAxe => {
+        Recipe::WoodenAxe => {
             if inputs.len() != 2 {
                 bail!("{recipe} takes 2 inputs");
             }
-            let wood = load_item(&inputs[0])?;
-            let bronze = load_item(&inputs[1])?;
+            let wood1 = load_item(&inputs[0])?;
+            let wood2 = load_item(&inputs[1])?;
             let mining_recipe = MiningRecipe::new(
-                BRONZE_AXE_BLUEPRINT.to_string(),
-                &[wood.def.item_hash(params)?, bronze.def.item_hash(params)?],
+                WOODEN_AXE_BLUEPRINT.to_string(),
+                &[wood1.def.item_hash(params)?, wood2.def.item_hash(params)?],
             );
             let ingredients_def = mining_recipe
-                .do_mining(params, key, 0, BRONZE_AXE_MINING_MAX)?
+                .do_mining(params, key, 0, WOODEN_AXE_MINING_MAX)?
                 .unwrap();
             (
                 ItemDef {
                     ingredients: ingredients_def.clone(),
-                    work: BRONZE_AXE_WORK,
+                    work: WOODEN_AXE_WORK,
                 },
-                vec![wood, bronze],
+                vec![wood1, wood2],
                 None,
             )
         }
