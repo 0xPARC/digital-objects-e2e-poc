@@ -5,9 +5,7 @@ use log;
 use pod2::middleware::{EMPTY_VALUE, Hash, Params, RawValue, Statement, ToFields, Value};
 use pod2utils::{macros::BuildContext, set, st_custom};
 
-use crate::constants::{
-    BRONZE_AXE_BLUEPRINT, BRONZE_BLUEPRINT, COPPER_BLUEPRINT, TIN_BLUEPRINT, WOOD_BLUEPRINT,
-};
+use crate::constants::{AXE_BLUEPRINT, STICK_BLUEPRINT, STONE_BLUEPRINT, WOOD_BLUEPRINT};
 
 // Reusable recipe for an item to be mined, not including the variable
 // cryptographic values.
@@ -69,37 +67,37 @@ impl<'a> CraftBuilder<'a> {
         Self { ctx, params }
     }
 
-    // Adds statements to MainPodBilder to represent Copper as additions to
+    // Adds statements to MainPodBilder to represent Stone as additions to
     // already-existing generic item statements.
-    // Builds the following public predicates: IsCopper
-    // Returns the Statement object for IsCopper for use in further statements.
-    pub fn st_is_copper(
+    // Builds the following public predicates: IsStone
+    // Returns the Statement object for IsStone for use in further statements.
+    pub fn st_is_stone(
         &mut self,
         item_def: ItemDef,
         st_item_def: Statement,
         st_pow: Statement,
     ) -> anyhow::Result<Statement> {
-        // Build IsCopper(item)
+        // Build IsStone(item)
         Ok(st_custom!(self.ctx,
-            IsCopper() = (
+            IsStone() = (
                 st_item_def,
                 Equal(item_def.ingredients.inputs_set(self.params)?, EMPTY_VALUE),
-                DictContains(item_def.ingredients.dict(self.params)?, "blueprint", COPPER_BLUEPRINT),
+                DictContains(item_def.ingredients.dict(self.params)?, "blueprint", STONE_BLUEPRINT),
                 st_pow
             ))?)
     }
 
-    pub fn st_is_tin(
+    pub fn st_is_stick(
         &mut self,
         item_def: ItemDef,
         st_item_def: Statement,
     ) -> anyhow::Result<Statement> {
-        // Build IsTin(item)
+        // Build IsStick(item)
         Ok(st_custom!(self.ctx,
-            IsTin() = (
+            IsStick() = (
                 st_item_def,
                 Equal(item_def.ingredients.inputs_set(self.params)?, EMPTY_VALUE),
-                DictContains(item_def.ingredients.dict(self.params)?, "blueprint", TIN_BLUEPRINT)
+                DictContains(item_def.ingredients.dict(self.params)?, "blueprint", STICK_BLUEPRINT)
             ))?)
     }
 
@@ -117,79 +115,79 @@ impl<'a> CraftBuilder<'a> {
             ))?)
     }
 
-    fn st_bronze_inputs(
+    fn st_axe_inputs(
         &mut self,
-        st_is_tin: Statement,
-        st_is_copper: Statement,
+        st_is_stick: Statement,
+        st_is_stone: Statement,
     ) -> anyhow::Result<Statement> {
-        let tin = st_is_tin.args()[0].literal().unwrap();
-        let copper = st_is_copper.args()[0].literal().unwrap();
+        let stick = st_is_stick.args()[0].literal().unwrap();
+        let stone = st_is_stone.args()[0].literal().unwrap();
         let empty_set = set!(self.params.max_depth_mt_containers).unwrap();
         let mut s1 = empty_set.clone();
-        s1.insert(&tin).unwrap();
+        s1.insert(&stick).unwrap();
         let mut inputs = s1.clone();
-        inputs.insert(&copper).unwrap();
+        inputs.insert(&stone).unwrap();
         Ok(st_custom!(self.ctx,
-            BronzeInputs() = (
-                SetInsert(s1, empty_set, tin),
-                SetInsert(inputs, s1, copper),
-                st_is_tin,
-                st_is_copper
+            AxeInputs() = (
+                SetInsert(s1, empty_set, stick),
+                SetInsert(inputs, s1, stone),
+                st_is_stick,
+                st_is_stone
             ))?)
     }
 
-    pub fn st_is_bronze(
+    pub fn st_is_axe(
         &mut self,
         item_def: ItemDef,
         st_item_def: Statement,
-        st_is_tin: Statement,
-        st_is_copper: Statement,
+        st_is_stick: Statement,
+        st_is_stone: Statement,
     ) -> anyhow::Result<Statement> {
-        let st_bronze_inputs = self.st_bronze_inputs(st_is_tin, st_is_copper)?;
-        // Build IsBronze(item)
+        let st_axe_inputs = self.st_axe_inputs(st_is_stick, st_is_stone)?;
+        // Build IsAxe(item)
         Ok(st_custom!(self.ctx,
-            IsBronze() = (
+            IsAxe() = (
                 st_item_def,
-                DictContains(item_def.ingredients.dict(self.params)?, "blueprint", BRONZE_BLUEPRINT),
-                st_bronze_inputs
+                DictContains(item_def.ingredients.dict(self.params)?, "blueprint", AXE_BLUEPRINT),
+                st_axe_inputs
             ))?)
     }
 
-    fn st_bronze_axe_inputs(
+    fn st_wooden_axe_inputs(
         &mut self,
-        st_is_wood: Statement,
-        st_is_bronze: Statement,
+        st_is_wood1: Statement,
+        st_is_wood2: Statement,
     ) -> anyhow::Result<Statement> {
-        let wood = st_is_wood.args()[0].literal().unwrap();
-        let bronze = st_is_bronze.args()[0].literal().unwrap();
+        let wood1 = st_is_wood1.args()[0].literal().unwrap();
+        let wood2 = st_is_wood2.args()[0].literal().unwrap();
         let empty_set = set!(self.params.max_depth_mt_containers).unwrap();
         let mut s1 = empty_set.clone();
-        s1.insert(&wood).unwrap();
+        s1.insert(&wood1).unwrap();
         let mut inputs = s1.clone();
-        inputs.insert(&bronze).unwrap();
+        inputs.insert(&wood2).unwrap();
         Ok(st_custom!(self.ctx,
-            BronzeAxeInputs() = (
-                SetInsert(s1, empty_set, wood),
-                SetInsert(inputs, s1, bronze),
-                st_is_wood,
-                st_is_bronze
+            WoodenAxeInputs() = (
+                SetInsert(s1, empty_set, wood1),
+                SetInsert(inputs, s1, wood2),
+                st_is_wood1,
+                st_is_wood2
             ))?)
     }
 
-    pub fn st_is_bronze_axe(
+    pub fn st_is_wooden_axe(
         &mut self,
         item_def: ItemDef,
         st_item_def: Statement,
-        st_is_wood: Statement,
-        st_is_bronze: Statement,
+        st_is_wood1: Statement,
+        st_is_wood2: Statement,
     ) -> anyhow::Result<Statement> {
-        let st_bronze_axe_inputs = self.st_bronze_axe_inputs(st_is_wood, st_is_bronze)?;
-        // Build IsBronzeAxe(item)
+        let st_wooden_axe_inputs = self.st_wooden_axe_inputs(st_is_wood1, st_is_wood2)?;
+        // Build IsWoodenAxe(item)
         Ok(st_custom!(self.ctx,
-            IsBronzeAxe() = (
+            IsWoodenAxe() = (
                 st_item_def,
-                DictContains(item_def.ingredients.dict(self.params)?, "blueprint", BRONZE_AXE_BLUEPRINT),
-                st_bronze_axe_inputs
+                DictContains(item_def.ingredients.dict(self.params)?, "blueprint", AXE_BLUEPRINT),
+                st_wooden_axe_inputs
             ))?)
     }
 }
@@ -212,7 +210,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        constants::{COPPER_BLUEPRINT, COPPER_MINING_MAX, COPPER_WORK},
+        constants::{STONE_BLUEPRINT, STONE_MINING_MAX, STONE_WORK},
         powpod::PowPod,
         predicates::ItemPredicates,
         test_util::test::mock_vd_set,
@@ -244,7 +242,7 @@ mod tests {
 
         let mut craft_builder = CraftBuilder::new(BuildContext::new(&mut builder, batches), params);
         craft_builder.ctx.builder.add_pod(pow_pod);
-        let st_is_copper = craft_builder.st_is_copper(item_def, st_item_def, st_pow)?;
+        let st_is_copper = craft_builder.st_is_stone(item_def, st_item_def, st_pow)?;
         craft_builder.ctx.builder.reveal(&st_is_copper);
 
         // Prove MainPOD
@@ -291,18 +289,18 @@ mod tests {
     #[test]
     fn test_mine_copper() -> anyhow::Result<()> {
         let params = Params::default();
-        let mining_recipe = MiningRecipe::new(COPPER_BLUEPRINT.to_string(), &[]);
+        let mining_recipe = MiningRecipe::new(STONE_BLUEPRINT.to_string(), &[]);
         let key = RawValue::from(0xBADC0DE);
 
         // Seed of 2612=0xA34 is a match with hash 6647892930992163=0x000A7EE9D427E832.
         // TODO: This test is going to get slower (~2s) whenever the ingredient
         // dict definition changes.  Need a better approach to testing mining.
         let mine_success =
-            mining_recipe.do_mining(&params, key, COPPER_START_SEED, COPPER_MINING_MAX)?;
+            mining_recipe.do_mining(&params, key, COPPER_START_SEED, STONE_MINING_MAX)?;
         assert!(mine_success.is_some());
 
         let ingredients_def = mine_success.unwrap();
-        let item_def = ItemDef::new(ingredients_def.clone(), COPPER_WORK);
+        let item_def = ItemDef::new(ingredients_def.clone(), STONE_WORK);
         let item_hash = item_def.item_hash(&params)?;
         println!(
             "Mined copper {:?} from ingredients {:?}",
@@ -326,9 +324,9 @@ mod tests {
 
         // Mine copper with a selected key.
         let key = RawValue::from(0xBADC0DE);
-        let mining_recipe = MiningRecipe::new(COPPER_BLUEPRINT.to_string(), &[]);
+        let mining_recipe = MiningRecipe::new(STONE_BLUEPRINT.to_string(), &[]);
         let ingredients_def = mining_recipe
-            .do_mining(&params, key, COPPER_START_SEED, COPPER_MINING_MAX)?
+            .do_mining(&params, key, COPPER_START_SEED, STONE_MINING_MAX)?
             .unwrap();
 
         let pow_pod = PowPod::new(
