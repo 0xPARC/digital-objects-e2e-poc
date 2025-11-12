@@ -122,7 +122,7 @@ IsTinPremium(item, private: ingredients, inputs, key, work) = AND(
         };
         // BEGIN DEBUG
         app.crafting.selected_verb = Some(Verb::Craft);
-        app.crafting.selected_process = Some(Process::Axe);
+        app.crafting.selected_process = Some(Process::Mock("Tree House"));
         // END DEBUG
         app.refresh_items()?;
         Ok(app)
