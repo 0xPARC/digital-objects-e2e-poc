@@ -114,7 +114,7 @@ impl eframe::App for App {
             });
             ui.separator();
             egui::ScrollArea::vertical().show(ui, |ui| {
-                for (i, item) in self.items.iter().enumerate() {
+                for (i, item) in self.items.clone().iter().enumerate() {
                     ui.dnd_drag_source(egui::Id::new(item.name.clone()), i, |ui| {
                         self.name_with_img(ui, &item.name);
                     });
