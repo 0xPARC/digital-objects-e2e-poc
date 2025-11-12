@@ -50,8 +50,8 @@ fn main() -> Result<()> {
     info!(?cfg, "Loaded config");
 
     let options = eframe::NativeOptions {
-        // viewport: egui::ViewportBuilder::default().with_maximized(true),
-        viewport: egui::ViewportBuilder::default(),
+        viewport: egui::ViewportBuilder::default().with_maximized(true),
+        // viewport: egui::ViewportBuilder::default(),
         ..Default::default()
     };
     let params = Params::default();

@@ -120,6 +120,10 @@ IsTinPremium(item, private: ingredients, inputs, key, work) = AND(
             dev_mode: false,
             danger: false,
         };
+        // BEGIN DEBUG
+        app.crafting.selected_verb = Some(Verb::Craft);
+        app.crafting.selected_process = Some(Process::Bronze);
+        // END DEBUG
         app.refresh_items()?;
         Ok(app)
     }
