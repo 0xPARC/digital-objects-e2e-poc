@@ -13,9 +13,7 @@ use std::{
 };
 
 use anyhow::{Result, anyhow};
-use app_cli::{
-    Config, CraftedItem, ProductionType, Recipe, commit_item, craft_item, load_item, log_init,
-};
+use app_cli::{Config, CraftedItem, ProductionType, Recipe, commit_item, craft_item, load_item};
 use common::load_dotenv;
 use craftlib::constants::COPPER_WORK;
 use egui::{Color32, Frame, Label, RichText, Ui};
@@ -44,17 +42,19 @@ pub enum Process {
     Mock(&'static str),
 }
 
+#[derive(Default)]
 pub struct ProcessData {
     description: &'static str,
     predicate: &'static str,
-    inputs: &'static [&'static str],
+    input_facilities: &'static [&'static str],
+    input_tools: &'static [&'static str],
+    input_ingredients: &'static [&'static str],
     outputs: &'static [&'static str],
 }
 
 lazy_static! {
     static ref COPPER_DATA: ProcessData = ProcessData {
         description: "Copper.  Hard to find.",
-        inputs: &[],
         outputs: &["Copper"],
         predicate: r#"
 use intro Pow(count, input, output) from 0x3493488bc23af15ac5fabe38c3cb6c4b66adb57e3898adf201ae50cc57183f65
@@ -65,10 +65,10 @@ IsCopper(item, private: ingredients, inputs, key, work) = AND(
     DictContains(ingredients, "blueprint", "copper")
     Pow(3, ingredients, work)
 )"#,
+        ..Default::default()
     };
     static ref TIN_DATA: ProcessData = ProcessData {
         description: "Tin.  Easily available.",
-        inputs: &[],
         outputs: &["Tin"],
         predicate: r#"
 IsTin(item, private: ingredients, inputs, key, work) = AND(
@@ -76,10 +76,10 @@ IsTin(item, private: ingredients, inputs, key, work) = AND(
     Equal(inputs, {})
     DictContains(ingredients, "blueprint", "tin")
 )"#,
+        ..Default::default()
     };
     static ref WOOD_DATA: ProcessData = ProcessData {
         description: "Wood.  Easily available.",
-        inputs: &[],
         outputs: &["Wood"],
         predicate: r#"
 IsWood(item, private: ingredients, inputs, key, work) = AND(
@@ -87,10 +87,11 @@ IsWood(item, private: ingredients, inputs, key, work) = AND(
     Equal(inputs, {})
     DictContains(ingredients, "blueprint", "wood")
 )"#,
+        ..Default::default()
     };
     static ref BRONZE_DATA: ProcessData = ProcessData {
         description: "Bronze.  Easy to craft.",
-        inputs: &["Tin", "Copper"],
+        input_ingredients: &["Tin", "Copper"],
         outputs: &["Bronze"],
         predicate: r#"
 IsBronze(item, private: ingredients, inputs, key, work) = AND(
@@ -105,10 +106,11 @@ IsBronze(item, private: ingredients, inputs, key, work) = AND(
     IsTin(tin)
     IsCopper(copper)
 )"#,
+        ..Default::default()
     };
     static ref BRONZE_AXE_DATA: ProcessData = ProcessData {
         description: "Bronze Axe.  Easy to craft.",
-        inputs: &["Wood", "Bronze"],
+        input_ingredients: &["Wood", "Bronze"],
         outputs: &["Bronze Axe"],
         predicate: r#"
 IsBronzeAxe(item, private: ingredients, inputs, key, work) = AND(
@@ -123,21 +125,24 @@ IsBronzeAxe(item, private: ingredients, inputs, key, work) = AND(
     IsWood(wood)
     IsBronze(bronze)
 )"#,
+        ..Default::default()
     };
     // Mock
     static ref DESTROY_DATA: ProcessData = ProcessData {
         description: "Destroy an object.",
-        inputs: &["Item to destroy"],
+        input_ingredients: &["Item to destroy"],
         outputs: &[],
         predicate: r#"
 Destroy(void, private: ingredients, inputs, key, work) = AND(
     ItemDef(void, ingredients, inputs, key, work)
     SetInsert(inputs, {}, item)
 )"#,
+        ..Default::default()
     };
     static ref TOMATO_DATA: ProcessData = ProcessData {
         description: "Produces a Tomato.  Requires a Tomato Farm.",
-        inputs: &["Tomato Farm", "Tomato Seed"],
+        input_facilities: &["Tomato Farm"],
+        input_ingredients: &["Tomato Seed"],
         outputs: &["Tomato"],
         predicate: r#"
 IsTomato(item, private: ingredients, inputs, key, work) = AND(
@@ -149,10 +154,11 @@ IsTomato(item, private: ingredients, inputs, key, work) = AND(
     IsTomatoFarm(tomato_farm)
     IsTomatoSeed(tomato_seed)
 )"#,
+        ..Default::default()
     };
     static ref DIS_H2O_DATA: ProcessData = ProcessData {
         description: "Disassemble H2O into 2xH and 1xO.",
-        inputs: &["H2O"],
+        input_ingredients: &["H2O"],
         outputs: &["H", "H", "O"],
         predicate: r#"
 DisassembleH2O(items, private: ingredients, inputs, key, work) = AND(
@@ -164,10 +170,11 @@ DisassembleH2O(items, private: ingredients, inputs, key, work) = AND(
     SetInsert(inputs, {}, h2o)
     IsH2O(h2o)
 )"#,
+        ..Default::default()
     };
     static ref REFINED_URANIUM_DATA: ProcessData = ProcessData {
         description: "Produces refined Uranium.  It takes about 30 minutes.",
-        inputs: &["Uranium"],
+        input_ingredients: &["Uranium"],
         outputs: &["Refined Uranium"],
         predicate: r#"
 RefinedUranium(items, private: ingredients, inputs, key, work) = AND(
@@ -178,10 +185,11 @@ RefinedUranium(items, private: ingredients, inputs, key, work) = AND(
     IsUranium(uranium)
     Pow(100, ingredients, work)
 )"#,
+        ..Default::default()
     };
     static ref STONE_DATA: ProcessData = ProcessData {
         description: "Mine a stone.  Requires a Pick Axe with >= 50% durability.",
-        inputs: &["Pick Axe"],
+        input_tools: &["Pick Axe"],
         outputs: &["Stone"],
         predicate: r#"
 IsStone(item, private: ingredients, inputs, key, work) = AND(
@@ -192,6 +200,7 @@ IsStone(item, private: ingredients, inputs, key, work) = AND(
     IsPickAxe(pick_axe, durability)
     GtEq(durability, 50)
 )"#,
+        ..Default::default()
     };
 }
 
@@ -313,81 +322,129 @@ impl App {
             Some(v) => v,
         };
         let mut selected_process = self.crafting.selected_process;
-        egui::Grid::new("verb title").show(ui, |ui| {
-            ui.set_min_height(32.0);
+        // Block1: Verb + Process
+        egui::Grid::new("verb + process").show(ui, |ui| {
             ui.heading(selected_verb.as_str());
+
+            if !selected_verb.hide_process() {
+                egui::ComboBox::from_id_salt("process selection")
+                    .selected_text(selected_process.map(|r| r.as_str()).unwrap_or_default())
+                    .show_ui(ui, |ui| {
+                        for process in selected_verb.processes() {
+                            ui.selectable_value(
+                                &mut selected_process,
+                                Some(process),
+                                process.as_str(),
+                            );
+                        }
+                    });
+            }
             ui.end_row();
         });
         ui.separator();
-        if !selected_verb.hide_process() {
-            egui::ComboBox::from_id_salt("process selection")
-                .selected_text(selected_process.map(|r| r.as_str()).unwrap_or_default())
-                .show_ui(ui, |ui| {
-                    for process in selected_verb.processes() {
-                        ui.selectable_value(&mut selected_process, Some(process), process.as_str());
-                    }
-                });
-            if let Some(process) = selected_process {
-                self.crafting.select(process);
-            }
+        if let Some(process) = selected_process {
+            self.crafting.select(process);
         }
 
         if let Some(process) = self.crafting.selected_process {
             let process_data = process.data();
-            let inputs = process_data.inputs;
-            if !inputs.is_empty() {
-                ui.heading("Inputs:");
-            }
-            egui::Grid::new("crafting inputs").show(ui, |ui| {
-                for (input_index, input) in inputs.iter().enumerate() {
-                    ui.label(format!("{input}:"));
-                    let frame = Frame::default().inner_margin(4.0);
-                    let (_, dropped_payload) = ui.dnd_drop_zone::<usize, ()>(frame, |ui| {
-                        if let Some(index) = self.crafting.input_items.get(&input_index) {
-                            self.name_with_img(ui, &self.all_items()[*index].name.to_string());
-                        } else {
-                            ui.label("...");
+
+            // Block2: Description
+            ui.heading("Description:");
+            ui.add(Label::new(RichText::new(process_data.description)).wrap());
+            ui.separator();
+
+            // Block3: Configuration
+            let inputs = process_data.input_ingredients;
+            ui.columns_const(|[inputs_ui, outputs_ui]| {
+                inputs_ui.vertical(|ui| {
+                    ui.heading("Inputs");
+                    egui::Grid::new("crafting inputs").show(ui, |ui| {
+                        for (category, inputs) in
+                            ["Production Facility", "Tools", "Ingredients"].iter().zip([
+                                process_data.input_facilities,
+                                process_data.input_tools,
+                                process_data.input_ingredients,
+                            ])
+                        {
+                            if inputs.is_empty() {
+                                continue;
+                            }
+                            ui.label(format!("    {category}:"));
+                            ui.end_row();
+                            for (input_index, input) in inputs.iter().enumerate() {
+                                ui.label(format!("        {input}:"));
+                                let frame = Frame::default().inner_margin(4.0);
+                                let (_, dropped_payload) =
+                                    ui.dnd_drop_zone::<usize, ()>(frame, |ui| {
+                                        if let Some(index) =
+                                            self.crafting.input_items.get(&input_index)
+                                        {
+                                            self.name_with_img(
+                                                ui,
+                                                &self.all_items()[*index].name.to_string(),
+                                            );
+                                        } else {
+                                            ui.label("...");
+                                        }
+                                    });
+                                ui.end_row();
+                                if let Some(index) = dropped_payload {
+                                    self.crafting.input_items.insert(input_index, *index);
+                                }
+                            }
                         }
                     });
-                    ui.end_row();
-                    if let Some(index) = dropped_payload {
-                        self.crafting.input_items.insert(input_index, *index);
-                    }
-                }
-            });
-            let outputs = process_data.outputs;
-            if !outputs.is_empty() {
-                ui.heading("Outputs:");
-                ui.horizontal(|ui| {
-                    for (i, output) in outputs.iter().enumerate() {
-                        if i != 0 {
-                            ui.label(", ");
-                        }
-                        self.name_with_img(ui, &output.to_string());
-                    }
                 });
-            }
+
+                let outputs = process_data.outputs;
+                outputs_ui.vertical(|ui| {
+                    ui.heading("Outputs:");
+                    ui.vertical(|ui| {
+                        for output in outputs.iter() {
+                            ui.horizontal(|ui| {
+                                ui.label("  ");
+                                self.name_with_img(ui, &output.to_string());
+                            });
+                        }
+                    });
+                });
+            });
 
             // NOTE: If we don't show filenames in the left panel, then we shouldn't ask for a
             // filename either.
             self.crafting.output_filename =
                 format!("{:?}_{}", process, self.items.len() + self.used_items.len());
 
+            ui.separator();
+
+            // Block4: Predicate
+            let predicate = process_data.predicate.trim_start();
+            ui.heading("Predicate:");
+            egui::ScrollArea::vertical()
+                .min_scrolled_height(200.0)
+                .show(ui, |ui| {
+                    ui.add(Label::new(RichText::new(predicate).monospace()).wrap());
+                });
+
             let mut button_craft_clicked = false;
             let mut button_commit_clicked = false;
             let mut button_craft_and_commit_clicked = false;
-            egui::Grid::new("crafting buttons").show(ui, |ui| {
+            ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
                 if self.dev_mode {
-                    button_craft_clicked = ui.button("Craft (without Commit)").clicked();
-                    ui.label(result2text(&self.crafting.craft_result));
-                    ui.end_row();
-                    button_commit_clicked = ui.button("Commit").clicked();
-                    ui.label(result2text(&self.crafting.commit_result));
-                    ui.end_row();
+                    ui.horizontal(|ui| {
+                        button_commit_clicked = ui.button("Commit").clicked();
+                        ui.label(result2text(&self.crafting.commit_result));
+                    });
+                    ui.horizontal(|ui| {
+                        button_craft_clicked = ui.button("Craft (without Commit)").clicked();
+                        ui.label(result2text(&self.crafting.craft_result));
+                    });
                 } else {
-                    button_craft_and_commit_clicked = ui.button("Execute process").clicked();
-                    ui.label(result2text(&self.crafting.commit_result));
-                    ui.end_row();
+                    ui.horizontal(|ui| {
+                        button_craft_and_commit_clicked = ui.button("Execute process").clicked();
+                        ui.label(result2text(&self.crafting.commit_result));
+                    });
                 }
             });
             if button_craft_clicked {
@@ -442,9 +499,6 @@ impl App {
                         .unwrap();
                 }
             }
-            ui.heading("Description:");
-            ui.separator();
-            ui.add(Label::new(RichText::new(process_data.description)).wrap());
 
             if button_craft_and_commit_clicked {
                 if self.crafting.output_filename.is_empty() {
@@ -484,14 +538,6 @@ impl App {
                     }
                 };
             }
-
-            ui.heading("Predicate:");
-            egui::ScrollArea::vertical()
-                .min_scrolled_height(200.0)
-                .show(ui, |ui| {
-                    ui.separator();
-                    ui.add(Label::new(RichText::new(process_data.predicate).monospace()).wrap());
-                });
         }
     }
 
@@ -535,6 +581,25 @@ impl App {
                         ui.add_enabled(false, egui::Button::new("Create!"));
                     });
                 });
+        }
+    }
+
+    pub(crate) fn ui_danger(&self, ctx: &egui::Context, ui: &mut Ui) {
+        if !self.danger {
+            return;
+        }
+        let hover_pos = ctx.input(|input| {
+            let pointer = &input.pointer;
+            pointer.hover_pos()
+        });
+        let painter = ui.painter();
+
+        if let Some(mousepos) = hover_pos {
+            let pos = mousepos + egui::Vec2::splat(16.0);
+            let rect = egui::Rect::from_min_size(pos, egui::Vec2::splat(64.0));
+            egui::Image::new(egui::include_image!("../assets/water.png"))
+                .corner_radius(5)
+                .paint_at(ui, rect);
         }
     }
 }

@@ -15,7 +15,6 @@ use std::{
 use anyhow::{Result, anyhow};
 use app_cli::{
     Config, CraftedItem, Recipe, USED_ITEM_SUBDIR_NAME, commit_item, craft_item, load_item,
-    log_init,
 };
 use common::load_dotenv;
 use egui::{Color32, Frame, Label, RichText, Ui};
@@ -60,6 +59,7 @@ pub struct App {
     pub modal_new_predicates: bool, // modal for writing new predicates
     pub code_editor_content: String,
     pub dev_mode: bool,
+    pub danger: bool,
 }
 
 impl App {
@@ -118,7 +118,12 @@ IsTinPremium(item, private: ingredients, inputs, key, work) = AND(
             modal_new_predicates: false,
             code_editor_content: code.clone(),
             dev_mode: false,
+            danger: false,
         };
+        // BEGIN DEBUG
+        app.crafting.selected_verb = Some(Verb::Craft);
+        app.crafting.selected_process = Some(Process::Bronze);
+        // END DEBUG
         app.refresh_items()?;
         Ok(app)
     }

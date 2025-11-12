@@ -35,7 +35,6 @@ use pod2utils::macros::BuildContext;
 use rand::{RngCore, SeedableRng, rngs::StdRng};
 use serde::{Deserialize, Serialize};
 use tracing::info;
-use tracing_subscriber::{EnvFilter, prelude::*};
 
 use crate::eth::send_payload;
 
@@ -75,13 +74,6 @@ impl Config {
             tx_watch_timeout: u64::from_str(&var("TX_WATCH_TIMEOUT")?)?,
         })
     }
-}
-
-pub fn log_init() {
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::layer())
-        .with(EnvFilter::from_default_env())
-        .init();
 }
 
 pub fn load_item(input: &Path) -> anyhow::Result<CraftedItem> {

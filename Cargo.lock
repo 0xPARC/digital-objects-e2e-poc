@@ -1036,6 +1036,7 @@ dependencies = [
  "reqwest 0.12.24",
  "serde",
  "serde_json",
+ "time",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -2028,7 +2029,9 @@ dependencies = [
  "plonky2",
  "pod2",
  "pod2_onchain",
+ "time",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -7550,6 +7553,7 @@ dependencies = [
  "sharded-slab",
  "smallvec",
  "thread_local",
+ "time",
  "tracing",
  "tracing-core",
  "tracing-log 0.2.0",

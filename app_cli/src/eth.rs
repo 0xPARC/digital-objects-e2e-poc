@@ -179,7 +179,7 @@ mod tests {
     #[ignore]
     #[tokio::test]
     async fn test_tx() -> anyhow::Result<()> {
-        crate::log_init();
+        common::log_init();
         common::load_dotenv()?;
         let cfg = Config::from_env()?;
         println!("Loaded config: {cfg:?}");

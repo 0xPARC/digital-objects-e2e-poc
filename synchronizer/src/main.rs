@@ -25,7 +25,7 @@ use backoff::ExponentialBackoffBuilder;
 use chrono::{DateTime, Utc};
 use commitlib::predicates::CommitPredicates;
 use common::{
-    ProofType, load_dotenv,
+    ProofType, load_dotenv, log_init,
     payload::{Payload, PayloadProof},
     shrink::ShrunkMainPodSetup,
 };
@@ -52,7 +52,6 @@ use synchronizer::{
 };
 use tokio::{runtime::Runtime, time::sleep};
 use tracing::{debug, info, trace};
-use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 pub mod endpoints;
 
@@ -483,13 +482,6 @@ impl Node {
             .unwrap();
         self.verifier_circuit_data.verify(proof)
     }
-}
-
-fn log_init() {
-    tracing_subscriber::registry()
-        .with(fmt::layer())
-        .with(EnvFilter::from_default_env())
-        .init();
 }
 
 #[tokio::main]

@@ -28,6 +28,7 @@ use std::io;
 
 use anyhow::{Result, anyhow};
 use pod2::middleware::{Value, containers};
+use tracing_subscriber::{EnvFilter, fmt::time::OffsetTime, prelude::*};
 
 pub fn load_dotenv() -> Result<()> {
     for filename in [".env.default", ".env"] {
@@ -79,4 +80,16 @@ pub fn set_from_value(v: &Value) -> Result<containers::Set> {
         pod2::middleware::TypedValue::Set(s) => Ok(s.clone()),
         _ => Err(anyhow!("Invalid set")),
     }
+}
+
+pub fn log_init() {
+    // Full date: `[year]-[month padding:zero]-[day padding:zero]`
+    let timer = time::format_description::parse("[hour]:[minute]:[second].[subsecond digits:2]")
+        .expect("valid format");
+    let time_offset = time::UtcOffset::current_local_offset().unwrap_or(time::UtcOffset::UTC);
+    let timer = OffsetTime::new(time_offset, timer);
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer().with_timer(timer))
+        .with(EnvFilter::from_default_env())
+        .init();
 }

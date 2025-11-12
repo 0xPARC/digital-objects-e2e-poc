@@ -12,6 +12,8 @@ log = { workspace = true }
 dotenvy = { workspace = true }
 itertools = "0.14.0"
 tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+time = { workspace = true }
 
 [features]
 default = []

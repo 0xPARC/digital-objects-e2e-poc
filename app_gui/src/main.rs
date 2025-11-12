@@ -19,10 +19,8 @@ use std::{
 };
 
 use anyhow::{Result, anyhow};
-use app_cli::{
-    Config, CraftedItem, ProductionType, Recipe, commit_item, craft_item, load_item, log_init,
-};
-use common::load_dotenv;
+use app_cli::{Config, CraftedItem, ProductionType, Recipe, commit_item, craft_item, load_item};
+use common::{load_dotenv, log_init};
 use egui::{Color32, Frame, Label, RichText, Ui};
 use itertools::Itertools;
 use pod2::{
@@ -53,6 +51,7 @@ fn main() -> Result<()> {
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_maximized(true),
+        // viewport: egui::ViewportBuilder::default(),
         ..Default::default()
     };
     let params = Params::default();
@@ -141,7 +140,32 @@ impl eframe::App for App {
             });
         });
 
-        egui::CentralPanel::default().show(ctx, |ui| self.update_item_view_ui(ui));
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.columns_const(|[item_view_ui, crafting_ui]| {
+                item_view_ui.vertical(|ui| {
+                    self.update_item_view_ui(ui);
+                });
+                crafting_ui.vertical(|ui| {
+                    let task_status = self.task_status.read().unwrap().clone();
+                    // If the task is busy, display a spinner and the task name,
+                    // else display the action UI.
+                    if let Some(task) = task_status.busy {
+                        ui.horizontal_centered(|ui| {
+                            ui.spinner();
+                            ui.heading(task);
+                        });
+                    } else {
+                        self.update_action_ui(ctx, ui);
+                    }
+                    // Display window(s).
+                    if self.modal_new_predicates {
+                        self.ui_new_predicate(ctx, ui);
+                    }
+                });
+            });
+
+            self.ui_danger(ctx, ui);
+        });
 
         // Shortcuts:
         // Alt + D: toggle 'dev_mode'
@@ -149,24 +173,14 @@ impl eframe::App for App {
             self.dev_mode = !self.dev_mode;
             log::info!("dev_mode={:?}", self.dev_mode);
         }
-
-        // If the task is busy, display a spinner and the task name,
-        // else display the action UI.
-        let task_status = self.task_status.read().unwrap().clone();
-        egui::SidePanel::right("actions").show(ctx, |ui| {
-            if let Some(task) = task_status.busy {
-                ui.horizontal_centered(|ui| {
-                    ui.spinner();
-                    ui.heading(task);
-                });
-            } else {
-                self.update_action_ui(ctx, ui);
-            }
-            // Display window(s).
-            if self.modal_new_predicates {
-                self.ui_new_predicate(ctx, ui);
-            }
-        });
+        // Ctrl + Q: quit
+        if ctx.input(|i| i.key_released(egui::Key::Q) && i.modifiers.ctrl) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+        // Alt + S: danger
+        if ctx.input(|i| i.key_released(egui::Key::S) && i.modifiers.alt) {
+            self.danger = !self.danger;
+        }
     }
 
     fn on_exit(&mut self, _gl: Option<&egui_glow::glow::Context>) {
@@ -180,6 +194,7 @@ impl App {
     pub fn update_action_ui(&mut self, ctx: &egui::Context, ui: &mut Ui) {
         ui.vertical(|ui| {
             ui.horizontal(|ui| {
+                ui.set_min_height(32.0);
                 for verb in Verb::list() {
                     if ui
                         .selectable_label(Some(verb) == self.crafting.selected_verb, verb.as_str())
@@ -201,7 +216,7 @@ impl App {
         });
     }
 
-    pub fn name_with_img(&mut self, ui: &mut Ui, name: &String) {
+    pub fn name_with_img(&self, ui: &mut Ui, name: &String) {
         ui.horizontal(|ui| {
             ui.add(
                 egui::Image::new(if name.contains("Axe") {
