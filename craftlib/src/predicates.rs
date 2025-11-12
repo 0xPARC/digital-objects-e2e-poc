@@ -71,7 +71,7 @@ impl ItemPredicates {
             WoodenAxeInputs(inputs, private: s1, wood1, wood2) = AND(
                 // 2 ingredients
                 SetInsert(s1, {}, wood1)
-                SetInsert(inputs, s1, woodw2)
+                SetInsert(inputs, s1, wood2)
         
                 // prove the ingredients are correct.
                 IsWood(wood1)
@@ -109,7 +109,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        constants::COPPER_BLUEPRINT,
+        constants::STONE_BLUEPRINT,
         powpod::PowPod,
         test_util::test::{check_matched_wildcards, mock_vd_set},
     };
@@ -141,7 +141,7 @@ mod tests {
             inputs: HashSet::new(),
             key: RawValue::from(key),
             app_layer: HashMap::from([
-                ("blueprint".to_string(), Value::from(COPPER_BLUEPRINT)),
+                ("blueprint".to_string(), Value::from(STONE_BLUEPRINT)),
                 ("seed".to_string(), Value::from(seed)),
             ]),
         };
@@ -242,7 +242,7 @@ mod tests {
         let st_contains_blueprint = builder.priv_op(Operation::dict_contains(
             ingredients_dict.clone(),
             "blueprint",
-            Value::from(COPPER_BLUEPRINT),
+            Value::from(STONE_BLUEPRINT),
         ))?;
         let _st_is_copper = builder.pub_op(Operation::custom(
             item_preds.is_stone.clone(),

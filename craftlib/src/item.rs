@@ -5,7 +5,9 @@ use log;
 use pod2::middleware::{EMPTY_VALUE, Hash, Params, RawValue, Statement, ToFields, Value};
 use pod2utils::{macros::BuildContext, set, st_custom};
 
-use crate::constants::{AXE_BLUEPRINT, STICK_BLUEPRINT, STONE_BLUEPRINT, WOOD_BLUEPRINT};
+use crate::constants::{
+    AXE_BLUEPRINT, STICK_BLUEPRINT, STONE_BLUEPRINT, WOOD_BLUEPRINT, WOODEN_AXE_BLUEPRINT,
+};
 
 // Reusable recipe for an item to be mined, not including the variable
 // cryptographic values.
@@ -186,7 +188,7 @@ impl<'a> CraftBuilder<'a> {
         Ok(st_custom!(self.ctx,
             IsWoodenAxe() = (
                 st_item_def,
-                DictContains(item_def.ingredients.dict(self.params)?, "blueprint", AXE_BLUEPRINT),
+                DictContains(item_def.ingredients.dict(self.params)?, "blueprint", WOODEN_AXE_BLUEPRINT),
                 st_wooden_axe_inputs
             ))?)
     }
@@ -217,11 +219,11 @@ mod tests {
     };
 
     // Seed of 2612=0xA34 is a match with hash 6647892930992163=0x000A7EE9D427E832.
-    const COPPER_START_SEED: i64 = 0x9C4;
+    const STONE_START_SEED: i64 = 0x9C4;
 
     // Builds the private POD to store locally for use in further crafting.
-    // Contains the following public predicates: ItemDef, ItemKey, IsCopper
-    fn prove_copper(
+    // Contains the following public predicates: ItemDef, ItemKey, IsStone
+    fn prove_stone(
         item_def: ItemDef,
         pow_pod: MainPod,
 
@@ -242,8 +244,8 @@ mod tests {
 
         let mut craft_builder = CraftBuilder::new(BuildContext::new(&mut builder, batches), params);
         craft_builder.ctx.builder.add_pod(pow_pod);
-        let st_is_copper = craft_builder.st_is_stone(item_def, st_item_def, st_pow)?;
-        craft_builder.ctx.builder.reveal(&st_is_copper);
+        let st_is_stone = craft_builder.st_is_stone(item_def, st_item_def, st_pow)?;
+        craft_builder.ctx.builder.reveal(&st_is_stone);
 
         // Prove MainPOD
         Ok(builder.prove(prover)?)
@@ -287,7 +289,7 @@ mod tests {
     }
 
     #[test]
-    fn test_mine_copper() -> anyhow::Result<()> {
+    fn test_mine_stone() -> anyhow::Result<()> {
         let params = Params::default();
         let mining_recipe = MiningRecipe::new(STONE_BLUEPRINT.to_string(), &[]);
         let key = RawValue::from(0xBADC0DE);
@@ -296,14 +298,14 @@ mod tests {
         // TODO: This test is going to get slower (~2s) whenever the ingredient
         // dict definition changes.  Need a better approach to testing mining.
         let mine_success =
-            mining_recipe.do_mining(&params, key, COPPER_START_SEED, STONE_MINING_MAX)?;
+            mining_recipe.do_mining(&params, key, STONE_START_SEED, STONE_MINING_MAX)?;
         assert!(mine_success.is_some());
 
         let ingredients_def = mine_success.unwrap();
         let item_def = ItemDef::new(ingredients_def.clone(), STONE_WORK);
         let item_hash = item_def.item_hash(&params)?;
         println!(
-            "Mined copper {:?} from ingredients {:?}",
+            "Mined stone {:?} from ingredients {:?}",
             item_hash,
             ingredients_def.hash(&params)?
         );
@@ -312,7 +314,7 @@ mod tests {
     }
 
     #[test]
-    fn test_mine_and_prove_copper() -> anyhow::Result<()> {
+    fn test_mine_and_prove_stone() -> anyhow::Result<()> {
         let params = Params::default();
         let commit_preds = CommitPredicates::compile(&params);
         let mut batches = commit_preds.defs.batches.clone();
@@ -322,11 +324,11 @@ mod tests {
         let prover = &MockProver {};
         let vd_set = &mock_vd_set();
 
-        // Mine copper with a selected key.
+        // Mine stone with a selected key.
         let key = RawValue::from(0xBADC0DE);
         let mining_recipe = MiningRecipe::new(STONE_BLUEPRINT.to_string(), &[]);
         let ingredients_def = mining_recipe
-            .do_mining(&params, key, COPPER_START_SEED, STONE_MINING_MAX)?
+            .do_mining(&params, key, STONE_START_SEED, STONE_MINING_MAX)?
             .unwrap();
 
         let pow_pod = PowPod::new(
@@ -350,9 +352,9 @@ mod tests {
         };
         let item_hash = item_def.item_hash(&params)?;
 
-        // Prove a copper POD.  This is the private POD for the player to store
+        // Prove a stone POD.  This is the private POD for the player to store
         // locally for future crafting.
-        let copper_main_pod = prove_copper(
+        let stone_main_pod = prove_stone(
             item_def.clone(),
             main_pow_pod,
             &batches,
@@ -361,12 +363,12 @@ mod tests {
             vd_set,
         )?;
 
-        copper_main_pod.pod.verify()?;
-        assert_eq!(copper_main_pod.public_statements.len(), 3);
-        //println!("Copper POD: {:?}", copper_main_pod.pod);
+        stone_main_pod.pod.verify()?;
+        assert_eq!(stone_main_pod.public_statements.len(), 3);
+        //println!("Stone POD: {:?}", stone_main_pod.pod);
 
         // PODLang query to check the final statements.
-        let copper_query = format!(
+        let stone_query = format!(
             r#"
             {}
             {}
@@ -374,16 +376,16 @@ mod tests {
             REQUEST(
                 ItemDef(item, ingredients, inputs, key, work)
                 ItemKey(item, key)
-                IsCopper(item)
+                IsStone(item)
             )
             "#,
             &commit_preds.defs.imports, &item_preds.defs.imports,
         );
 
-        println!("Copper verification request: {copper_query}");
+        println!("Stone verification request: {stone_query}");
 
-        let copper_request = parse(
-            &copper_query,
+        let stone_request = parse(
+            &stone_query,
             &params,
             &[
                 commit_preds.defs.batches.clone(),
@@ -392,7 +394,7 @@ mod tests {
             .concat(),
         )?
         .request;
-        let matched_wildcards = copper_request.exact_match_pod(&*copper_main_pod.pod)?;
+        let matched_wildcards = stone_request.exact_match_pod(&*stone_main_pod.pod)?;
         check_matched_wildcards(
             matched_wildcards,
             HashMap::from([
@@ -418,7 +420,7 @@ mod tests {
         let commit_main_pod = prove_st_commit_creation(
             item_def,
             created_items.clone(),
-            copper_main_pod,
+            stone_main_pod,
             &batches,
             &params,
             prover,
@@ -427,7 +429,7 @@ mod tests {
 
         commit_main_pod.pod.verify()?;
         assert_eq!(commit_main_pod.public_statements.len(), 1);
-        //println!("Commit POD: {:?}", copper_main_pod.pod);
+        //println!("Commit POD: {:?}", stone_main_pod.pod);
 
         // PODLang query to check the final statement.
         let commit_query = format!(
