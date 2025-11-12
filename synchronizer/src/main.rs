@@ -500,7 +500,7 @@ async fn main() -> Result<()> {
 
     let spec = node.beacon_cli.get_spec().await?;
     info!(?spec, "Beacon spec");
-    let head = node
+    let mut head = node
         .beacon_cli
         .get_block_header(BlockId::Head)
         .await?
@@ -532,7 +532,7 @@ async fn main() -> Result<()> {
             // Beacon Headers
             tokio::time::sleep(Duration::from_secs(5)).await;
             loop {
-                let head = node
+                head = node
                     .beacon_cli
                     .get_block_header(BlockId::Head)
                     .await?
@@ -547,7 +547,7 @@ async fn main() -> Result<()> {
                         .get_block_header(BlockId::Slot(slot))
                         .await?;
                 } else if head.slot == slot {
-                    break Some(head);
+                    break Some(head.clone());
                 }
                 tokio::time::sleep(Duration::from_secs(1)).await;
             }
