@@ -65,6 +65,7 @@ impl eframe::App for App {
                     if let Err(e) = &r {
                         log::error!("{e:?}");
                     }
+                    self.crafting.output_filename = "".to_string();
                     self.crafting.commit_result = Some(r)
                 }
                 Response::CraftAndCommit(r) => {
@@ -75,6 +76,7 @@ impl eframe::App for App {
                     }
                     self.refresh_items().unwrap();
                     self.crafting.input_items = HashMap::new();
+                    self.crafting.output_filename = "".to_string();
                     self.crafting.commit_result = Some(r);
                     self.crafting.craft_result = None
                 }
