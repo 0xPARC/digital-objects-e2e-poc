@@ -121,8 +121,8 @@ IsTinPremium(item, private: ingredients, inputs, key, work) = AND(
             danger: false,
         };
         // BEGIN DEBUG
-        app.crafting.selected_verb = Some(Verb::Reconfigure);
-        app.crafting.selected_process = Some(Process::Mock("Reconfigure-Deck of Cards"));
+        app.crafting.selected_verb = Some(Verb::Craft);
+        app.crafting.selected_process = Some(Process::Axe);
         // END DEBUG
         app.refresh_items()?;
         Ok(app)

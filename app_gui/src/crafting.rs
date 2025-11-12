@@ -223,6 +223,29 @@ IsCoal(item, private: ingredients, inputs, key, work) = AND(
 )"#,
         ..Default::default()
     };
+    #[derive(Debug)]
+    static ref INNER_LINES: String = {
+        let mut tree_house_is_wood_lines = String::new();
+        for i in 0..N_WOODS {
+            tree_house_is_wood_lines.push_str(&format!(
+                "\n    SetInsert(inputs, {{}}, wood{i})\n    IsWood(wood{i})"
+            ));
+        }
+        format!(r#"
+IsTreeHouse(item, private: ingredients, inputs, key, work) = AND(
+    ItemDef(item, ingredients, inputs, key, work)
+    DictContains(ingredients, "blueprint", "wood")
+    {tree_house_is_wood_lines}
+)"#)
+    };
+    static ref TREE_HOUSE_DATA: ProcessData = ProcessData {
+        description: "Produces a Tree House.",
+        input_facilities: &[],
+        input_ingredients: &["Wood";N_WOODS],
+        outputs: &["Tree House"],
+        predicate: &INNER_LINES,
+        ..Default::default()
+    };
     static ref RECONF_RUBIKS_CUBE: ProcessData = ProcessData {
         description: "Move layers of a Rubik's Cube.",
         input_ingredients: &["Rubik's Cube"],
@@ -296,6 +319,7 @@ MaintainedFarm(new, old, op) = OR(
         ..Default::default()
     };
 }
+const N_WOODS: usize = 30;
 
 impl Process {
     #[allow(clippy::let_and_return)]
@@ -339,6 +363,7 @@ impl Process {
             Self::Mock("Reconfigure-Deck of Cards") => &RECONF_DECK_CARDS,
             Self::Mock("Reconfigure-Refrigerator") => &RECONF_REFRIGERATOR,
             Self::Mock("Reconfigure-Farm Level 1") => &RECONF_FARM_LVL_1,
+            Self::Mock("Tree House") => &TREE_HOUSE_DATA,
             Self::Mock(v) => unreachable!("data for mock {v}"),
         }
     }
@@ -371,14 +396,14 @@ impl Verb {
             Self::Mine => vec![Mock("Coal")],
             Self::Gather => vec![Stone, Stick, Wood],
             Self::Refine => vec![Mock("Refine-Uranium")],
-            Self::Craft => vec![Axe, BronzeAxe],
-            Self::Produce => vec![Mock("Tomato"), Mock("Steel Sword")],
             Self::Reconfigure => vec![
                 Mock("Reconfigure-Rubik's Cube"),
                 Mock("Reconfigure-Deck of Cards"),
                 Mock("Reconfigure-Refrigerator"),
                 Mock("Reconfigure-Farm Level 1"),
             ],
+            Self::Craft => vec![Axe, BronzeAxe, Mock("Tree House")],
+            Self::Produce => vec![Mock("Tomato"), Mock("Steel Sword")],
             Self::Disassemble => vec![Mock("Disassemble-H2O")],
             Self::Destroy => vec![Mock("Destroy")],
         }
