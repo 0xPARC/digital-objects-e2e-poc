@@ -1,35 +1,20 @@
 use std::{
-    collections::HashMap,
-    fmt::{self, Write},
     fs::{self},
-    mem,
     path::{Path, PathBuf},
     sync::{
         Arc, RwLock,
         mpsc::{self, channel},
     },
     thread::{self, JoinHandle},
-    time,
 };
 
-use anyhow::{Result, anyhow};
-use app_cli::{
-    Config, CraftedItem, Recipe, USED_ITEM_SUBDIR_NAME, commit_item, craft_item, load_item,
-};
-use common::load_dotenv;
-use egui::{Color32, Frame, Label, RichText, Ui};
-use itertools::Itertools;
-use pod2::{
-    backends::plonky2::primitives::merkletree::MerkleProof,
-    middleware::{
-        Hash, Params, RawValue, Statement, StatementArg, TypedValue, Value, containers::Set,
-    },
-};
-use tokio::runtime::Runtime;
-use tracing::{error, info};
+use anyhow::Result;
+use app_cli::{Config, CraftedItem, USED_ITEM_SUBDIR_NAME, load_item};
+use pod2::middleware::{Hash, Params};
+use tracing::error;
 
 use crate::{
-    Committing, Crafting, ItemView, Request, Response, TaskStatus,
+    Crafting, ItemView, Request, Response, TaskStatus,
     crafting::{Process, Verb},
     task_system::handle_req,
 };
@@ -45,17 +30,14 @@ pub struct Item {
 pub struct App {
     pub cfg: Config,
     pub params: Params,
-    pub recipes: Vec<Recipe>,
     pub items: Vec<Item>,
     pub used_items: Vec<Item>,
     pub item_view: ItemView,
     pub crafting: Crafting,
-    pub committing: Committing,
     pub task_req_tx: mpsc::Sender<Request>,
     pub task_res_rx: mpsc::Receiver<Response>,
     pub _task_handler: JoinHandle<()>,
     pub task_status: Arc<RwLock<TaskStatus>>,
-    pub selected_tab: usize,
     pub modal_new_predicates: bool, // modal for writing new predicates
     pub code_editor_content: String,
     pub dev_mode: bool,
@@ -85,7 +67,6 @@ impl App {
                 }
             }
         });
-        let recipes = Recipe::list();
         let code: String = r#"
 IsTinPremium(item, private: ingredients, inputs, key, work) = AND(
     ItemDef(item, ingredients, inputs, key, work)
@@ -104,17 +85,14 @@ IsTinPremium(item, private: ingredients, inputs, key, work) = AND(
         let mut app = Self {
             cfg,
             params,
-            recipes,
             items: vec![],
             used_items: vec![],
             item_view: Default::default(),
             crafting: Default::default(),
-            committing: Default::default(),
             task_req_tx: req_tx,
             task_res_rx: res_rx,
             _task_handler: task_handler,
             task_status,
-            selected_tab: 0,
             modal_new_predicates: false,
             code_editor_content: code.clone(),
             dev_mode: false,

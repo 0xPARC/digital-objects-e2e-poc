@@ -1,36 +1,16 @@
 use std::{
     collections::HashMap,
-    fmt::{self, Write},
-    fs::{self},
-    mem,
     path::{Path, PathBuf},
-    sync::{
-        Arc, RwLock,
-        mpsc::{self, channel},
-    },
-    thread::{self, JoinHandle},
-    time,
 };
 
 use anyhow::{Result, anyhow};
-use app_cli::{Config, CraftedItem, ProductionType, Recipe, commit_item, craft_item, load_item};
-use common::load_dotenv;
-use craftlib::constants::STONE_WORK;
-use egui::{Color32, Frame, Label, RichText, Ui};
+use app_cli::Recipe;
+use egui::{Frame, Label, RichText, Ui};
 use enum_iterator::{Sequence, all};
-use itertools::Itertools;
 use lazy_static::lazy_static;
-use pod2::{
-    backends::plonky2::primitives::merkletree::MerkleProof,
-    middleware::{
-        Hash, Params, RawValue, Statement, StatementArg, TypedValue, Value, containers::Set,
-    },
-};
 use strum::IntoStaticStr;
-use tokio::runtime::Runtime;
-use tracing::{error, info};
 
-use crate::{App, Committing, ItemView, Request, Response, TaskStatus, utils::result2text};
+use crate::{App, Request, utils::result2text};
 
 #[derive(Debug, Clone, Copy, PartialEq, IntoStaticStr)]
 pub enum Process {
@@ -331,7 +311,7 @@ impl Process {
                 let s = s.strip_prefix("Reconfigure-").unwrap_or(s);
                 s
             }
-            v => self.into(),
+            v => v.into(),
         }
     }
     // Returns None if the Process is mock
@@ -430,7 +410,6 @@ pub struct Crafting {
     pub selected_verb: Option<Verb>,
     pub selected_process: Option<Process>,
     pub selected_action: Option<&'static str>,
-    pub selected_recipe: Option<Recipe>,
     // Input index to item index
     pub input_items: HashMap<usize, usize>,
     pub output_filename: String,
@@ -451,7 +430,7 @@ impl Crafting {
 
 impl App {
     // Generic ui for all verbs
-    pub(crate) fn ui_craft(&mut self, ctx: &egui::Context, ui: &mut Ui) {
+    pub(crate) fn ui_craft(&mut self, _ctx: &egui::Context, ui: &mut Ui) {
         let selected_verb = match self.crafting.selected_verb {
             None => return,
             Some(v) => v,
@@ -705,7 +684,7 @@ impl App {
         }
     }
 
-    pub(crate) fn ui_new_predicate(&mut self, ctx: &egui::Context, ui: &mut Ui) {
+    pub(crate) fn ui_new_predicate(&mut self, ctx: &egui::Context) {
         let language: String = "js".to_string();
 
         if self.modal_new_predicates {
@@ -756,7 +735,6 @@ impl App {
             let pointer = &input.pointer;
             pointer.hover_pos()
         });
-        let painter = ui.painter();
 
         if let Some(mousepos) = hover_pos {
             let pos = mousepos + egui::Vec2::splat(16.0);

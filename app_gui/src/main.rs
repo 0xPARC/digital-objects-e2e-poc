@@ -1,36 +1,11 @@
-// TODO: Remove after completing the gui_app
-#![allow(unreachable_code)]
-#![allow(unused_imports)]
-#![allow(unused_variables)]
-#![allow(dead_code)]
+use std::{collections::HashMap, thread, time};
 
-use std::{
-    collections::HashMap,
-    fmt::{self, Write},
-    fs::{self},
-    mem,
-    path::{Path, PathBuf},
-    sync::{
-        Arc, RwLock,
-        mpsc::{self, channel},
-    },
-    thread::{self, JoinHandle},
-    time,
-};
-
-use anyhow::{Result, anyhow};
-use app_cli::{Config, CraftedItem, ProductionType, Recipe, commit_item, craft_item, load_item};
+use anyhow::Result;
+use app_cli::Config;
 use common::{load_dotenv, log_init};
-use egui::{Color32, Frame, Label, RichText, Ui};
-use itertools::Itertools;
-use pod2::{
-    backends::plonky2::primitives::merkletree::MerkleProof,
-    middleware::{
-        Hash, Params, RawValue, Statement, StatementArg, TypedValue, Value, containers::Set,
-    },
-};
-use tokio::runtime::Runtime;
-use tracing::{error, info};
+use egui::Ui;
+use pod2::middleware::Params;
+use tracing::info;
 
 mod app;
 mod crafting;
@@ -68,11 +43,6 @@ fn main() -> Result<()> {
     .map_err(|e| anyhow::anyhow!("{e}"))?;
 
     Ok(())
-}
-
-#[derive(Default)]
-struct Committing {
-    result: Option<Result<()>>,
 }
 
 impl eframe::App for App {
@@ -156,12 +126,12 @@ impl eframe::App for App {
                     } else {
                         self.update_action_ui(ctx, ui);
                     }
-                    // Display window(s).
-                    if self.modal_new_predicates {
-                        self.ui_new_predicate(ctx, ui);
-                    }
                 });
             });
+            // Display window(s).
+            if self.modal_new_predicates {
+                self.ui_new_predicate(ctx);
+            }
 
             self.ui_danger(ctx, ui);
         });
