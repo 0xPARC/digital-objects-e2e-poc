@@ -298,6 +298,7 @@ MaintainedFarm(new, old, op) = OR(
 }
 
 impl Process {
+    #[allow(clippy::let_and_return)]
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Mock(s) => {
