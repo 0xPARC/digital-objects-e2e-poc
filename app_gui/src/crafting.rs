@@ -34,10 +34,10 @@ use crate::{App, Committing, ItemView, Request, Response, TaskStatus, utils::res
 
 #[derive(Debug, Clone, Copy, PartialEq, IntoStaticStr)]
 pub enum Process {
-    Copper,
-    Tin,
+    Stone,
+    Stick,
     Wood,
-    Bronze,
+    Axe,
     BronzeAxe,
     Mock(&'static str),
 }
@@ -53,28 +53,28 @@ pub struct ProcessData {
 }
 
 lazy_static! {
-    static ref COPPER_DATA: ProcessData = ProcessData {
-        description: "Copper.  Hard to find.",
-        outputs: &["Copper"],
+    static ref STONE_DATA: ProcessData = ProcessData {
+        description: "Stone.  Hard to find.",
+        outputs: &["Stone"],
         predicate: r#"
 use intro Pow(count, input, output) from 0x3493488bc23af15ac5fabe38c3cb6c4b66adb57e3898adf201ae50cc57183f65
 
-IsCopper(item, private: ingredients, inputs, key, work) = AND(
+IsStone(item, private: ingredients, inputs, key, work) = AND(
     ItemDef(item, ingredients, inputs, key, work)
     Equal(inputs, {})
-    DictContains(ingredients, "blueprint", "copper")
+    DictContains(ingredients, "blueprint", "stone")
     Pow(3, ingredients, work)
 )"#,
         ..Default::default()
     };
-    static ref TIN_DATA: ProcessData = ProcessData {
-        description: "Tin.  Easily available.",
-        outputs: &["Tin"],
+    static ref STICK_DATA: ProcessData = ProcessData {
+        description: "Stick.  Easily available.",
+        outputs: &["Stick"],
         predicate: r#"
-IsTin(item, private: ingredients, inputs, key, work) = AND(
+IsStick(item, private: ingredients, inputs, key, work) = AND(
     ItemDef(item, ingredients, inputs, key, work)
     Equal(inputs, {})
-    DictContains(ingredients, "blueprint", "tin")
+    DictContains(ingredients, "blueprint", "stick")
 )"#,
         ..Default::default()
     };
@@ -89,12 +89,12 @@ IsWood(item, private: ingredients, inputs, key, work) = AND(
 )"#,
         ..Default::default()
     };
-    static ref BRONZE_DATA: ProcessData = ProcessData {
-        description: "Bronze.  Easy to craft.",
-        input_ingredients: &["Tin", "Copper"],
-        outputs: &["Bronze"],
+    static ref AXE_DATA: ProcessData = ProcessData {
+        description: "Axe.  Easy to craft.",
+        input_ingredients: &["Stick", "Stone"],
+        outputs: &["Axe"],
         predicate: r#"
-IsBronze(item, private: ingredients, inputs, key, work) = AND(
+IsAxe(item, private: ingredients, inputs, key, work) = AND(
     ItemDef(item, ingredients, inputs, key, work)
     DictContains(ingredients, "blueprint", "bronze")
 
@@ -103,8 +103,8 @@ IsBronze(item, private: ingredients, inputs, key, work) = AND(
     SetInsert(inputs, s1, copper)
 
     // prove the ingredients are correct.
-    IsTin(tin)
-    IsCopper(copper)
+    IsStick(stick)
+    IsStone(stone)
 )"#,
         ..Default::default()
     };
@@ -140,8 +140,8 @@ Destroy(void, private: ingredients, inputs, key, work) = AND(
         ..Default::default()
     };
     static ref TOMATO_DATA: ProcessData = ProcessData {
-        description: "Produces a Tomato.  Requires a Tomato Farm.",
-        input_facilities: &["Tomato Farm"],
+        description: "Produces a Tomato.  Requires farm level 1.",
+        input_facilities: &["Farm level 1"],
         input_ingredients: &["Tomato Seed"],
         outputs: &["Tomato"],
         predicate: r#"
@@ -151,8 +151,29 @@ IsTomato(item, private: ingredients, inputs, key, work) = AND(
 
     SetInsert(s1, {}, tomato_farm)
     SetInsert(inputs, s1, tomato_seed)
-    IsTomatoFarm(tomato_farm)
+    IsFarmLevel1(tomato_farm)
     IsTomatoSeed(tomato_seed)
+)"#,
+        ..Default::default()
+    };
+    static ref STEEL_SWORD_DATA: ProcessData = ProcessData {
+        description: "Produces a steel sword.  Requires a forge.",
+        input_facilities: &["Forge"],
+        input_ingredients: &["Steel", "Steel", "Wood"],
+        outputs: &["Steel Sword"],
+        predicate: r#"
+IsSteelSword(item, private: ingredients, inputs, key, work) = AND(
+    ItemDef(item, ingredients, inputs, key, work)
+    DictContains(ingredients, "blueprint", "steel sword")
+
+    SetInsert(s1, {}, forge)
+    SetInsert(s2, s1, steel1)
+    SetInsert(s3, s2, steel2)
+    SetInsert(inputs, s3, wood)
+    IsForge(forge)
+    IsSteel(steel1)
+    IsSteel(steel2)
+    IsWood(wood)
 )"#,
         ..Default::default()
     };
@@ -187,21 +208,6 @@ RefinedUranium(items, private: ingredients, inputs, key, work) = AND(
 )"#,
         ..Default::default()
     };
-    static ref STONE_DATA: ProcessData = ProcessData {
-        description: "Mine a stone.  Requires a Pick Axe with >= 50% durability.",
-        input_tools: &["Pick Axe"],
-        outputs: &["Stone"],
-        predicate: r#"
-IsStone(item, private: ingredients, inputs, key, work) = AND(
-    ItemDef(item, ingredients, inputs, key, work)
-    DictContains(ingredients, "blueprint", "stone")
-
-    SetInsert(inputs, {}, pick_axe)
-    IsPickAxe(pick_axe, durability)
-    GtEq(durability, 50)
-)"#,
-        ..Default::default()
-    };
 }
 
 impl Process {
@@ -216,10 +222,10 @@ impl Process {
     // Returns None if the Process is mock
     pub fn recipe(&self) -> Option<Recipe> {
         match self {
-            Self::Copper => Some(Recipe::Copper),
-            Self::Tin => Some(Recipe::Tin),
+            Self::Stone => Some(Recipe::Copper),
+            Self::Stick => Some(Recipe::Tin),
             Self::Wood => Some(Recipe::Wood),
-            Self::Bronze => Some(Recipe::Bronze),
+            Self::Axe => Some(Recipe::Bronze),
             Self::BronzeAxe => Some(Recipe::BronzeAxe),
             Self::Mock(_) => None,
         }
@@ -227,13 +233,14 @@ impl Process {
 
     pub fn data(&self) -> &'static ProcessData {
         match self {
-            Self::Copper => &COPPER_DATA,
-            Self::Tin => &TIN_DATA,
+            Self::Stone => &STONE_DATA,
+            Self::Stick => &STICK_DATA,
             Self::Wood => &WOOD_DATA,
-            Self::Bronze => &BRONZE_DATA,
+            Self::Axe => &AXE_DATA,
             Self::BronzeAxe => &BRONZE_AXE_DATA,
             Self::Mock("Destroy") => &DESTROY_DATA,
             Self::Mock("Tomato") => &TOMATO_DATA,
+            Self::Mock("Steel Sword") => &STEEL_SWORD_DATA,
             Self::Mock("Disassemble-H2O") => &DIS_H2O_DATA,
             Self::Mock("Refine-Uranium") => &REFINED_URANIUM_DATA,
             Self::Mock("Stone") => &STONE_DATA,
@@ -248,7 +255,7 @@ pub enum Verb {
     Mine,
     Refine,
     Craft,
-    Farm,
+    Produce,
     Disassemble,
     Destroy,
 }
@@ -266,10 +273,10 @@ impl Verb {
         use Process::*;
         match self {
             Self::Mine => vec![Mock("Stone")],
-            Self::Gather => vec![Copper, Tin, Wood],
+            Self::Gather => vec![Stone, Stick, Wood],
             Self::Refine => vec![Mock("Refine-Uranium")],
-            Self::Craft => vec![Bronze, BronzeAxe],
-            Self::Farm => vec![Mock("Tomato")],
+            Self::Craft => vec![Axe, BronzeAxe],
+            Self::Produce => vec![Mock("Tomato"), Mock("Steel Sword")],
             Self::Disassemble => vec![Mock("Disassemble-H2O")],
             Self::Destroy => vec![Mock("Destroy")],
         }
