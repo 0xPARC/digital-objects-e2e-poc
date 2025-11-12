@@ -1,30 +1,10 @@
-use std::{
-    collections::HashMap,
-    fmt::{self, Write},
-    fs::{self},
-    mem,
-    path::{Path, PathBuf},
-    sync::{
-        Arc, RwLock,
-        mpsc::{self, channel},
-    },
-    thread::{self, JoinHandle},
-    time,
-};
-
-use anyhow::{Result, anyhow};
-use app_cli::{Config, CraftedItem, Recipe, commit_item, craft_item, load_item};
-use common::load_dotenv;
-use egui::{Color32, Frame, Label, RichText, Ui};
-use itertools::Itertools;
+use anyhow::Result;
+use egui::{Frame, Label, RichText, Ui};
 use pod2::{
     backends::plonky2::primitives::merkletree::MerkleProof,
-    middleware::{
-        Hash, Params, RawValue, Statement, StatementArg, TypedValue, Value, containers::Set,
-    },
+    middleware::{RawValue, containers::Set},
 };
-use tokio::runtime::Runtime;
-use tracing::{error, info};
+use tracing::info;
 
 use crate::{
     App, Item,

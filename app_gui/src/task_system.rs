@@ -1,33 +1,13 @@
 use std::{
-    collections::HashMap,
-    fmt::{self, Write},
     fs::{self},
-    mem,
     path::{Path, PathBuf},
-    sync::{
-        Arc, RwLock,
-        mpsc::{self, channel},
-    },
-    thread::{self, JoinHandle},
-    time,
+    sync::RwLock,
 };
 
 use anyhow::{Result, anyhow};
-use app_cli::{
-    Config, CraftedItem, Recipe, USED_ITEM_SUBDIR_NAME, commit_item, craft_item, destroy_item,
-    load_item,
-};
-use common::load_dotenv;
-use egui::{Color32, Frame, Label, RichText, Ui};
-use itertools::Itertools;
-use pod2::{
-    backends::plonky2::primitives::merkletree::MerkleProof,
-    middleware::{
-        Hash, Params, RawValue, Statement, StatementArg, TypedValue, Value, containers::Set,
-    },
-};
+use app_cli::{Config, Recipe, USED_ITEM_SUBDIR_NAME, commit_item, craft_item};
+use pod2::middleware::Params;
 use tokio::runtime::Runtime;
-use tracing::{error, info};
 
 #[derive(Default, Clone)]
 pub struct TaskStatus {

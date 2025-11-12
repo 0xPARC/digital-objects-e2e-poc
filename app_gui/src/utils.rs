@@ -1,30 +1,9 @@
-use std::{
-    collections::HashMap,
-    fmt::{self, Write},
-    fs::{self},
-    mem,
-    path::{Path, PathBuf},
-    sync::{
-        Arc, RwLock,
-        mpsc::{self, channel},
-    },
-    thread::{self, JoinHandle},
-    time,
-};
+use std::fmt::{self, Write};
 
-use anyhow::{Result, anyhow};
-use app_cli::{Config, CraftedItem, Recipe, commit_item, craft_item, load_item};
-use common::load_dotenv;
-use egui::{Color32, Frame, Label, RichText, Ui};
+use anyhow::Result;
+use egui::{Color32, RichText};
 use itertools::Itertools;
-use pod2::{
-    backends::plonky2::primitives::merkletree::MerkleProof,
-    middleware::{
-        Hash, Params, RawValue, Statement, StatementArg, TypedValue, Value, containers::Set,
-    },
-};
-use tokio::runtime::Runtime;
-use tracing::{error, info};
+use pod2::middleware::{Statement, StatementArg, TypedValue, Value};
 
 fn _indent(w: &mut impl Write, indent: usize) {
     for _ in 0..indent {
