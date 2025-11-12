@@ -81,6 +81,15 @@ DO_GENESIS_SLOT="0"
 ./kurtosis enclave rm -f local-testnet
 ```
 
----
+## License
 
-TODO asset license: `water.png`: <a href="https://www.flaticon.com/free-icons/shark" title="shark icons">Shark icons created by Freepik - Flaticon</a>
+### Icons license
+
+The files in `app_gui/assets` are distributed under the Flaticon License:
+- `axe.png`: <a href="https://www.flaticon.com/free-icons/axe" title="axe icons">Axe icons created by Freepik - Flaticon</a>
+- `bronze.png`: <a href="https://www.flaticon.com/free-icons/bronze" title="bronze icons">Bronze icons created by Freepik - Flaticon</a>
+- `copper.png`: <a href="https://www.flaticon.com/free-icons/copper" title="copper icons">Copper icons created by Freepik - Flaticon</a>
+- `empty.png`: <a href="https://www.flaticon.com/free-icons/3d-cube" title="3d cube icons">3d cube icons created by Freepik - Flaticon</a>
+- `tin.png`: <a href="https://www.flaticon.com/free-icons/tin" title="tin icons">Tin icons created by Freepik - Flaticon</a>
+- `wood.png`: <a href="https://www.flaticon.com/free-icons/wood" title="wood icons">Wood icons created by Freepik - Flaticon</a>
+- `water.png`: <a href="https://www.flaticon.com/free-icons/shark" title="shark icons">Shark icons created by Freepik - Flaticon</a>
