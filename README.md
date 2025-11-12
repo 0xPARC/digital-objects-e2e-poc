@@ -94,3 +94,6 @@ The files in `app_gui/assets` are distributed under the Flaticon License:
 - `tin.png`: <a href="https://www.flaticon.com/free-icons/tin" title="tin icons">Tin icons created by Freepik - Flaticon</a>
 - `wood.png`: <a href="https://www.flaticon.com/free-icons/wood" title="wood icons">Wood icons created by Freepik - Flaticon</a>
 - `water.png`: <a href="https://www.flaticon.com/free-icons/shark" title="shark icons">Shark icons created by Freepik - Flaticon</a>
+- `stick.png`: <a href="https://www.flaticon.com/free-icons/stick" title="stick icons">Stick icons created by Freepik - Flaticon</a>
+- `stone.png`: <a href="https://www.flaticon.com/free-icons/coal" title="coal icons">Coal icons created by Freepik - Flaticon</a>
+- `wooden-axe.png`: <a href="https://www.flaticon.com/free-icons/wood" title="wood icons">Wood icons created by Nsit - Flaticon</a>

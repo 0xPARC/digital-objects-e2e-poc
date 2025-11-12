@@ -15,7 +15,7 @@ use std::{
 use anyhow::{Result, anyhow};
 use app_cli::{Config, CraftedItem, ProductionType, Recipe, commit_item, craft_item, load_item};
 use common::load_dotenv;
-use craftlib::constants::COPPER_WORK;
+use craftlib::constants::STONE_WORK;
 use egui::{Color32, Frame, Label, RichText, Ui};
 use enum_iterator::{Sequence, all};
 use itertools::Itertools;
@@ -38,7 +38,7 @@ pub enum Process {
     Stick,
     Wood,
     Axe,
-    BronzeAxe,
+    WoodenAxe,
     Mock(&'static str),
 }
 
@@ -97,11 +97,11 @@ IsWood(item, private: ingredients, inputs, key, work) = AND(
         predicate: r#"
 IsAxe(item, private: ingredients, inputs, key, work) = AND(
     ItemDef(item, ingredients, inputs, key, work)
-    DictContains(ingredients, "blueprint", "bronze")
+    DictContains(ingredients, "blueprint", "axe")
 
     // 2 ingredients
-    SetInsert(s1, {}, tin)
-    SetInsert(inputs, s1, copper)
+    SetInsert(s1, {}, stick)
+    SetInsert(inputs, s1, stone)
 
     // prove the ingredients are correct.
     IsStick(stick)
@@ -109,22 +109,22 @@ IsAxe(item, private: ingredients, inputs, key, work) = AND(
 )"#,
         ..Default::default()
     };
-    static ref BRONZE_AXE_DATA: ProcessData = ProcessData {
-        description: "Bronze Axe.  Easy to craft.",
-        input_ingredients: &["Wood", "Bronze"],
-        outputs: &["Bronze Axe"],
+    static ref WOODEN_AXE_DATA: ProcessData = ProcessData {
+        description: "Wooden Axe.  Easy to craft.",
+        input_ingredients: &["Wood", "Wood"],
+        outputs: &["WoodenAxe"],
         predicate: r#"
-IsBronzeAxe(item, private: ingredients, inputs, key, work) = AND(
+IsWoodenAxe(item, private: ingredients, inputs, key, work) = AND(
     ItemDef(item, ingredients, inputs, key, work)
-    DictContains(ingredients, "blueprint", "bronze-axe")
+    DictContains(ingredients, "blueprint", "wooden-axe")
 
     // 2 ingredients
-    SetInsert(s1, {}, wood)
-    SetInsert(inputs, s1, bronze)
+    SetInsert(s1, {}, wood1)
+    SetInsert(inputs, s1, wood2)
 
     // prove the ingredients are correct.
-    IsWood(wood)
-    IsBronze(bronze)
+    IsWood(wood1)
+    IsWood(wood2)
 )"#,
         ..Default::default()
     };
@@ -337,11 +337,11 @@ impl Process {
     // Returns None if the Process is mock
     pub fn recipe(&self) -> Option<Recipe> {
         match self {
-            Self::Stone => Some(Recipe::Copper),
-            Self::Stick => Some(Recipe::Tin),
+            Self::Stone => Some(Recipe::Stone),
+            Self::Stick => Some(Recipe::Stick),
             Self::Wood => Some(Recipe::Wood),
-            Self::Axe => Some(Recipe::Bronze),
-            Self::BronzeAxe => Some(Recipe::BronzeAxe),
+            Self::Axe => Some(Recipe::Axe),
+            Self::WoodenAxe => Some(Recipe::WoodenAxe),
             Self::Mock(_) => None,
         }
     }
@@ -352,7 +352,7 @@ impl Process {
             Self::Stick => &STICK_DATA,
             Self::Wood => &WOOD_DATA,
             Self::Axe => &AXE_DATA,
-            Self::BronzeAxe => &BRONZE_AXE_DATA,
+            Self::WoodenAxe => &WOODEN_AXE_DATA,
             Self::Mock("Destroy") => &DESTROY_DATA,
             Self::Mock("Tomato") => &TOMATO_DATA,
             Self::Mock("Steel Sword") => &STEEL_SWORD_DATA,
@@ -402,7 +402,7 @@ impl Verb {
                 Mock("Reconfigure-Refrigerator"),
                 Mock("Reconfigure-Farm Level 1"),
             ],
-            Self::Craft => vec![Axe, BronzeAxe, Mock("Tree House")],
+            Self::Craft => vec![Axe, WoodenAxe, Mock("Tree House")],
             Self::Produce => vec![Mock("Tomato"), Mock("Steel Sword")],
             Self::Disassemble => vec![Mock("Disassemble-H2O")],
             Self::Destroy => vec![Mock("Destroy")],
@@ -495,60 +495,65 @@ impl App {
 
             // Block3: Configuration
             let inputs = process_data.input_ingredients;
-            ui.columns_const(|[inputs_ui, outputs_ui]| {
-                inputs_ui.vertical(|ui| {
-                    ui.heading("Inputs");
-                    egui::Grid::new("crafting inputs").show(ui, |ui| {
-                        for (category, inputs) in
-                            ["Production Facility", "Tools", "Ingredients"].iter().zip([
-                                process_data.input_facilities,
-                                process_data.input_tools,
-                                process_data.input_ingredients,
-                            ])
-                        {
-                            if inputs.is_empty() {
-                                continue;
-                            }
-                            ui.label(format!("    {category}:"));
-                            ui.end_row();
-                            for (input_index, input) in inputs.iter().enumerate() {
-                                ui.label(format!("        {input}:"));
-                                let frame = Frame::default().inner_margin(4.0);
-                                let (_, dropped_payload) =
-                                    ui.dnd_drop_zone::<usize, ()>(frame, |ui| {
-                                        if let Some(index) =
-                                            self.crafting.input_items.get(&input_index)
-                                        {
-                                            self.name_with_img(
-                                                ui,
-                                                &self.all_items()[*index].name.to_string(),
-                                            );
-                                        } else {
-                                            ui.label("...");
+            egui::ScrollArea::vertical()
+                .id_salt("config scroll")
+                .max_height(256.0)
+                .show(ui, |ui| {
+                    ui.columns_const(|[inputs_ui, outputs_ui]| {
+                        inputs_ui.vertical(|ui| {
+                            ui.heading("Inputs");
+                            egui::Grid::new("crafting inputs").show(ui, |ui| {
+                                for (category, inputs) in
+                                    ["Production Facility", "Tools", "Ingredients"].iter().zip([
+                                        process_data.input_facilities,
+                                        process_data.input_tools,
+                                        process_data.input_ingredients,
+                                    ])
+                                {
+                                    if inputs.is_empty() {
+                                        continue;
+                                    }
+                                    ui.label(format!("    {category}:"));
+                                    ui.end_row();
+                                    for (input_index, input) in inputs.iter().enumerate() {
+                                        ui.label(format!("        {input}:"));
+                                        let frame = Frame::default().inner_margin(4.0);
+                                        let (_, dropped_payload) =
+                                            ui.dnd_drop_zone::<usize, ()>(frame, |ui| {
+                                                if let Some(index) =
+                                                    self.crafting.input_items.get(&input_index)
+                                                {
+                                                    self.name_with_img(
+                                                        ui,
+                                                        &self.all_items()[*index].name.to_string(),
+                                                    );
+                                                } else {
+                                                    ui.label("...");
+                                                }
+                                            });
+                                        ui.end_row();
+                                        if let Some(index) = dropped_payload {
+                                            self.crafting.input_items.insert(input_index, *index);
                                         }
-                                    });
-                                ui.end_row();
-                                if let Some(index) = dropped_payload {
-                                    self.crafting.input_items.insert(input_index, *index);
+                                    }
                                 }
-                            }
-                        }
-                    });
-                });
-
-                let outputs = process_data.outputs;
-                outputs_ui.vertical(|ui| {
-                    ui.heading("Outputs:");
-                    ui.vertical(|ui| {
-                        for output in outputs.iter() {
-                            ui.horizontal(|ui| {
-                                ui.label("  ");
-                                self.name_with_img(ui, &output.to_string());
                             });
-                        }
+                        });
+
+                        let outputs = process_data.outputs;
+                        outputs_ui.vertical(|ui| {
+                            ui.heading("Outputs:");
+                            ui.vertical(|ui| {
+                                for output in outputs.iter() {
+                                    ui.horizontal(|ui| {
+                                        ui.label("  ");
+                                        self.name_with_img(ui, &output.to_string());
+                                    });
+                                }
+                            });
+                        });
                     });
                 });
-            });
 
             if !process_data.reconf_action.is_empty() {
                 ui.add_space(8.0);
@@ -580,7 +585,8 @@ impl App {
             let predicate = process_data.predicate.trim_start();
             ui.heading("Predicate:");
             egui::ScrollArea::vertical()
-                .min_scrolled_height(200.0)
+                .id_salt("predicate scroll")
+                .max_height(256.0)
                 .show(ui, |ui| {
                     ui.add(Label::new(RichText::new(predicate).monospace()).wrap());
                 });

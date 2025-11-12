@@ -1,7 +1,7 @@
 //! Examples of usage
 //!
-//! - craft new copper item:
-//!   RUST_LOG=app=debug cargo run --release -p app_cli -- craft --output ./item0 --recipe copper
+//! - craft new stone item:
+//!   RUST_LOG=app=debug cargo run --release -p app_cli -- craft --output ./item0 --recipe stone
 //! - commit the crafted item:
 //!   RUST_LOG=app=debug cargo run --release -p app_cli -- commit --input ./item0
 use std::{path::PathBuf, str::FromStr};

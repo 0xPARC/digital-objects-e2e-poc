@@ -7,7 +7,7 @@ use pod2utils::PredicateDefs;
 pub struct ItemPredicates {
     pub defs: PredicateDefs,
 
-    pub is_copper: CustomPredicateRef,
+    pub is_stone: CustomPredicateRef,
 }
 
 impl ItemPredicates {
@@ -22,21 +22,21 @@ impl ItemPredicates {
             use intro Pow(count, input, output) from 0x3493488bc23af15ac5fabe38c3cb6c4b66adb57e3898adf201ae50cc57183f65 // powpod vd hash
         
             // Example of a mined item with no inputs or sequential work.
-            // Copper requires working in a copper mine (blueprint="copper") and
+            // Stone requires working in a stone mine (blueprint="stone") and
             // 10 leading 0s.
-            IsCopper(item, private: ingredients, inputs, key, work) = AND(
+            IsStone(item, private: ingredients, inputs, key, work) = AND(
                 ItemDef(item, ingredients, inputs, key, work)
                 Equal(inputs, {})
-                DictContains(ingredients, "blueprint", "copper")
+                DictContains(ingredients, "blueprint", "stone")
                 Pow(3, ingredients, work)
             )
         
             // Example of a mined item which is more common but takes more work to
             // extract.
-            IsTin(item, private: ingredients, inputs, key, work) = AND(
+            IsStick(item, private: ingredients, inputs, key, work) = AND(
                 ItemDef(item, ingredients, inputs, key, work)
                 Equal(inputs, {})
-                DictContains(ingredients, "blueprint", "tin")
+                DictContains(ingredients, "blueprint", "stick")
                 // TODO input POD: SequentialWork(ingredients, work, 5)
                 // TODO input POD: HashInRange(0, 1<<5, ingredients)
             )
@@ -48,48 +48,48 @@ impl ItemPredicates {
             )
             "#,
             r#"
-            BronzeInputs(inputs, private: s1, tin, copper) = AND(
+            AxeInputs(inputs, private: s1, stick, stone) = AND(
                 // 2 ingredients
-                SetInsert(s1, {}, tin)
-                SetInsert(inputs, s1, copper)
+                SetInsert(s1, {}, stick)
+                SetInsert(inputs, s1, stone)
         
                 // prove the ingredients are correct.
-                IsTin(tin)
-                IsCopper(copper)
+                IsStick(stick)
+                IsStone(stone)
             )
         
-            // Combining Copper and Tin to get Bronze is easy (no sequential work).
+            // Combining Stone and Stick to get Axe is easy (no sequential work).
             // TODO: Require a smelter as a tool
-            IsBronze(item, private: ingredients, inputs, key, work) = AND(
+            IsAxe(item, private: ingredients, inputs, key, work) = AND(
                 ItemDef(item, ingredients, inputs, key, work)
-                DictContains(ingredients, "blueprint", "bronze")
+                DictContains(ingredients, "blueprint", "axe")
         
-                BronzeInputs(inputs)
+                AxeInputs(inputs)
             )
         
-            // Bronze Axe:
-            BronzeAxeInputs(inputs, private: s1, wood, bronze) = AND(
+            // Wooden Axe:
+            WoodenAxeInputs(inputs, private: s1, wood1, wood2) = AND(
                 // 2 ingredients
-                SetInsert(s1, {}, wood)
-                SetInsert(inputs, s1, bronze)
+                SetInsert(s1, {}, wood1)
+                SetInsert(inputs, s1, wood2)
         
                 // prove the ingredients are correct.
-                IsWood(wood)
-                IsBronze(bronze)
+                IsWood(wood1)
+                IsWood(wood2)
             )
-            // Combine Wood and Bronze to get BronzeAxe.
-            IsBronzeAxe(item, private: ingredients, inputs, key, work) = AND(
+            // Combine Wood and Wod to get WoodenAxe.
+            IsWoodenAxe(item, private: ingredients, inputs, key, work) = AND(
                 ItemDef(item, ingredients, inputs, key, work)
-                DictContains(ingredients, "blueprint", "bronze-axe")
+                DictContains(ingredients, "blueprint", "wooden-axe")
         
-                BronzeAxeInputs(inputs)
+                WoodenAxeInputs(inputs)
             )
             "#,
         ];
         let defs = PredicateDefs::new(params, &batch_defs, slice::from_ref(&commit_preds.defs));
 
         ItemPredicates {
-            is_copper: defs.predicate_ref_by_name("IsCopper").unwrap(),
+            is_stone: defs.predicate_ref_by_name("IsStone").unwrap(),
             defs,
         }
     }
@@ -109,7 +109,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        constants::COPPER_BLUEPRINT,
+        constants::STONE_BLUEPRINT,
         powpod::PowPod,
         test_util::test::{check_matched_wildcards, mock_vd_set},
     };
@@ -141,7 +141,7 @@ mod tests {
             inputs: HashSet::new(),
             key: RawValue::from(key),
             app_layer: HashMap::from([
-                ("blueprint".to_string(), Value::from(COPPER_BLUEPRINT)),
+                ("blueprint".to_string(), Value::from(STONE_BLUEPRINT)),
                 ("seed".to_string(), Value::from(seed)),
             ]),
         };
@@ -238,14 +238,14 @@ mod tests {
             [st_item_def.clone(), st_inputs_subset, st_nullifiers],
         ))?;
 
-        // Build IsCopper(item)
+        // Build IsStone(item)
         let st_contains_blueprint = builder.priv_op(Operation::dict_contains(
             ingredients_dict.clone(),
             "blueprint",
-            Value::from(COPPER_BLUEPRINT),
+            Value::from(STONE_BLUEPRINT),
         ))?;
         let _st_is_copper = builder.pub_op(Operation::custom(
-            item_preds.is_copper.clone(),
+            item_preds.is_stone.clone(),
             [
                 st_item_def,
                 st_inputs_eq_empty,
@@ -273,7 +273,7 @@ mod tests {
                 SubsetOf(inputs, created_items)
                 Nullifiers(nullifiers, inputs)
                 CommitCreation(item, nullifiers, created_items)
-                IsCopper(item)
+                IsStone(item)
             )
             "#,
             &commit_preds.defs.imports, &item_preds.defs.imports,
