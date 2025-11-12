@@ -652,7 +652,7 @@ impl App {
 
             if button_craft_and_commit_clicked {
                 if self.crafting.output_filename.is_empty() {
-                    self.crafting.craft_result = Some(Err(anyhow!("Please enter a filename.")));
+                    self.crafting.commit_result = Some(Err(anyhow!("Please enter a filename.")));
                 } else {
                     let output =
                         Path::new(&self.cfg.pods_path).join(&self.crafting.output_filename);
@@ -667,7 +667,7 @@ impl App {
 
                     match input_paths {
                         None => {
-                            self.crafting.craft_result =
+                            self.crafting.commit_result =
                                 Some(Err(anyhow!("Please provide all inputs.")))
                         }
                         Some(input_paths) => {

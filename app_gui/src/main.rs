@@ -58,15 +58,16 @@ impl eframe::App for App {
                     }
                     self.refresh_items().unwrap();
                     self.crafting.input_items = HashMap::new();
+                    self.crafting.craft_result = Some(r);
                     self.crafting.commit_result = None;
-                    self.crafting.craft_result = Some(r)
                 }
                 Response::Commit(r) => {
                     if let Err(e) = &r {
                         log::error!("{e:?}");
                     }
+                    // Reset filename
                     self.crafting.output_filename = "".to_string();
-                    self.crafting.commit_result = Some(r)
+                    self.crafting.commit_result = Some(r);
                 }
                 Response::CraftAndCommit(r) => {
                     if let Ok(entry) = &r {
@@ -76,9 +77,10 @@ impl eframe::App for App {
                     }
                     self.refresh_items().unwrap();
                     self.crafting.input_items = HashMap::new();
+                    // Reset filename
                     self.crafting.output_filename = "".to_string();
+                    self.crafting.craft_result = None;
                     self.crafting.commit_result = Some(r);
-                    self.crafting.craft_result = None
                 }
                 Response::Null => {}
             }
