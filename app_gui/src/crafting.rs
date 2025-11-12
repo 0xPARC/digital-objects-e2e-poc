@@ -112,7 +112,7 @@ IsAxe(item, private: ingredients, inputs, key, work) = AND(
     static ref WOODEN_AXE_DATA: ProcessData = ProcessData {
         description: "Wooden Axe.  Easy to craft.",
         input_ingredients: &["Wood", "Wood"],
-        outputs: &["Wooden Axe"],
+        outputs: &["WoodenAxe"],
         predicate: r#"
 IsWoodenAxe(item, private: ingredients, inputs, key, work) = AND(
     ItemDef(item, ingredients, inputs, key, work)
