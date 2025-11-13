@@ -236,7 +236,7 @@ IsRefinedUranium(item, private: ingredients, inputs, key, work) = AND(
         ..Default::default()
     };
     static ref COAL_DATA: ProcessData = ProcessData {
-        description: "Mine coal.  Requires a Pick Axe with >= 50% durability.",
+        description: "Mine coal.  Requires a Pick Axe with >= 50% durability, and consumes 1% of it",
         input_tools: &["Pick Axe"],
         outputs: &["Coal"],
         predicate: r#"
@@ -376,7 +376,7 @@ MaintainedFarm(new, old, op) = OR(
         ..Default::default()
     };
 }
-const N_WOODS: usize = 30;
+const N_WOODS: usize = 100;
 
 impl Process {
     #[allow(clippy::let_and_return)]
@@ -536,7 +536,9 @@ impl App {
             }
             ui.end_row();
         });
+        ui.add_space(8.0);
         ui.separator();
+        ui.add_space(8.0);
 
         let mut selected_action = self.crafting.selected_action;
         if let Some(process) = self.crafting.selected_process {
@@ -545,7 +547,9 @@ impl App {
             // Block2: Description
             ui.heading("Description:");
             ui.add(Label::new(RichText::new(process_data.description)).wrap());
+            ui.add_space(8.0);
             ui.separator();
+            ui.add_space(8.0);
 
             // Block3: Configuration
             let inputs = process_data.input_ingredients;
@@ -620,7 +624,7 @@ impl App {
                 ui.label("[load object first]");
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    ui.label("Action:");
+                    ui.heading("Action:");
                     egui::ComboBox::from_id_salt("reconf action")
                         .selected_text(selected_action.unwrap_or_default())
                         .show_ui(ui, |ui| {
@@ -640,7 +644,9 @@ impl App {
                     format!("{:?}_{}", process, self.items.len() + self.used_items.len());
             }
 
+            ui.add_space(8.0);
             ui.separator();
+            ui.add_space(8.0);
 
             // Block4: Predicate
             let predicate = process_data.predicate.trim_start();
@@ -649,7 +655,13 @@ impl App {
                 .id_salt("predicate scroll")
                 .max_height(512.0)
                 .show(ui, |ui| {
-                    ui.add(Label::new(RichText::new(predicate).monospace()).wrap());
+                    Frame::NONE
+                        .fill(egui::Color32::from_gray(20))
+                        .corner_radius(egui::CornerRadius::same(8))
+                        .inner_margin(egui::Vec2::splat(8.0))
+                        .show(ui, |ui| {
+                            ui.add(Label::new(RichText::new(predicate).monospace()).wrap());
+                        });
                 });
 
             let mut button_craft_clicked = false;

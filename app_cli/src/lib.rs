@@ -261,7 +261,9 @@ impl Helper {
         builder.reveal(&st_craft); // 3: App layer predicate
 
         info!("Proving item_pod");
+        let start = std::time::Instant::now();
         let item_key_pod = builder.prove(prover).unwrap();
+        log::info!("[TIME] pod proving time: {:?}", start.elapsed());
         item_key_pod.pod.verify().unwrap();
 
         Ok(item_key_pod)
@@ -313,12 +315,15 @@ pub fn craft_item(
             let ingredients_def = mining_recipe
                 .do_mining(params, key, 0, STONE_MINING_MAX)?
                 .unwrap();
+
+            let start = std::time::Instant::now();
             let pow_pod = PowPod::new(
                 params,
                 vd_set.clone(),
                 3, // num_iters
                 RawValue::from(ingredients_def.dict(params)?.commitment()),
             )?;
+            log::info!("[TIME] PowPod proving time: {:?}", start.elapsed());
             (
                 ItemDef {
                     ingredients: ingredients_def.clone(),
