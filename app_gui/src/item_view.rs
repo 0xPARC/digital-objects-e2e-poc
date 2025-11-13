@@ -35,11 +35,14 @@ impl App {
             .map(|i| self.all_items()[i].clone());
         egui::Grid::new("item title").show(ui, |ui| {
             ui.set_min_height(32.0);
-            ui.heading("Item: ");
+            ui.heading("Loaded Item: ");
             let frame = Frame::default().inner_margin(4.0);
             let (_, dropped_payload) = ui.dnd_drop_zone::<usize, ()>(frame, |ui| {
                 if let Some(item) = item.clone() {
                     self.name_with_img(ui, &item.name);
+                    if ui.button("X").clicked() {
+                        self.item_view.selected_item = None;
+                    }
                 } else {
                     ui.heading("...");
                 }
