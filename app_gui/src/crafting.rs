@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::{Result, anyhow};
 use app_cli::Recipe;
-use egui::{Frame, Label, RichText, Ui};
+use egui::{Frame, ImageSource, Label, RichText, Ui};
 use enum_iterator::{Sequence, all};
 use lazy_static::lazy_static;
 use strum::IntoStaticStr;
@@ -519,7 +519,11 @@ impl App {
                 egui::ComboBox::from_id_salt("process selection")
                     .selected_text(selected_process.map(|r| r.as_str()).unwrap_or_default())
                     .show_ui(ui, |ui| {
-                        for process in selected_verb.processes() {
+                        for process in selected_verb
+                            .processes()
+                            .into_iter()
+                            .filter(|p| self.mock_mode || (p.recipe().is_some()))
+                        {
                             ui.selectable_value(
                                 &mut selected_process,
                                 Some(process),
@@ -821,8 +825,14 @@ impl App {
         }
     }
 
-    pub(crate) fn ui_danger(&self, ctx: &egui::Context, ui: &mut Ui) {
-        if !self.danger {
+    pub(crate) fn ui_cursor<'a>(
+        &self,
+        ctx: &egui::Context,
+        ui: &mut Ui,
+        flag: bool,
+        img: impl Into<ImageSource<'a>>,
+    ) {
+        if !flag {
             return;
         }
         let hover_pos = ctx.input(|input| {
@@ -833,9 +843,7 @@ impl App {
         if let Some(mousepos) = hover_pos {
             let pos = mousepos + egui::Vec2::splat(16.0);
             let rect = egui::Rect::from_min_size(pos, egui::Vec2::splat(64.0));
-            egui::Image::new(egui::include_image!("../assets/water.png"))
-                .corner_radius(5)
-                .paint_at(ui, rect);
+            egui::Image::new(img).corner_radius(5).paint_at(ui, rect);
         }
     }
 }

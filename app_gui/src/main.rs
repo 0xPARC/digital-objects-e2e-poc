@@ -146,7 +146,12 @@ impl eframe::App for App {
                 self.ui_new_predicate(ctx);
             }
 
-            self.ui_danger(ctx, ui);
+            [
+                (self.danger, egui::include_image!("../assets/water.png")),
+                (self.cute, egui::include_image!("../assets/eucalyptus.png")),
+            ]
+            .into_iter()
+            .for_each(|(flag, asset)| self.ui_cursor(ctx, ui, flag, asset));
         });
 
         // Shortcuts:
@@ -155,13 +160,36 @@ impl eframe::App for App {
             self.dev_mode = !self.dev_mode;
             log::info!("dev_mode={:?}", self.dev_mode);
         }
+
+        // Alt + C: toggle theme
+        if ctx.input(|i| i.key_released(egui::Key::C) && i.modifiers.alt) {
+            let theme = ctx.theme();
+            log::info!("Switching from {theme:?} theme");
+            ctx.set_theme(match theme {
+                egui::Theme::Dark => egui::Theme::Light,
+                egui::Theme::Light => egui::Theme::Dark,
+            });
+        }
+
+        // Alt + M: toggle mock mode
+        if ctx.input(|i| i.key_released(egui::Key::M) && i.modifiers.alt) {
+            self.mock_mode = !self.mock_mode;
+            log::info!("mock_mode={:?}", self.mock_mode);
+        }
+
         // Ctrl + Q: quit
         if ctx.input(|i| i.key_released(egui::Key::Q) && i.modifiers.ctrl) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
-        // Alt + S: danger
+        // Alt + S: cute
         if ctx.input(|i| i.key_released(egui::Key::S) && i.modifiers.alt) {
+            self.cute = false;
             self.danger = !self.danger;
+        }
+        // Alt + K: cuteness
+        if ctx.input(|i| i.key_released(egui::Key::K) && i.modifiers.alt) {
+            self.danger = false;
+            self.cute = !self.cute;
         }
     }
 
@@ -177,7 +205,11 @@ impl App {
         ui.vertical(|ui| {
             ui.horizontal(|ui| {
                 ui.set_min_height(32.0);
-                for verb in Verb::list() {
+                // Mock toggle taken into account.
+                for verb in Verb::list()
+                    .into_iter()
+                    .filter(|v| self.mock_mode || v == &Verb::Gather || v == &Verb::Craft)
+                {
                     if ui
                         .selectable_label(Some(verb) == self.crafting.selected_verb, verb.as_str())
                         .clicked()
@@ -186,9 +218,11 @@ impl App {
                         self.crafting.selected_process = verb.default_process();
                     }
                 }
-                if ui
-                    .selectable_label(self.modal_new_predicates, "+ New Predicate")
-                    .clicked()
+                // Mock toggle for 'new predicate'.
+                if self.mock_mode
+                    && ui
+                        .selectable_label(self.modal_new_predicates, "+ New Predicate")
+                        .clicked()
                 {
                     self.modal_new_predicates = true;
                 }
