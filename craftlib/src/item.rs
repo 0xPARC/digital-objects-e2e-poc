@@ -97,7 +97,8 @@ impl<'a> CraftBuilder<'a> {
             IsWood() = (
                 st_item_def,
                 Equal(item_def.ingredients.inputs_set(self.params)?, EMPTY_VALUE),
-                DictContains(item_def.ingredients.dict(self.params)?, "blueprint", WOOD_BLUEPRINT)
+                DictContains(item_def.ingredients.dict(self.params)?, "blueprint", WOOD_BLUEPRINT),
+                Equal(item_def.work, EMPTY_VALUE)
             ))?)
     }
 
@@ -135,6 +136,7 @@ impl<'a> CraftBuilder<'a> {
             IsAxe() = (
                 st_item_def,
                 DictContains(item_def.ingredients.dict(self.params)?, "blueprint", AXE_BLUEPRINT),
+                Equal(item_def.work, EMPTY_VALUE),
                 st_axe_inputs
             ))?)
     }
@@ -173,6 +175,7 @@ impl<'a> CraftBuilder<'a> {
             IsWoodenAxe() = (
                 st_item_def,
                 DictContains(item_def.ingredients.dict(self.params)?, "blueprint", WOODEN_AXE_BLUEPRINT),
+                Equal(item_def.work, EMPTY_VALUE),
                 st_wooden_axe_inputs
             ))?)
     }

@@ -37,6 +37,7 @@ impl ItemPredicates {
                 ItemDef(item, ingredients, inputs, key, work)
                 Equal(inputs, {})
                 DictContains(ingredients, "blueprint", "wood")
+                Equal(work, {})
                 // TODO input POD: SequentialWork(ingredients, work, 5)
                 // TODO input POD: HashInRange(0, 1<<5, ingredients)
             )
@@ -57,6 +58,7 @@ impl ItemPredicates {
             IsAxe(item, private: ingredients, inputs, key, work) = AND(
                 ItemDef(item, ingredients, inputs, key, work)
                 DictContains(ingredients, "blueprint", "axe")
+                Equal(work, {})
         
                 AxeInputs(inputs)
             )
@@ -76,6 +78,7 @@ impl ItemPredicates {
             IsWoodenAxe(item, private: ingredients, inputs, key, work) = AND(
                 ItemDef(item, ingredients, inputs, key, work)
                 DictContains(ingredients, "blueprint", "wooden-axe")
+                Equal(work, {})
         
                 WoodenAxeInputs(inputs)
             )
