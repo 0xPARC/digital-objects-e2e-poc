@@ -76,6 +76,12 @@ PRIV_KEY="bcdf20249abf0ed6d944c0288fad489e33f66b3960d9e6229c1cd214ed3bbe31"
 DO_GENESIS_SLOT="0"
 ```
 
+Do not use the flow-synchronizer.sh script which will override the GENESIS_SLOT to a high number and cause updates to be missed.  Instead run this command directly:
+
+```
+RUST_LOG=synchronizer=debug,info cargo run --release -p synchronizer
+```
+
 #### Stop
 ```
 ./kurtosis engine stop
