@@ -179,7 +179,7 @@ DisassembleH2O(items, private: ingredients, inputs, key, work) = AND(
         input_ingredients: &["Uranium"],
         outputs: &["Refined Uranium"],
         predicate: r#"
-RefinedUranium(items, private: ingredients, inputs, key, work) = AND(
+RefinedUranium(item, private: ingredients, inputs, key, work) = AND(
     ItemDef(item, ingredients, inputs, key, work)
     DictContains(ingredients, "blueprint", "refined_uranium")
 
@@ -194,12 +194,29 @@ RefinedUranium(items, private: ingredients, inputs, key, work) = AND(
         input_tools: &["Pick Axe"],
         outputs: &["Coal"],
         predicate: r#"
-IsCoal(item, private: ingredients, inputs, key, work) = AND(
-    ItemDef(item, ingredients, inputs, key, work)
-    DictContains(ingredients, "blueprint", "stone")
+CoalMiningRecipe(batch, new_durability, ingredients, inputs, key, work) = AND(
+    BatchDef(batch, ingredients, inputs, key, work)
+    DictContains(ingredients, "blueprint", "coal")
     SetInsert(inputs, {}, pick_axe)
     IsPickAxe(pick_axe, durability)
     GtEq(durability, 50)
+    SumOf(new_durability, durability, -1)
+    Equal(work, 0)
+)
+
+IsCoal(item, private: ingredients, inputs, key, work) = AND(
+    CoalMiningRecipe(batch, new_durability, ingredients, inputs, key, work)
+    ItemInBatch(item, batch, "coal")
+)
+
+UsedPickAxe(item, new_durability, private: ingredients, inputs, key, work) = AND(
+    CoalMiningRecipe(batch, new_durability, ingredients, inputs, key, work)
+    ItemInBatch(item, batch, "pickaxe")
+)
+
+IsPickAxe(item, durability, private: ingredients, inputs, key, work) = OR(
+    UsedPickAxe(item, durability)
+    NewPickAxe(item, durability)
 )"#,
         ..Default::default()
     };
@@ -208,7 +225,9 @@ IsCoal(item, private: ingredients, inputs, key, work) = AND(
         let mut tree_house_is_wood_lines = String::new();
         for i in 0..N_WOODS {
             tree_house_is_wood_lines.push_str(&format!(
-                "\n    SetInsert(inputs, {{}}, wood{i})\n    IsWood(wood{i})"
+                "\n    SetInsert(inputs{}, {}, wood{i})\n    IsWood(wood{i})",
+                if i==(N_WOODS-1) { String::from("") } else { i.to_string() },
+                if i==0 { String::from("{}") } else { format!("inputs{}", i-1)}
             ));
         }
         format!(r#"
