@@ -98,7 +98,9 @@ fn craft(
 ) -> Response {
     set_busy_task(task_status, "Crafting");
 
+    let start = std::time::Instant::now();
     let r = craft_item(params, recipe, &output, &input_paths);
+    log::info!("[TIME] total Craft Item time: {:?}", start.elapsed());
 
     // move the files of the used inputs into the `used` subdir
     let used_path = Path::new(&pods_path).join(USED_ITEM_SUBDIR_NAME);

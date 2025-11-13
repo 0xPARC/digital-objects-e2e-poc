@@ -226,8 +226,6 @@ impl App {
             ui.add(
                 egui::Image::new(if name.starts_with("Axe") {
                     egui::include_image!("../assets/axe.png")
-                } else if name.starts_with("Stick") {
-                    egui::include_image!("../assets/stick.png")
                 } else if name.starts_with("Stone") {
                     egui::include_image!("../assets/stone.png")
                 } else if name.starts_with("WoodenAxe") {
@@ -240,6 +238,14 @@ impl App {
                     egui::include_image!("../assets/copper.png")
                 } else if name.starts_with("Tin") {
                     egui::include_image!("../assets/tin.png")
+                } else if name.starts_with("Tree House") {
+                    egui::include_image!("../assets/tree-house.png")
+                } else if name.starts_with("Refined Uranium") {
+                    egui::include_image!("../assets/uranium.png")
+                } else if name.starts_with("Tomato") {
+                    egui::include_image!("../assets/tomato.png")
+                } else if name.starts_with("Steel Sword") {
+                    egui::include_image!("../assets/steel-sword.png")
                 } else {
                     egui::include_image!("../assets/empty.png")
                 })

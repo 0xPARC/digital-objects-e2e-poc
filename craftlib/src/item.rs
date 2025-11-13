@@ -5,9 +5,7 @@ use log;
 use pod2::middleware::{EMPTY_VALUE, Hash, Params, RawValue, Statement, ToFields, Value};
 use pod2utils::{macros::BuildContext, set, st_custom};
 
-use crate::constants::{
-    AXE_BLUEPRINT, STICK_BLUEPRINT, STONE_BLUEPRINT, WOOD_BLUEPRINT, WOODEN_AXE_BLUEPRINT,
-};
+use crate::constants::{AXE_BLUEPRINT, STONE_BLUEPRINT, WOOD_BLUEPRINT, WOODEN_AXE_BLUEPRINT};
 
 // Reusable recipe for an item to be mined, not including the variable
 // cryptographic values.
@@ -89,20 +87,6 @@ impl<'a> CraftBuilder<'a> {
             ))?)
     }
 
-    pub fn st_is_stick(
-        &mut self,
-        item_def: ItemDef,
-        st_item_def: Statement,
-    ) -> anyhow::Result<Statement> {
-        // Build IsStick(item)
-        Ok(st_custom!(self.ctx,
-            IsStick() = (
-                st_item_def,
-                Equal(item_def.ingredients.inputs_set(self.params)?, EMPTY_VALUE),
-                DictContains(item_def.ingredients.dict(self.params)?, "blueprint", STICK_BLUEPRINT)
-            ))?)
-    }
-
     pub fn st_is_wood(
         &mut self,
         item_def: ItemDef,
@@ -113,27 +97,28 @@ impl<'a> CraftBuilder<'a> {
             IsWood() = (
                 st_item_def,
                 Equal(item_def.ingredients.inputs_set(self.params)?, EMPTY_VALUE),
-                DictContains(item_def.ingredients.dict(self.params)?, "blueprint", WOOD_BLUEPRINT)
+                DictContains(item_def.ingredients.dict(self.params)?, "blueprint", WOOD_BLUEPRINT),
+                Equal(item_def.work, EMPTY_VALUE)
             ))?)
     }
 
     fn st_axe_inputs(
         &mut self,
-        st_is_stick: Statement,
+        st_is_wood: Statement,
         st_is_stone: Statement,
     ) -> anyhow::Result<Statement> {
-        let stick = st_is_stick.args()[0].literal().unwrap();
+        let wood = st_is_wood.args()[0].literal().unwrap();
         let stone = st_is_stone.args()[0].literal().unwrap();
         let empty_set = set!(self.params.max_depth_mt_containers).unwrap();
         let mut s1 = empty_set.clone();
-        s1.insert(&stick).unwrap();
+        s1.insert(&wood).unwrap();
         let mut inputs = s1.clone();
         inputs.insert(&stone).unwrap();
         Ok(st_custom!(self.ctx,
             AxeInputs() = (
-                SetInsert(s1, empty_set, stick),
+                SetInsert(s1, empty_set, wood),
                 SetInsert(inputs, s1, stone),
-                st_is_stick,
+                st_is_wood,
                 st_is_stone
             ))?)
     }
@@ -142,15 +127,16 @@ impl<'a> CraftBuilder<'a> {
         &mut self,
         item_def: ItemDef,
         st_item_def: Statement,
-        st_is_stick: Statement,
+        st_is_wood: Statement,
         st_is_stone: Statement,
     ) -> anyhow::Result<Statement> {
-        let st_axe_inputs = self.st_axe_inputs(st_is_stick, st_is_stone)?;
+        let st_axe_inputs = self.st_axe_inputs(st_is_wood, st_is_stone)?;
         // Build IsAxe(item)
         Ok(st_custom!(self.ctx,
             IsAxe() = (
                 st_item_def,
                 DictContains(item_def.ingredients.dict(self.params)?, "blueprint", AXE_BLUEPRINT),
+                Equal(item_def.work, EMPTY_VALUE),
                 st_axe_inputs
             ))?)
     }
@@ -189,6 +175,7 @@ impl<'a> CraftBuilder<'a> {
             IsWoodenAxe() = (
                 st_item_def,
                 DictContains(item_def.ingredients.dict(self.params)?, "blueprint", WOODEN_AXE_BLUEPRINT),
+                Equal(item_def.work, EMPTY_VALUE),
                 st_wooden_axe_inputs
             ))?)
     }

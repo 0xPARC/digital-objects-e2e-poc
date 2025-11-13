@@ -15,7 +15,6 @@ use crate::{App, Request, utils::result2text};
 #[derive(Debug, Clone, Copy, PartialEq, IntoStaticStr)]
 pub enum Process {
     Stone,
-    Stick,
     Wood,
     Axe,
     WoodenAxe,
@@ -48,17 +47,6 @@ IsStone(item, private: ingredients, inputs, key, work) = AND(
 )"#,
         ..Default::default()
     };
-    static ref STICK_DATA: ProcessData = ProcessData {
-        description: "Stick.  Easily available.",
-        outputs: &["Stick"],
-        predicate: r#"
-IsStick(item, private: ingredients, inputs, key, work) = AND(
-    ItemDef(item, ingredients, inputs, key, work)
-    Equal(inputs, {})
-    DictContains(ingredients, "blueprint", "stick")
-)"#,
-        ..Default::default()
-    };
     static ref WOOD_DATA: ProcessData = ProcessData {
         description: "Wood.  Easily available.",
         outputs: &["Wood"],
@@ -72,19 +60,20 @@ IsWood(item, private: ingredients, inputs, key, work) = AND(
     };
     static ref AXE_DATA: ProcessData = ProcessData {
         description: "Axe.  Easy to craft.",
-        input_ingredients: &["Stick", "Stone"],
+        input_ingredients: &["Wood", "Stone"],
         outputs: &["Axe"],
         predicate: r#"
-IsAxe(item, private: ingredients, inputs, key, work) = AND(
+IsAxe(item, private: ingredients, inputs, key, work, s1, wood, stone) = AND(
     ItemDef(item, ingredients, inputs, key, work)
     DictContains(ingredients, "blueprint", "axe")
+    Equal(work, {})
 
     // 2 ingredients
-    SetInsert(s1, {}, stick)
+    SetInsert(s1, {}, wood)
     SetInsert(inputs, s1, stone)
 
     // prove the ingredients are correct.
-    IsStick(stick)
+    IsWood(wood)
     IsStone(stone)
 )"#,
         ..Default::default()
@@ -94,9 +83,10 @@ IsAxe(item, private: ingredients, inputs, key, work) = AND(
         input_ingredients: &["Wood", "Wood"],
         outputs: &["WoodenAxe"],
         predicate: r#"
-IsWoodenAxe(item, private: ingredients, inputs, key, work) = AND(
+IsWoodenAxe(item, private: ingredients, inputs, key, work, s1, wood1, wood2) = AND(
     ItemDef(item, ingredients, inputs, key, work)
     DictContains(ingredients, "blueprint", "wooden-axe")
+    Equal(work, 0)
 
     // 2 ingredients
     SetInsert(s1, {}, wood1)
@@ -114,8 +104,9 @@ IsWoodenAxe(item, private: ingredients, inputs, key, work) = AND(
         input_ingredients: &["Item to destroy"],
         outputs: &[],
         predicate: r#"
-Destroy(void, private: ingredients, inputs, key, work) = AND(
-    ItemDef(void, ingredients, inputs, key, work)
+Destroy(batch, private: ingredients, inputs, key, work, item) = AND(
+    BatchDef(batch, ingredients, inputs, key, work)
+    Equal(batch, {})
     SetInsert(inputs, {}, item)
 )"#,
         ..Default::default()
@@ -126,14 +117,32 @@ Destroy(void, private: ingredients, inputs, key, work) = AND(
         input_ingredients: &["Tomato Seed"],
         outputs: &["Tomato"],
         predicate: r#"
-IsTomato(item, private: ingredients, inputs, key, work) = AND(
-    ItemDef(item, ingredients, inputs, key, work)
+TomatoRecipe(batch, farm_level, ingredients, inputs, key, work, private: s1, tomato_farm, tomato_seed) = AND(
+    BatchDef(batch, ingredients, inputs, key, work)
     DictContains(ingredients, "blueprint", "tomato")
+    Equal(work, {})
 
     SetInsert(s1, {}, tomato_farm)
     SetInsert(inputs, s1, tomato_seed)
-    IsFarmLevel1(tomato_farm)
+
     IsTomatoSeed(tomato_seed)
+    IsFarm(tomato_farm, farm_level)
+    Ge(level, 1)
+)
+
+IsTomato(item, private: batch, ingredients, inputs, key, work, farm_level) = AND(
+    TomatoRecipe(batch, farm_level, ingredients, inputs, key, work)
+    ItemInBatch(item, batch, "tomato")
+)
+    
+UsedFarm(item, level, private: batch, ingredients, inputs, key, work) = AND(
+    TomatoRecipe(batch, level ingredients, inputs, key, work)
+    ItemInBatch(item, batch, "farm")
+)
+
+IsFarm(item, level, private: batch ingredients, inputs, key, work) = OR(
+    UsedFarm(item, level)
+    NewFarm(item, level)
 )"#,
         ..Default::default()
     };
@@ -143,18 +152,36 @@ IsTomato(item, private: ingredients, inputs, key, work) = AND(
         input_ingredients: &["Steel", "Steel", "Wood"],
         outputs: &["Steel Sword"],
         predicate: r#"
-IsSteelSword(item, private: ingredients, inputs, key, work) = AND(
-    ItemDef(item, ingredients, inputs, key, work)
+SteelSwordRecipe(batch, ingredients, inputs, key, work, forge, steel1, steel2, wood, s1, s2, s3, s4) = AND(
+    BatchDef(batch, ingredients, inputs, key, work)
     DictContains(ingredients, "blueprint", "steel sword")
+    Equal(work, {})
 
     SetInsert(s1, {}, forge)
     SetInsert(s2, s1, steel1)
     SetInsert(s3, s2, steel2)
-    SetInsert(inputs, s3, wood)
+    SetInsert(s4, s3, wood)
+    SetInsert(inputs, s4, forge)
+    
     IsForge(forge)
     IsSteel(steel1)
     IsSteel(steel2)
     IsWood(wood)
+)
+
+IsSteelSword(item, private: batch, ingredients, inputs, key, work) = AND(
+   SteelSwordRecipe(batch, ingredients, inputs, key, work)
+   ItemInBatch(item, batch, "steel sword")
+)
+
+UsedForge(item, private: batch, ingredients, inputs, key, work) = AND(
+    SteelSwordRecipe(batch, new_durability, ingredients, inputs, key, work)
+    ItemInBatch(item, batch, "forge")
+)
+
+IsForge(item, private: batch ingredients, inputs, key, work) = OR(
+    UsedForge(item)
+    NewForge(item)
 )"#,
         ..Default::default()
     };
@@ -163,14 +190,33 @@ IsSteelSword(item, private: ingredients, inputs, key, work) = AND(
         input_ingredients: &["H2O"],
         outputs: &["H", "H", "O"],
         predicate: r#"
-DisassembleH2O(items, private: ingredients, inputs, key, work) = AND(
+DisassembleH2O(batch, ingredients, inputs, key, work) = AND(
     ItemDef(items, ingredients, inputs, key, work)
     DictContains(ingredients, "blueprint_0", "H")
     DictContains(ingredients, "blueprint_1", "H")
     DictContains(ingredients, "blueprint_2", "O")
+    Equal(work, {})
 
     SetInsert(inputs, {}, h2o)
     IsH2O(h2o)
+)
+
+IsH0(item, private: batch, ingredients, inputs, key, work) = AND(
+    DisassembleH2O(batch, ingredients, inputs, key, work)
+    ItemInBatch(item, batch, "0")
+)
+IsH1(item, private: batch, ingredients, inputs, key, work) = AND(
+    DisassembleH2O(batch, ingredients, inputs, key, work)
+    ItemInBatch(item, batch, "1")
+)
+IsH(item) = OR(
+    IsH0(item)
+    IsH1(item)
+)
+    
+IsO(item, private: batch, ingredients, inputs, key, work) = AND(
+    DisassembleH2O(batch, ingredients, inputs, key, work)
+    ItemInBatch(item, batch, "2")
 )"#,
         ..Default::default()
     };
@@ -179,7 +225,7 @@ DisassembleH2O(items, private: ingredients, inputs, key, work) = AND(
         input_ingredients: &["Uranium"],
         outputs: &["Refined Uranium"],
         predicate: r#"
-RefinedUranium(items, private: ingredients, inputs, key, work) = AND(
+IsRefinedUranium(item, private: ingredients, inputs, key, work) = AND(
     ItemDef(item, ingredients, inputs, key, work)
     DictContains(ingredients, "blueprint", "refined_uranium")
 
@@ -190,16 +236,33 @@ RefinedUranium(items, private: ingredients, inputs, key, work) = AND(
         ..Default::default()
     };
     static ref COAL_DATA: ProcessData = ProcessData {
-        description: "Mine coal.  Requires a Pick Axe with >= 50% durability.",
+        description: "Mine coal.  Requires a Pick Axe with >= 50% durability, and consumes 1% of it",
         input_tools: &["Pick Axe"],
         outputs: &["Coal"],
         predicate: r#"
-IsCoal(item, private: ingredients, inputs, key, work) = AND(
-    ItemDef(item, ingredients, inputs, key, work)
-    DictContains(ingredients, "blueprint", "stone")
+CoalMiningRecipe(batch, new_durability, ingredients, inputs, key, work) = AND(
+    BatchDef(batch, ingredients, inputs, key, work)
+    DictContains(ingredients, "blueprint", "coal")
     SetInsert(inputs, {}, pick_axe)
     IsPickAxe(pick_axe, durability)
     GtEq(durability, 50)
+    SumOf(new_durability, durability, -1)
+    Equal(work, 0)
+)
+
+IsCoal(item, private: ingredients, inputs, key, work) = AND(
+    CoalMiningRecipe(batch, new_durability, ingredients, inputs, key, work)
+    ItemInBatch(item, batch, "coal")
+)
+
+UsedPickAxe(item, new_durability, private: ingredients, inputs, key, work) = AND(
+    CoalMiningRecipe(batch, new_durability, ingredients, inputs, key, work)
+    ItemInBatch(item, batch, "pickaxe")
+)
+
+IsPickAxe(item, durability, private: ingredients, inputs, key, work) = OR(
+    UsedPickAxe(item, durability)
+    NewPickAxe(item, durability)
 )"#,
         ..Default::default()
     };
@@ -208,13 +271,17 @@ IsCoal(item, private: ingredients, inputs, key, work) = AND(
         let mut tree_house_is_wood_lines = String::new();
         for i in 0..N_WOODS {
             tree_house_is_wood_lines.push_str(&format!(
-                "\n    SetInsert(inputs, {{}}, wood{i})\n    IsWood(wood{i})"
+                "\n    SetInsert(inputs{}, {}, wood{i})\n    IsWood(wood{i})",
+                if i==(N_WOODS-1) { String::from("") } else { i.to_string() },
+                if i==0 { String::from("{}") } else { format!("inputs{}", i-1)}
             ));
         }
         format!(r#"
 IsTreeHouse(item, private: ingredients, inputs, key, work) = AND(
     ItemDef(item, ingredients, inputs, key, work)
     DictContains(ingredients, "blueprint", "wood")
+    Equal(work, {{}})
+
     {tree_house_is_wood_lines}
 )"#)
     };
@@ -231,6 +298,9 @@ IsTreeHouse(item, private: ingredients, inputs, key, work) = AND(
         input_ingredients: &["Rubik's Cube"],
         reconf_action: &["U", "D", "R", "L", "F", "B", "Uw", "Dw", "Rw", "Lw", "Fw", "Bw", "x", "y", "z", "M", "E", "S"],
         predicate: r#"
+
+// [...]
+
 MoveLeft(new, old, op) = AND(
     Equal(op.name, "U")
     RotateLayer(new.faces, old.faces, 0, "left")
@@ -251,6 +321,9 @@ MovedRubiksCube(new, old, op) = OR(
         input_ingredients: &["Deck of Cards"],
         reconf_action: &["Rotate Clockwise", "Rotate Counter-Clockwise", "Random Shuffle"],
         predicate: r#"
+
+// [...]
+
 RotateClockwise(new, old, op) = AND(
     Equal(op.name, "rotate-clockwise")
     Equal(new.cards[0], old.cards[51])
@@ -274,6 +347,8 @@ RearrangedDeckOfCards(new, old, op) = OR(
         input_ingredients: &["Refrigerator"],
         reconf_action: &["Open in Layout Editor"],
         predicate: r#"
+// [...]
+
 RearrangedRefrigerator(new, old, op) = AND(
     Equal(new.objects, old.objects)
     NoOverlap(new.objects, new.positions)
@@ -285,6 +360,8 @@ RearrangedRefrigerator(new, old, op) = AND(
         input_ingredients: &["Farm Level 1"],
         reconf_action: &["Fertilize", "Till"],
         predicate: r#"
+// [...]
+
 Fertilize(new, old, op) = AND(
     Equal(op.name, "fertilize")
     DictUpdate(new, old, "fertilized", true)
@@ -299,7 +376,7 @@ MaintainedFarm(new, old, op) = OR(
         ..Default::default()
     };
 }
-const N_WOODS: usize = 30;
+const N_WOODS: usize = 100;
 
 impl Process {
     #[allow(clippy::let_and_return)]
@@ -318,7 +395,6 @@ impl Process {
     pub fn recipe(&self) -> Option<Recipe> {
         match self {
             Self::Stone => Some(Recipe::Stone),
-            Self::Stick => Some(Recipe::Stick),
             Self::Wood => Some(Recipe::Wood),
             Self::Axe => Some(Recipe::Axe),
             Self::WoodenAxe => Some(Recipe::WoodenAxe),
@@ -329,7 +405,6 @@ impl Process {
     pub fn data(&self) -> &'static ProcessData {
         match self {
             Self::Stone => &STONE_DATA,
-            Self::Stick => &STICK_DATA,
             Self::Wood => &WOOD_DATA,
             Self::Axe => &AXE_DATA,
             Self::WoodenAxe => &WOODEN_AXE_DATA,
@@ -374,7 +449,7 @@ impl Verb {
         use Process::*;
         match self {
             Self::Mine => vec![Mock("Coal")],
-            Self::Gather => vec![Stone, Stick, Wood],
+            Self::Gather => vec![Stone, Wood],
             Self::Refine => vec![Mock("Refine-Uranium")],
             Self::Reconfigure => vec![
                 Mock("Reconfigure-Rubik's Cube"),
@@ -465,7 +540,9 @@ impl App {
             }
             ui.end_row();
         });
+        ui.add_space(8.0);
         ui.separator();
+        ui.add_space(8.0);
 
         let mut selected_action = self.crafting.selected_action;
         if let Some(process) = self.crafting.selected_process {
@@ -474,7 +551,9 @@ impl App {
             // Block2: Description
             ui.heading("Description:");
             ui.add(Label::new(RichText::new(process_data.description)).wrap());
+            ui.add_space(8.0);
             ui.separator();
+            ui.add_space(8.0);
 
             // Block3: Configuration
             let inputs = process_data.input_ingredients;
@@ -549,7 +628,7 @@ impl App {
                 ui.label("[load object first]");
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    ui.label("Action:");
+                    ui.heading("Action:");
                     egui::ComboBox::from_id_salt("reconf action")
                         .selected_text(selected_action.unwrap_or_default())
                         .show_ui(ui, |ui| {
@@ -569,16 +648,24 @@ impl App {
                     format!("{:?}_{}", process, self.items.len() + self.used_items.len());
             }
 
+            ui.add_space(8.0);
             ui.separator();
+            ui.add_space(8.0);
 
             // Block4: Predicate
             let predicate = process_data.predicate.trim_start();
             ui.heading("Predicate:");
             egui::ScrollArea::vertical()
                 .id_salt("predicate scroll")
-                .max_height(256.0)
+                .max_height(512.0)
                 .show(ui, |ui| {
-                    ui.add(Label::new(RichText::new(predicate).monospace()).wrap());
+                    Frame::NONE
+                        .fill(egui::Color32::from_gray(20))
+                        .corner_radius(egui::CornerRadius::same(8))
+                        .inner_margin(egui::Vec2::splat(8.0))
+                        .show(ui, |ui| {
+                            ui.add(Label::new(RichText::new(predicate).monospace()).wrap());
+                        });
                 });
 
             let mut button_craft_clicked = false;

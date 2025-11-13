@@ -76,6 +76,12 @@ PRIV_KEY="bcdf20249abf0ed6d944c0288fad489e33f66b3960d9e6229c1cd214ed3bbe31"
 DO_GENESIS_SLOT="0"
 ```
 
+Do not use the flow-synchronizer.sh script which will override the GENESIS_SLOT to a high number and cause updates to be missed.  Instead run this command directly:
+
+```
+RUST_LOG=synchronizer=debug,info cargo run --release -p synchronizer
+```
+
 #### Stop
 ```
 ./kurtosis engine stop
@@ -94,6 +100,9 @@ The files in `app_gui/assets` are distributed under the Flaticon License:
 - `tin.png`: <a href="https://www.flaticon.com/free-icons/tin" title="tin icons">Tin icons created by Freepik - Flaticon</a>
 - `wood.png`: <a href="https://www.flaticon.com/free-icons/wood" title="wood icons">Wood icons created by Freepik - Flaticon</a>
 - `water.png`: <a href="https://www.flaticon.com/free-icons/shark" title="shark icons">Shark icons created by Freepik - Flaticon</a>
-- `stick.png`: <a href="https://www.flaticon.com/free-icons/stick" title="stick icons">Stick icons created by Freepik - Flaticon</a>
 - `stone.png`: <a href="https://www.flaticon.com/free-icons/coal" title="coal icons">Coal icons created by Freepik - Flaticon</a>
 - `wooden-axe.png`: <a href="https://www.flaticon.com/free-icons/wood" title="wood icons">Wood icons created by Nsit - Flaticon</a>
+- `tree-house.png`: <a href="https://www.flaticon.com/free-icons/tree-house" title="tree house icons">Tree house icons created by Nsit - Flaticon</a>
+- `uranium.png`: <a href="https://www.flaticon.com/free-icons/uranium" title="uranium icons">Uranium icons created by Freepik - Flaticon</a>
+- `tomato.png`: <a href="https://www.flaticon.com/free-icons/tomato" title="tomato icons">Tomato icons created by PixelPerfect - Flaticon</a>
+- `steel-sword.png`: <a href="https://www.flaticon.com/free-icons/steel-sword" title="steel sword icons">Steel sword icons created by Assia Benkerroum - Flaticon</a>

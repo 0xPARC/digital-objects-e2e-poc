@@ -35,11 +35,14 @@ impl App {
             .map(|i| self.all_items()[i].clone());
         egui::Grid::new("item title").show(ui, |ui| {
             ui.set_min_height(32.0);
-            ui.heading("Item: ");
+            ui.heading("Loaded Item: ");
             let frame = Frame::default().inner_margin(4.0);
             let (_, dropped_payload) = ui.dnd_drop_zone::<usize, ()>(frame, |ui| {
                 if let Some(item) = item.clone() {
                     self.name_with_img(ui, &item.name);
+                    if ui.button("X").clicked() {
+                        self.item_view.selected_item = None;
+                    }
                 } else {
                     ui.heading("...");
                 }
@@ -75,12 +78,18 @@ impl App {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 let sts = &item.crafted_item.pod.public_statements;
                 ui.separator();
-                for st in sts {
-                    let mut st_str = String::new();
-                    pretty_st(&mut st_str, st);
-                    ui.add(Label::new(RichText::new(&st_str).monospace()).wrap());
-                    ui.add_space(4.0);
-                }
+                Frame::NONE
+                    .fill(egui::Color32::from_gray(20))
+                    .corner_radius(egui::CornerRadius::same(8))
+                    .inner_margin(egui::Vec2::splat(8.0))
+                    .show(ui, |ui| {
+                        for st in sts {
+                            let mut st_str = String::new();
+                            pretty_st(&mut st_str, st);
+                            ui.add(Label::new(RichText::new(&st_str).monospace()).wrap());
+                            ui.add_space(4.0);
+                        }
+                    });
             });
 
             if verify_clicked {
