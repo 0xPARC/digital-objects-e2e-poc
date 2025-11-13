@@ -155,6 +155,17 @@ impl eframe::App for App {
             self.dev_mode = !self.dev_mode;
             log::info!("dev_mode={:?}", self.dev_mode);
         }
+
+        // Alt + C: toggle theme
+        if ctx.input(|i| i.key_released(egui::Key::C) && i.modifiers.alt) {
+            let theme = ctx.theme();
+            log::info!("Switching from {:?} theme", theme);
+            ctx.set_theme(match theme {
+                egui::Theme::Dark => egui::Theme::Light,
+                egui::Theme::Light => egui::Theme::Dark,
+            });
+        }
+
         // Ctrl + Q: quit
         if ctx.input(|i| i.key_released(egui::Key::Q) && i.modifiers.ctrl) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
