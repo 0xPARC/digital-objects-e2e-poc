@@ -78,12 +78,18 @@ impl App {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 let sts = &item.crafted_item.pod.public_statements;
                 ui.separator();
-                for st in sts {
-                    let mut st_str = String::new();
-                    pretty_st(&mut st_str, st);
-                    ui.add(Label::new(RichText::new(&st_str).monospace()).wrap());
-                    ui.add_space(4.0);
-                }
+                Frame::NONE
+                    .fill(egui::Color32::from_gray(20))
+                    .corner_radius(egui::CornerRadius::same(8))
+                    .inner_margin(egui::Vec2::splat(8.0))
+                    .show(ui, |ui| {
+                        for st in sts {
+                            let mut st_str = String::new();
+                            pretty_st(&mut st_str, st);
+                            ui.add(Label::new(RichText::new(&st_str).monospace()).wrap());
+                            ui.add_space(4.0);
+                        }
+                    });
             });
 
             if verify_clicked {

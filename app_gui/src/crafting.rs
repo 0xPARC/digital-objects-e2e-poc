@@ -649,7 +649,13 @@ impl App {
                 .id_salt("predicate scroll")
                 .max_height(512.0)
                 .show(ui, |ui| {
-                    ui.add(Label::new(RichText::new(predicate).monospace()).wrap());
+                    Frame::NONE
+                        .fill(egui::Color32::from_gray(20))
+                        .corner_radius(egui::CornerRadius::same(8))
+                        .inner_margin(egui::Vec2::splat(8.0))
+                        .show(ui, |ui| {
+                            ui.add(Label::new(RichText::new(predicate).monospace()).wrap());
+                        });
                 });
 
             let mut button_craft_clicked = false;
