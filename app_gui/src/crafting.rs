@@ -444,7 +444,11 @@ impl App {
                 egui::ComboBox::from_id_salt("process selection")
                     .selected_text(selected_process.map(|r| r.as_str()).unwrap_or_default())
                     .show_ui(ui, |ui| {
-                        for process in selected_verb.processes() {
+                        for process in selected_verb
+                            .processes()
+                            .into_iter()
+                            .filter(|p| self.mock_mode || (p.recipe().is_some()))
+                        {
                             ui.selectable_value(
                                 &mut selected_process,
                                 Some(process),

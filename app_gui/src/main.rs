@@ -166,6 +166,12 @@ impl eframe::App for App {
             });
         }
 
+        // Alt + M: toggle mock mode
+        if ctx.input(|i| i.key_released(egui::Key::M) && i.modifiers.alt) {
+            self.mock_mode = !self.mock_mode;
+            log::info!("mock_mode={:?}", self.mock_mode);
+        }
+
         // Ctrl + Q: quit
         if ctx.input(|i| i.key_released(egui::Key::Q) && i.modifiers.ctrl) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -188,7 +194,11 @@ impl App {
         ui.vertical(|ui| {
             ui.horizontal(|ui| {
                 ui.set_min_height(32.0);
-                for verb in Verb::list() {
+                // Mock toggle taken into account.
+                for verb in Verb::list()
+                    .into_iter()
+                    .filter(|v| self.mock_mode || v == &Verb::Gather || v == &Verb::Craft)
+                {
                     if ui
                         .selectable_label(Some(verb) == self.crafting.selected_verb, verb.as_str())
                         .clicked()
@@ -197,9 +207,11 @@ impl App {
                         self.crafting.selected_process = verb.default_process();
                     }
                 }
-                if ui
-                    .selectable_label(self.modal_new_predicates, "+ New Predicate")
-                    .clicked()
+                // Mock toggle for 'new predicate'.
+                if self.mock_mode
+                    && ui
+                        .selectable_label(self.modal_new_predicates, "+ New Predicate")
+                        .clicked()
                 {
                     self.modal_new_predicates = true;
                 }

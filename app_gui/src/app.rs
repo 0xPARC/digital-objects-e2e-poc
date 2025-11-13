@@ -41,6 +41,7 @@ pub struct App {
     pub modal_new_predicates: bool, // modal for writing new predicates
     pub code_editor_content: String,
     pub dev_mode: bool,
+    pub mock_mode: bool,
     pub danger: bool,
 }
 
@@ -96,12 +97,9 @@ IsTinPremium(item, private: ingredients, inputs, key, work) = AND(
             modal_new_predicates: false,
             code_editor_content: code.clone(),
             dev_mode: false,
+            mock_mode: true,
             danger: false,
         };
-        // BEGIN DEBUG
-        app.crafting.selected_verb = Some(Verb::Craft);
-        app.crafting.selected_process = Some(Process::Mock("Tree House"));
-        // END DEBUG
         app.refresh_items()?;
         Ok(app)
     }
