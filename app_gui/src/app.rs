@@ -40,6 +40,7 @@ pub struct App {
     pub mock_mode: bool,
     pub danger: bool,
     pub cute: bool,
+    pub show_cheats: bool,
 }
 
 impl App {
@@ -97,6 +98,7 @@ IsTinPremium(item, private: ingredients, inputs, key, work) = AND(
             mock_mode: true,
             danger: false,
             cute: false,
+            show_cheats: false,
         };
         app.refresh_items()?;
         Ok(app)

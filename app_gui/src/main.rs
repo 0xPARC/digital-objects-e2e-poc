@@ -125,7 +125,7 @@ impl eframe::App for App {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.columns_const(|[item_view_ui, crafting_ui]| {
                 item_view_ui.vertical(|ui| {
-                    self.update_item_view_ui(ui);
+                    self.update_item_view_ui(ctx, ui);
                 });
                 crafting_ui.vertical(|ui| {
                     let task_status = self.task_status.read().unwrap().clone();
@@ -161,8 +161,8 @@ impl eframe::App for App {
             log::info!("dev_mode={:?}", self.dev_mode);
         }
 
-        // Alt + C: toggle theme
-        if ctx.input(|i| i.key_released(egui::Key::C) && i.modifiers.alt) {
+        // Alt + T: toggle theme
+        if ctx.input(|i| i.key_released(egui::Key::T) && i.modifiers.alt) {
             let theme = ctx.theme();
             log::info!("Switching from {theme:?} theme");
             ctx.set_theme(match theme {
@@ -181,7 +181,7 @@ impl eframe::App for App {
         if ctx.input(|i| i.key_released(egui::Key::Q) && i.modifiers.ctrl) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
-        // Alt + S: cute
+        // Alt + S: shark
         if ctx.input(|i| i.key_released(egui::Key::S) && i.modifiers.alt) {
             self.cute = false;
             self.danger = !self.danger;
@@ -191,6 +191,25 @@ impl eframe::App for App {
             self.danger = false;
             self.cute = !self.cute;
         }
+        // ALT + C
+        if ctx.input(|i| i.key_released(egui::Key::C) && i.modifiers.alt) {
+            self.show_cheats = !self.show_cheats;
+            log::info!("show_cheats={:?}", self.show_cheats);
+        }
+
+        egui::Window::new("Cheat codes")
+            .collapsible(true)
+            .movable(true)
+            .resizable([true, true])
+            .title_bar(true)
+            .open(&mut self.show_cheats)
+            .show(ctx, |ui| {
+                ui.label("ALT + M: toggle mock mode".to_string());
+                ui.label("ALT + S: danger mode".to_string());
+                ui.label("ALT + K: cute mode".to_string());
+                ui.label("ALT + C: show cheat codes".to_string());
+                ui.label("CTRL + Q: quit".to_string());
+            });
     }
 
     fn on_exit(&mut self, _gl: Option<&egui_glow::glow::Context>) {
@@ -247,6 +266,8 @@ impl App {
                     egui::include_image!("../assets/wood.png")
                 } else if name.starts_with("Copper") {
                     egui::include_image!("../assets/copper.png")
+                } else if name.starts_with("Coal") {
+                    egui::include_image!("../assets/coal.png")
                 } else if name.starts_with("Tin") {
                     egui::include_image!("../assets/tin.png")
                 } else if name.starts_with("Tree House") {

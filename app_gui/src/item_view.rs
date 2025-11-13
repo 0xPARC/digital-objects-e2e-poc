@@ -28,7 +28,7 @@ impl ItemView {
 
 impl App {
     // Item view panel
-    pub fn update_item_view_ui(&mut self, ui: &mut Ui) {
+    pub fn update_item_view_ui(&mut self, ctx: &egui::Context, ui: &mut Ui) {
         let item = self
             .item_view
             .selected_item
@@ -79,7 +79,13 @@ impl App {
                 let sts = &item.crafted_item.pod.public_statements;
                 ui.separator();
                 Frame::NONE
-                    .fill(egui::Color32::from_gray(20))
+                    .fill(if ctx.theme() == egui::Theme::Dark {
+                        egui::Color32::from_gray(20)
+                    } else if ctx.theme() == egui::Theme::Light {
+                        egui::Color32::from_gray(240)
+                    } else {
+                        egui::Color32::TRANSPARENT
+                    })
                     .corner_radius(egui::CornerRadius::same(8))
                     .inner_margin(egui::Vec2::splat(8.0))
                     .show(ui, |ui| {
