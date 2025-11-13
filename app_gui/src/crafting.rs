@@ -15,7 +15,6 @@ use crate::{App, Request, utils::result2text};
 #[derive(Debug, Clone, Copy, PartialEq, IntoStaticStr)]
 pub enum Process {
     Stone,
-    Stick,
     Wood,
     Axe,
     WoodenAxe,
@@ -48,17 +47,6 @@ IsStone(item, private: ingredients, inputs, key, work) = AND(
 )"#,
         ..Default::default()
     };
-    static ref STICK_DATA: ProcessData = ProcessData {
-        description: "Stick.  Easily available.",
-        outputs: &["Stick"],
-        predicate: r#"
-IsStick(item, private: ingredients, inputs, key, work) = AND(
-    ItemDef(item, ingredients, inputs, key, work)
-    Equal(inputs, {})
-    DictContains(ingredients, "blueprint", "stick")
-)"#,
-        ..Default::default()
-    };
     static ref WOOD_DATA: ProcessData = ProcessData {
         description: "Wood.  Easily available.",
         outputs: &["Wood"],
@@ -72,19 +60,19 @@ IsWood(item, private: ingredients, inputs, key, work) = AND(
     };
     static ref AXE_DATA: ProcessData = ProcessData {
         description: "Axe.  Easy to craft.",
-        input_ingredients: &["Stick", "Stone"],
+        input_ingredients: &["Wood", "Stone"],
         outputs: &["Axe"],
         predicate: r#"
-IsAxe(item, private: ingredients, inputs, key, work) = AND(
+IsAxe(item, private: ingredients, inputs, key, work, s1, wood, stone) = AND(
     ItemDef(item, ingredients, inputs, key, work)
     DictContains(ingredients, "blueprint", "axe")
 
     // 2 ingredients
-    SetInsert(s1, {}, stick)
+    SetInsert(s1, {}, wood)
     SetInsert(inputs, s1, stone)
 
     // prove the ingredients are correct.
-    IsStick(stick)
+    IsWood(wood)
     IsStone(stone)
 )"#,
         ..Default::default()
@@ -94,7 +82,7 @@ IsAxe(item, private: ingredients, inputs, key, work) = AND(
         input_ingredients: &["Wood", "Wood"],
         outputs: &["WoodenAxe"],
         predicate: r#"
-IsWoodenAxe(item, private: ingredients, inputs, key, work) = AND(
+IsWoodenAxe(item, private: ingredients, inputs, key, work, s1, wood1, wood2) = AND(
     ItemDef(item, ingredients, inputs, key, work)
     DictContains(ingredients, "blueprint", "wooden-axe")
 
@@ -114,8 +102,9 @@ IsWoodenAxe(item, private: ingredients, inputs, key, work) = AND(
         input_ingredients: &["Item to destroy"],
         outputs: &[],
         predicate: r#"
-Destroy(void, private: ingredients, inputs, key, work) = AND(
-    ItemDef(void, ingredients, inputs, key, work)
+Destroy(batch, private: ingredients, inputs, key, work) = AND(
+    BatchDef(batch, ingredients, inputs, key, work)
+    Equal(batch, {})
     SetInsert(inputs, {}, item)
 )"#,
         ..Default::default()
@@ -337,7 +326,6 @@ impl Process {
     pub fn recipe(&self) -> Option<Recipe> {
         match self {
             Self::Stone => Some(Recipe::Stone),
-            Self::Stick => Some(Recipe::Stick),
             Self::Wood => Some(Recipe::Wood),
             Self::Axe => Some(Recipe::Axe),
             Self::WoodenAxe => Some(Recipe::WoodenAxe),
@@ -348,7 +336,6 @@ impl Process {
     pub fn data(&self) -> &'static ProcessData {
         match self {
             Self::Stone => &STONE_DATA,
-            Self::Stick => &STICK_DATA,
             Self::Wood => &WOOD_DATA,
             Self::Axe => &AXE_DATA,
             Self::WoodenAxe => &WOODEN_AXE_DATA,
@@ -393,7 +380,7 @@ impl Verb {
         use Process::*;
         match self {
             Self::Mine => vec![Mock("Coal")],
-            Self::Gather => vec![Stone, Stick, Wood],
+            Self::Gather => vec![Stone, Wood],
             Self::Refine => vec![Mock("Refine-Uranium")],
             Self::Reconfigure => vec![
                 Mock("Reconfigure-Rubik's Cube"),
@@ -591,7 +578,7 @@ impl App {
             ui.heading("Predicate:");
             egui::ScrollArea::vertical()
                 .id_salt("predicate scroll")
-                .max_height(256.0)
+                .max_height(512.0)
                 .show(ui, |ui| {
                     ui.add(Label::new(RichText::new(predicate).monospace()).wrap());
                 });

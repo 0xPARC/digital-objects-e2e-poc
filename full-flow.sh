@@ -31,14 +31,14 @@ $tmux send-keys -t fullflow:0.0 'RUST_LOG=synchronizer=debug cargo run --release
 
 
 # app command line:
-# craft new stick item
+# craft new wood item
 $tmux send-keys -t fullflow:0.1 './wait-sync-epoch.sh 0' C-m
-$tmux send-keys -t fullflow:0.1 'RUST_LOG=app_cli=debug cargo run --release -p app_cli -- craft  --recipe stick --output ./tmp/item-stick' C-m
+$tmux send-keys -t fullflow:0.1 'RUST_LOG=app_cli=debug cargo run --release -p app_cli -- craft  --recipe wood --output ./tmp/item-wood' C-m
 # commit the crafted item
-$tmux send-keys -t fullflow:0.1 'RUST_LOG=app_cli=debug cargo run --release -p app_cli -- commit --input ./tmp/item-stick' C-m
+$tmux send-keys -t fullflow:0.1 'RUST_LOG=app_cli=debug cargo run --release -p app_cli -- commit --input ./tmp/item-wood' C-m
 # verify the crafted item
 $tmux send-keys -t fullflow:0.1 './wait-sync-epoch.sh 1' C-m
-$tmux send-keys -t fullflow:0.1 'RUST_LOG=app_cli=debug cargo run --release -p app_cli -- verify --input ./tmp/item-stick' C-m
+$tmux send-keys -t fullflow:0.1 'RUST_LOG=app_cli=debug cargo run --release -p app_cli -- verify --input ./tmp/item-wood' C-m
 
 # craft new stone item
 $tmux send-keys -t fullflow:0.1 'RUST_LOG=app_cli=debug cargo run --release -p app_cli -- craft --recipe stone --output ./tmp/item-stone' C-m
@@ -49,7 +49,7 @@ $tmux send-keys -t fullflow:0.1 './wait-sync-epoch.sh 2' C-m
 $tmux send-keys -t fullflow:0.1 'RUST_LOG=app_cli=debug cargo run --release -p app_cli -- verify --input ./tmp/item-stone' C-m
 
 # craft new axe item
-$tmux send-keys -t fullflow:0.1 'RUST_LOG=app_cli=debug cargo run --release -p app_cli -- craft --recipe axe --input ./tmp/item-stick --input ./tmp/item-stone --output ./tmp/item-axe' C-m
+$tmux send-keys -t fullflow:0.1 'RUST_LOG=app_cli=debug cargo run --release -p app_cli -- craft --recipe axe --input ./tmp/item-wood --input ./tmp/item-stone --output ./tmp/item-axe' C-m
 # commit the crafted item
 $tmux send-keys -t fullflow:0.1 'RUST_LOG=app_cli=debug cargo run --release -p app_cli -- commit --input ./tmp/item-axe' C-m
 # verify the crafted item
