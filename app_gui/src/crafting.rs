@@ -376,7 +376,7 @@ MaintainedFarm(new, old, op) = OR(
         ..Default::default()
     };
 }
-const N_WOODS: usize = 30;
+const N_WOODS: usize = 100;
 
 impl Process {
     #[allow(clippy::let_and_return)]
