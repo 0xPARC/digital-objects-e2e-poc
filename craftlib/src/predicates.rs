@@ -33,36 +33,32 @@ impl ItemPredicates {
         
             // Example of a mined item which is more common but takes more work to
             // extract.
-            IsStick(item, private: ingredients, inputs, key, work) = AND(
-                ItemDef(item, ingredients, inputs, key, work)
-                Equal(inputs, {})
-                DictContains(ingredients, "blueprint", "stick")
-                // TODO input POD: SequentialWork(ingredients, work, 5)
-                // TODO input POD: HashInRange(0, 1<<5, ingredients)
-            )
-        
             IsWood(item, private: ingredients, inputs, key, work) = AND(
                 ItemDef(item, ingredients, inputs, key, work)
                 Equal(inputs, {})
                 DictContains(ingredients, "blueprint", "wood")
+                Equal(work, {})
+                // TODO input POD: SequentialWork(ingredients, work, 5)
+                // TODO input POD: HashInRange(0, 1<<5, ingredients)
             )
             "#,
             r#"
-            AxeInputs(inputs, private: s1, stick, stone) = AND(
+            AxeInputs(inputs, private: s1, wood, stone) = AND(
                 // 2 ingredients
-                SetInsert(s1, {}, stick)
+                SetInsert(s1, {}, wood)
                 SetInsert(inputs, s1, stone)
         
                 // prove the ingredients are correct.
-                IsStick(stick)
+                IsWood(wood)
                 IsStone(stone)
             )
         
-            // Combining Stone and Stick to get Axe is easy (no sequential work).
+            // Combining Stone and Wood to get Axe is easy (no sequential work).
             // TODO: Require a smelter as a tool
             IsAxe(item, private: ingredients, inputs, key, work) = AND(
                 ItemDef(item, ingredients, inputs, key, work)
                 DictContains(ingredients, "blueprint", "axe")
+                Equal(work, {})
         
                 AxeInputs(inputs)
             )
@@ -77,10 +73,12 @@ impl ItemPredicates {
                 IsWood(wood1)
                 IsWood(wood2)
             )
+
             // Combine Wood and Wod to get WoodenAxe.
             IsWoodenAxe(item, private: ingredients, inputs, key, work) = AND(
                 ItemDef(item, ingredients, inputs, key, work)
                 DictContains(ingredients, "blueprint", "wooden-axe")
+                Equal(work, {})
         
                 WoodenAxeInputs(inputs)
             )
@@ -244,7 +242,7 @@ mod tests {
             "blueprint",
             Value::from(STONE_BLUEPRINT),
         ))?;
-        let _st_is_copper = builder.pub_op(Operation::custom(
+        let _st_is_stone = builder.pub_op(Operation::custom(
             item_preds.is_stone.clone(),
             [
                 st_item_def,

@@ -203,8 +203,6 @@ impl App {
             ui.add(
                 egui::Image::new(if name.starts_with("Axe") {
                     egui::include_image!("../assets/axe.png")
-                } else if name.starts_with("Stick") {
-                    egui::include_image!("../assets/stick.png")
                 } else if name.starts_with("Stone") {
                     egui::include_image!("../assets/stone.png")
                 } else if name.starts_with("WoodenAxe") {
