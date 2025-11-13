@@ -13,11 +13,7 @@ use app_cli::{Config, CraftedItem, USED_ITEM_SUBDIR_NAME, load_item};
 use pod2::middleware::{Hash, Params};
 use tracing::error;
 
-use crate::{
-    Crafting, ItemView, Request, Response, TaskStatus,
-    crafting::{Process, Verb},
-    task_system::handle_req,
-};
+use crate::{Crafting, ItemView, Request, Response, TaskStatus, task_system::handle_req};
 
 #[derive(Clone)]
 pub struct Item {
@@ -43,6 +39,7 @@ pub struct App {
     pub dev_mode: bool,
     pub mock_mode: bool,
     pub danger: bool,
+    pub cute: bool,
 }
 
 impl App {
@@ -99,6 +96,7 @@ IsTinPremium(item, private: ingredients, inputs, key, work) = AND(
             dev_mode: false,
             mock_mode: true,
             danger: false,
+            cute: false,
         };
         app.refresh_items()?;
         Ok(app)

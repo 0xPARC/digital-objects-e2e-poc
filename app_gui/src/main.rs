@@ -146,7 +146,12 @@ impl eframe::App for App {
                 self.ui_new_predicate(ctx);
             }
 
-            self.ui_danger(ctx, ui);
+            [
+                (self.danger, egui::include_image!("../assets/water.png")),
+                (self.cute, egui::include_image!("../assets/eucalyptus.png")),
+            ]
+            .into_iter()
+            .for_each(|(flag, asset)| self.ui_cursor(ctx, ui, flag, asset));
         });
 
         // Shortcuts:
@@ -159,7 +164,7 @@ impl eframe::App for App {
         // Alt + C: toggle theme
         if ctx.input(|i| i.key_released(egui::Key::C) && i.modifiers.alt) {
             let theme = ctx.theme();
-            log::info!("Switching from {:?} theme", theme);
+            log::info!("Switching from {theme:?} theme");
             ctx.set_theme(match theme {
                 egui::Theme::Dark => egui::Theme::Light,
                 egui::Theme::Light => egui::Theme::Dark,
@@ -176,9 +181,15 @@ impl eframe::App for App {
         if ctx.input(|i| i.key_released(egui::Key::Q) && i.modifiers.ctrl) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
-        // Alt + S: danger
+        // Alt + S: cute
         if ctx.input(|i| i.key_released(egui::Key::S) && i.modifiers.alt) {
+            self.cute = false;
             self.danger = !self.danger;
+        }
+        // Alt + K: cuteness
+        if ctx.input(|i| i.key_released(egui::Key::K) && i.modifiers.alt) {
+            self.danger = false;
+            self.cute = !self.cute;
         }
     }
 
