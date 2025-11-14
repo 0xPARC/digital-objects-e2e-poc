@@ -12,6 +12,8 @@ use strum::IntoStaticStr;
 
 use crate::{App, Request, utils::result2text};
 
+const INDENTATION: &str = "    ";
+
 #[derive(Debug, Clone, Copy, PartialEq, IntoStaticStr)]
 pub enum Process {
     Stone,
@@ -557,9 +559,11 @@ impl App {
                     });
                 } else {
                     ui.horizontal(|ui| {
-                        button_craft_and_commit_clicked = ui
-                            .button(egui::RichText::new("Execute process").size(15.0))
-                            .clicked();
+                        let button = ui.add_enabled(
+                            self.crafting.selected_process.is_some(),
+                            egui::Button::new(egui::RichText::new("Execute process").size(15.0)),
+                        );
+                        button_craft_and_commit_clicked = button.clicked();
                         ui.label(result2text(&self.crafting.commit_result));
                     });
                 }
@@ -592,19 +596,25 @@ impl App {
                         ui.vertical(|ui| {
                             egui::Grid::new("crafting inputs").show(ui, |ui| {
                                 for (category, inputs) in
-                                    ["Production Facility", "Tools", "Ingredients"].iter().zip([
+                                    ["Ingredients", "Production Facility", "Tools"].iter().zip([
+                                        process_data.input_ingredients,
                                         process_data.input_facilities,
                                         process_data.input_tools,
-                                        process_data.input_ingredients,
                                     ])
                                 {
                                     if inputs.is_empty() {
                                         continue;
                                     }
-                                    ui.label(format!("    {category}:"));
-                                    ui.end_row();
+                                    // Display ingredients at first indentation level.
+                                    let indentation = if category == &"Ingredients" {
+                                        INDENTATION.to_string()
+                                    } else {
+                                        ui.label(format!("{INDENTATION}{category}:"));
+                                        ui.end_row();
+                                        format!("{INDENTATION}{INDENTATION}")
+                                    };
                                     for (input_index, input) in inputs.iter().enumerate() {
-                                        ui.label(format!("        {input}:"));
+                                        ui.label(format!("{indentation}{input}:"));
                                         let frame = Frame::default().inner_margin(4.0);
                                         let (_, dropped_payload) =
                                             ui.dnd_drop_zone::<usize, ()>(frame, |ui| {
