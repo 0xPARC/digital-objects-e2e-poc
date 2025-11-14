@@ -557,9 +557,11 @@ impl App {
                     });
                 } else {
                     ui.horizontal(|ui| {
-                        button_craft_and_commit_clicked = ui
-                            .button(egui::RichText::new("Execute process").size(15.0))
-                            .clicked();
+                        let button = ui.add_enabled(
+                            self.crafting.selected_process.is_some(),
+                            egui::Button::new(egui::RichText::new("Execute process").size(15.0)),
+                        );
+                        button_craft_and_commit_clicked = button.clicked();
                         ui.label(result2text(&self.crafting.commit_result));
                     });
                 }
