@@ -505,15 +505,20 @@ impl Crafting {
 
 impl App {
     // Generic ui for all verbs
-    pub(crate) fn ui_craft(&mut self, _ctx: &egui::Context, ui: &mut Ui) {
+    pub(crate) fn ui_craft(&mut self, ctx: &egui::Context, ui: &mut Ui) {
+        let mut button_craft_clicked = false;
+        let mut button_commit_clicked = false;
+        let mut button_craft_and_commit_clicked = false;
+
         let selected_verb = match self.crafting.selected_verb {
             None => return,
             Some(v) => v,
         };
         let mut selected_process = self.crafting.selected_process;
         // Block1: Verb + Process
-        egui::Grid::new("verb + process").show(ui, |ui| {
-            ui.heading(selected_verb.as_str());
+        // egui::Grid::new("verb + process").show(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.heading(format!("{}:", selected_verb.as_str()));
 
             if !selected_verb.hide_process() {
                 egui::ComboBox::from_id_salt("process selection")
@@ -535,9 +540,30 @@ impl App {
             if let Some(process) = selected_process {
                 self.crafting.select(process);
                 if process.recipe().is_none() {
-                    ui.label("(mock)");
+                    ui.colored_label(egui::Color32::from_rgb(81, 77, 188), "(mock)");
                 }
             }
+
+            // Button for Execute process
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if self.dev_mode {
+                    ui.horizontal(|ui| {
+                        button_commit_clicked = ui.button("Commit").clicked();
+                        ui.label(result2text(&self.crafting.commit_result));
+                    });
+                    ui.horizontal(|ui| {
+                        button_craft_clicked = ui.button("Craft (without Commit)").clicked();
+                        ui.label(result2text(&self.crafting.craft_result));
+                    });
+                } else {
+                    ui.horizontal(|ui| {
+                        button_craft_and_commit_clicked = ui
+                            .button(egui::RichText::new("Execute process").size(15.0))
+                            .clicked();
+                        ui.label(result2text(&self.crafting.commit_result));
+                    });
+                }
+            });
             ui.end_row();
         });
         ui.add_space(8.0);
@@ -558,7 +584,7 @@ impl App {
             // Block3: Configuration
             let inputs = process_data.input_ingredients;
             ui.columns_const(|[inputs_ui, outputs_ui]| {
-                inputs_ui.heading("Inputs");
+                inputs_ui.heading("Inputs:");
                 egui::ScrollArea::vertical()
                     .id_salt("inputs scroll")
                     .max_height(256.0)
@@ -660,7 +686,13 @@ impl App {
                 .max_height(512.0)
                 .show(ui, |ui| {
                     Frame::NONE
-                        .fill(egui::Color32::from_gray(20))
+                        .fill(if ctx.theme() == egui::Theme::Dark {
+                            egui::Color32::from_gray(20)
+                        } else if ctx.theme() == egui::Theme::Light {
+                            egui::Color32::from_gray(240)
+                        } else {
+                            egui::Color32::TRANSPARENT
+                        })
                         .corner_radius(egui::CornerRadius::same(8))
                         .inner_margin(egui::Vec2::splat(8.0))
                         .show(ui, |ui| {
@@ -668,26 +700,6 @@ impl App {
                         });
                 });
 
-            let mut button_craft_clicked = false;
-            let mut button_commit_clicked = false;
-            let mut button_craft_and_commit_clicked = false;
-            ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
-                if self.dev_mode {
-                    ui.horizontal(|ui| {
-                        button_commit_clicked = ui.button("Commit").clicked();
-                        ui.label(result2text(&self.crafting.commit_result));
-                    });
-                    ui.horizontal(|ui| {
-                        button_craft_clicked = ui.button("Craft (without Commit)").clicked();
-                        ui.label(result2text(&self.crafting.craft_result));
-                    });
-                } else {
-                    ui.horizontal(|ui| {
-                        button_craft_and_commit_clicked = ui.button("Execute process").clicked();
-                        ui.label(result2text(&self.crafting.commit_result));
-                    });
-                }
-            });
             if button_craft_clicked {
                 if self.crafting.output_filename.is_empty() {
                     self.crafting.craft_result = Some(Err(anyhow!("Please enter a filename.")));
