@@ -102,24 +102,26 @@ impl eframe::App for App {
                     });
                 }
             });
-            ui.separator();
-            egui::Grid::new("used items title").show(ui, |ui| {
-                ui.collapsing("Consumed objects", |ui| {
-                    egui::ScrollArea::vertical()
-                        .min_scrolled_height(100.0)
-                        .show(ui, |ui| {
-                            for (i, item) in self.used_items.iter().enumerate() {
-                                ui.dnd_drag_source(
-                                    egui::Id::new(item.name.clone()),
-                                    self.items.len() + i,
-                                    |ui| {
-                                        ui.label(&item.name);
-                                    },
-                                );
-                            }
-                        })
-                })
-            });
+            if !self.used_items.is_empty() {
+                ui.separator();
+                egui::Grid::new("used items title").show(ui, |ui| {
+                    ui.collapsing("Consumed objects", |ui| {
+                        egui::ScrollArea::vertical()
+                            .min_scrolled_height(100.0)
+                            .show(ui, |ui| {
+                                for (i, item) in self.used_items.iter().enumerate() {
+                                    ui.dnd_drag_source(
+                                        egui::Id::new(item.name.clone()),
+                                        self.items.len() + i,
+                                        |ui| {
+                                            ui.label(&item.name);
+                                        },
+                                    );
+                                }
+                            })
+                    })
+                });
+            }
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -191,8 +193,8 @@ impl eframe::App for App {
             self.danger = false;
             self.cute = !self.cute;
         }
-        // ALT + C
-        if ctx.input(|i| i.key_released(egui::Key::C) && i.modifiers.alt) {
+        // ALT + ?
+        if ctx.input(|i| i.key_released(egui::Key::Questionmark) && i.modifiers.alt) {
             self.show_cheats = !self.show_cheats;
             log::info!("show_cheats={:?}", self.show_cheats);
         }
@@ -207,7 +209,7 @@ impl eframe::App for App {
                 ui.label("ALT + M: toggle mock mode".to_string());
                 ui.label("ALT + S: danger mode".to_string());
                 ui.label("ALT + K: cute mode".to_string());
-                ui.label("ALT + C: show cheat codes".to_string());
+                ui.label("ALT + ?: show cheat codes".to_string());
                 ui.label("CTRL + Q: quit".to_string());
             });
     }
