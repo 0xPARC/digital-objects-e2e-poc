@@ -91,31 +91,6 @@ impl<'a> ItemBuilder<'a> {
         Self { ctx, params }
     }
 
-    // Adds statements to MainPodBilder to represent a generic item based on the
-    // ItemDef.  Includes the following public predicates: ItemDef, ItemKey
-    // Returns the Statement object for ItemDef for use in further statements.
-    pub fn st_item_def(&mut self, item_def: ItemDef) -> anyhow::Result<Statement> {
-        let ingredients_dict = item_def.ingredients.dict(self.params)?;
-        let inputs_set = item_def.ingredients.inputs_set(self.params)?;
-        let item_hash = item_def.item_hash(self.params)?;
-
-        // Build ItemDef(item, ingredients, inputs, key, work)
-        Ok(st_custom!(self.ctx,
-        ItemDef() = (
-            DictContains(ingredients_dict, "inputs", inputs_set),
-            DictContains(ingredients_dict, "key", item_def.ingredients.key),
-            HashOf(item_hash, ingredients_dict, item_def.work)
-        ))?)
-    }
-
-    pub fn st_item_key(&mut self, st_item_def: Statement) -> anyhow::Result<Statement> {
-        // Build ItemKey(item, key)
-        Ok(st_custom!(self.ctx,
-        ItemKey() = (
-            st_item_def
-        ))?)
-    }
-
     fn st_super_sub_set_recursive(
         &mut self,
         inputs_set: Set,
@@ -164,6 +139,63 @@ impl<'a> ItemBuilder<'a> {
                     st_recursive
                 ))?)
         }
+    }
+
+    pub fn st_batch_def(&mut self, index: usize, batch: Vec<ItemDef>) -> anyhow::Result<Statement> {
+        let ingredients_dict = batch[index].ingredients.dict(self.params)?;
+        let inputs_set = batch[index].ingredients.inputs_set(self.params)?;
+        let item_hash = batch[index].item_hash(self.params)?;
+
+        // Build BatchDef(item, ingredients, inputs, key, work)
+        Ok(st_custom!(self.ctx,
+        BatchDef() = (
+            DictContains(ingredients_dict, "inputs", inputs_set),
+            DictContains(ingredients_dict, "key", batch[index].ingredients.key),
+            HashOf(item_hash, ingredients_dict, batch[index].work)
+        ))?)
+    }
+
+    pub fn st_item_in_batch(
+        &mut self,
+        item_def: ItemDef,
+        batch: Vec<ItemDef>,
+    ) -> anyhow::Result<Statement> {
+        let ingredients_dict = item_def.ingredients.dict(self.params)?;
+        let inputs_set = item_def.ingredients.inputs_set(self.params)?;
+        let item_hash = item_def.item_hash(self.params)?;
+
+        // Build ItemInBatch(item, batch)
+        Ok(st_custom!(self.ctx,
+        ItemInBatch() = (
+            HashOf(item_hash, ingredients_dict, batch[0].work),
+            SetContains(ingredients_dict, "key", batch[0].ingredients.key),
+        ))?)
+    }
+
+    // Adds statements to MainPodBilder to represent a generic item based on the
+    // ItemDef.  Includes the following public predicates: ItemDef, ItemKey
+    // Returns the Statement object for ItemDef for use in further statements.
+    pub fn st_item_def(&mut self, item_def: ItemDef) -> anyhow::Result<Statement> {
+        let ingredients_dict = item_def.ingredients.dict(self.params)?;
+        let inputs_set = item_def.ingredients.inputs_set(self.params)?;
+        let item_hash = item_def.item_hash(self.params)?;
+
+        // Build ItemDef(item, ingredients, inputs, key, work)
+        Ok(st_custom!(self.ctx,
+        ItemDef() = (
+            BatchDef(batch, ingredients, inputs, keys, work),
+            ItemInBatch(item, batch, index),
+        ))?)
+    }
+
+    // TODO st_all_items_in_batch{, _empty, _recursive}
+
+    pub fn st_item_key(&mut self, st_item_def: Statement) -> anyhow::Result<Statement> {
+        // Build ItemKey(item, key)
+        Ok(st_custom!(self.ctx,
+        ItemKey() = (
+            st_item_def
+        ))?)
     }
 
     // Adds statements to MainPodBilder to prove correct nullifiers for a set of
@@ -226,6 +258,7 @@ impl<'a> ItemBuilder<'a> {
     // the root to prove that inputs were previously created.
     pub fn st_commit_creation(
         &mut self,
+        // TODO update to multi-output (batch_def & st_all_items_in_batch)
         item_def: ItemDef,
         st_nullifiers: Statement,
         created_items: Set,
