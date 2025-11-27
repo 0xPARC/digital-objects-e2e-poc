@@ -57,27 +57,28 @@ impl CommitPredicates {
             BatchDef(batch, ingredients, inputs, keys, work) = AND(
                 DictContains(ingredients, "inputs", inputs)
                 DictContains(ingredients, "keys", keys)
-                HashOf(item, ingredients, work)
+                HashOf(batch, ingredients, work)
             )
 
             // Each item in a batch has an index (likely 0..N, but could be any
             // value) which must correspond to its key.
             // It confirms that the item ID and keys use the same indexes, for
             // consistent nullifiers.
-            ItemInBatch(item, batch, private: index, key) = AND(
+            ItemInBatch(item, batch, index, private: key, keys) = AND(
                 HashOf(item, batch, index)
-                SetContains(keys, index, key)
+                DictContains(keys, index, key)
             )
             "#,
             // 2
             r#"
             // Predicate constructing the ID of one item from a batch without
-            // any reference to the batch,.
+            // any reference to the batch.
             // Each item in a batch has an index (possibly 0..N, but could be
             // any value) which must correspond to the index of its key.
-            ItemDef(item, ingredients, inputs, key, work, private: batch, index) = AND(
+            ItemDef(item, ingredients, inputs, key, work, private: batch, index, keys) = AND(
                 BatchDef(batch, ingredients, inputs, keys, work)
                 ItemInBatch(item, batch, index)
+                DictContains(keys, index, key)
             )
 
             // Recursive construction to extract all the individual item IDs
@@ -97,7 +98,7 @@ impl CommitPredicates {
                 // batch is intentionally unconstrained
             )
 
-            AllItemsInBatchRecursive(items, batch, keys) = AND(
+            AllItemsInBatchRecursive(items, batch, keys, private: prev_items, prev_keys, item, index, key) = AND(
                 SetInsert(items, prev_items, item)
                 DictInsert(keys, prev_keys, index, key)
 
@@ -105,11 +106,11 @@ impl CommitPredicates {
                 // set all values, and don't want to pay for an extra statement
                 // to do so.
                 HashOf(item, batch, index)
-                SetContains(keys, index, key)
+                DictContains(keys, index, key)
             )
             "#,
             // 3
-            r#"
+            &format!(r#"
             // Helper to expose just the item and key from ItemId calculation.
             // This is just the CreatedItem pattern with some of inupts private.
             ItemKey(item, key, private: ingredients, inputs, work) = AND(
@@ -137,7 +138,7 @@ impl CommitPredicates {
                 SetInsert(inputs, inputs_prev, input)
                 Nullifiers(nullifiers_prev, inputs_prev)
             )
-            "#,
+            "#),
             // 4
             &format!(
                 r#"
@@ -148,9 +149,10 @@ impl CommitPredicates {
             // - item is not already in item set
             // - all nullifiers are not already in nullifier set
             // - createdItems is one of the historical item set roots
-            CommitCreation(item, nullifiers, created_items,
-                    private: ingredients, inputs, key, work) = AND(
-                // Prove the item hash includes all of its committed properties
+            CommitCreation(items, nullifiers, created_items,
+                    private: batch, ingredients, inputs, keys, work) = AND(
+                // Prove the core crafting operation.
+                // The batch hash includes all of its committed properties
                 BatchDef(batch, ingredients, inputs, keys, work)
 
                 // Prove that the item set represents all outputs of this batch.
