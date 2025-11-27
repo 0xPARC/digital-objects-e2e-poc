@@ -64,7 +64,7 @@ impl CommitPredicates {
             // value) which must correspond to its key.
             // It confirms that the item ID and keys use the same indexes, for
             // consistent nullifiers.
-            ItemInBatch(item, batch, index, private: key, keys) = AND(
+            ItemInBatch(item, batch, index, keys, private: key) = AND(
                 HashOf(item, batch, index)
                 DictContains(keys, index, key)
             )
@@ -77,7 +77,7 @@ impl CommitPredicates {
             // any value) which must correspond to the index of its key.
             ItemDef(item, ingredients, inputs, key, work, private: batch, index, keys) = AND(
                 BatchDef(batch, ingredients, inputs, keys, work)
-                ItemInBatch(item, batch, index)
+                ItemInBatch(item, batch, index, keys)
                 DictContains(keys, index, key)
             )
 
@@ -93,8 +93,8 @@ impl CommitPredicates {
             )
 
             AllItemsInBatchEmpty(items, batch, keys) = AND(
-                Equal(items, #{})
-                Equal(keys, #{})
+                Equal(items, {})
+                Equal(keys, {})
                 // batch is intentionally unconstrained
             )
 
@@ -140,8 +140,7 @@ impl CommitPredicates {
             )
             "#),
             // 4
-            &format!(
-                r#"
+            r#"
             // ZK version of CreatedItem for committing on-chain.
             // Validator/Logger/Archiver needs to maintain 2 append-only
             // sets of items and nullifiers.  New creating is
@@ -164,8 +163,7 @@ impl CommitPredicates {
                 // Expose nullifiers for all inputs
                 Nullifiers(nullifiers, inputs)
             )
-            "#
-            ),
+            "#,
         ];
 
         let defs = PredicateDefs::new(params, &batch_defs, &[]);
