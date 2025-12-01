@@ -228,8 +228,11 @@ impl<'a> ItemBuilder<'a> {
     // Adds statements to MainPodBilder to represent a generic item based on the
     // ItemDef.  Includes the following public predicates: ItemDef, ItemKey
     // Returns the Statement object for ItemDef for use in further statements.
-    pub fn st_item_def(&mut self, item_def: ItemDef) -> anyhow::Result<Statement> {
-        let batch_def = self.st_batch_def(item_def.batch.clone())?;
+    pub fn st_item_def(
+        &mut self,
+        item_def: ItemDef,
+        st_batch_def: Statement,
+    ) -> anyhow::Result<Statement> {
         let item_in_batch = self.st_item_in_batch(item_def.clone())?;
 
         let keys_dict = Dictionary::new(
@@ -248,7 +251,7 @@ impl<'a> ItemBuilder<'a> {
         // Build ItemDef(item, ingredients, inputs, key, work)
         Ok(st_custom!(self.ctx,
                       ItemDef() = (
-            batch_def,
+            st_batch_def,
                           item_in_batch,
                                       DictContains(keys_dict, index_str, item_def.item_key())
         ))?)
@@ -489,7 +492,8 @@ mod tests {
 
         let mut builder = MainPodBuilder::new(params, vd_set);
         let mut item_builder = ItemBuilder::new(BuildContext::new(&mut builder, batches), params);
-        let st_item_def = item_builder.st_item_def(item_def).unwrap();
+        let st_batch_def = item_builder.st_batch_def(batch_def.clone()).unwrap();
+        let st_item_def = item_builder.st_item_def(item_def, st_batch_def).unwrap();
         let st_item_key = item_builder.st_item_key(st_item_def).unwrap();
         item_builder.ctx.builder.reveal(&st_item_key);
 
