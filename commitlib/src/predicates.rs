@@ -99,6 +99,7 @@ impl CommitPredicates {
             )
 
             AllItemsInBatchRecursive(items, batch, keys, private: prev_items, prev_keys, item, index, key) = AND(
+                AllItemsInBatch(prev_items, batch, prev_keys)
                 SetInsert(items, prev_items, item)
                 DictInsert(keys, prev_keys, index, key)
 
@@ -106,11 +107,11 @@ impl CommitPredicates {
                 // set all values, and don't want to pay for an extra statement
                 // to do so.
                 HashOf(item, batch, index)
-                DictContains(keys, index, key)
             )
             "#,
             // 3
-            &format!(r#"
+            &format!(
+                r#"
             // Helper to expose just the item and key from ItemId calculation.
             // This is just the CreatedItem pattern with some of inupts private.
             ItemKey(item, key, private: ingredients, inputs, work) = AND(
@@ -138,7 +139,8 @@ impl CommitPredicates {
                 SetInsert(inputs, inputs_prev, input)
                 Nullifiers(nullifiers_prev, inputs_prev)
             )
-            "#),
+            "#
+            ),
             // 4
             r#"
             // ZK version of CreatedItem for committing on-chain.
