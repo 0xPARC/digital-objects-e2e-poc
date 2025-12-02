@@ -376,6 +376,13 @@ pub fn craft_item(
         }
     };
 
+    // create output dir (if there is a parent dir), in case it does not exist
+    // yet, so that later when creating the file we don't get an error if the
+    // directory does not exist
+    if let Some(dir) = output.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+
     let helper = Helper::new(params.clone(), vd_set);
     let input_item_pods: Vec<_> = input_items.iter().map(|item| &item.pod).cloned().collect();
     let pod = helper.make_item_pod(recipe, item_def.clone(), input_item_pods, pow_pod)?;

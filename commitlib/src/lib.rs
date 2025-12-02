@@ -371,9 +371,9 @@ impl<'a> ItemBuilder<'a> {
 
         // Build CommitCreation(item, nullifiers, created_items)
         let st_commit_creation = st_custom!(self.ctx,
-                                            CommitCreation() = (
-                                                st_batch_def,
-                                                st_all_items_in_batch,
+            CommitCreation() = (
+                st_batch_def,
+                st_all_items_in_batch,
                 st_inputs_subset,
                 st_nullifiers
             ))?;

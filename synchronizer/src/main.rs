@@ -51,7 +51,7 @@ use synchronizer::{
     },
 };
 use tokio::{runtime::Runtime, time::sleep};
-use tracing::{debug, info, trace};
+use tracing::{debug, error, info, trace};
 
 pub mod endpoints;
 
@@ -380,7 +380,7 @@ impl Node {
                         info!("Valid do_blob at slot {}, blob_index {}!", slot, blob.index);
                     }
                     Err(e) => {
-                        info!("Invalid do_blob: {:?}", e);
+                        error!("Ignoring blob due: Invalid do_blob: {:?}", e);
                         continue;
                     }
                 };
@@ -426,6 +426,11 @@ impl Node {
             )
             .unwrap(),
         );
+        // WIP:
+        // TODO update st_commit_creation to match the new statement after batch
+        // instead of single item. This will make the st_hash match the expected
+        // one, which in turn will make the public_inputs be valid when the
+        // Synchronizer decompresses & verifies the proof.
         let st_commit_creation = Statement::Custom(
             self.pred_commit_creation.clone(),
             vec![
@@ -470,16 +475,15 @@ impl Node {
             PayloadProof::Plonky2(proof) => proof,
             PayloadProof::Groth16(_) => todo!(),
         };
+        println!("PIS: {:?}", public_inputs);
         let proof_with_pis = CompressedProofWithPublicInputs {
             proof: *shrunk_main_pod_proof,
             public_inputs,
         };
-        let proof = proof_with_pis
-            .decompress(
-                &self.verifier_circuit_data.verifier_only.circuit_digest,
-                &self.common_circuit_data,
-            )
-            .unwrap();
+        let proof = proof_with_pis.decompress(
+            &self.verifier_circuit_data.verifier_only.circuit_digest,
+            &self.common_circuit_data,
+        )?;
         self.verifier_circuit_data.verify(proof)
     }
 }
