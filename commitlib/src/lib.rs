@@ -21,7 +21,8 @@ pub const CONSUMED_ITEM_EXTERNAL_NULLIFIER: &str = "consumed item external nulli
 pub struct IngredientsDef {
     // These properties are committed on-chain
     pub inputs: HashSet<Hash>,
-    pub keys: Vec<RawValue>,
+    // TODO: Maybe replace this with a Value -> Value map?
+    pub keys: HashMap<Key, Value>,
 
     // These properties are used only by the application layer
     pub app_layer: HashMap<String, Value>,
@@ -35,11 +36,7 @@ impl IngredientsDef {
             Key::from("keys"),
             Value::from(Dictionary::new(
                 params.max_depth_mt_containers,
-                self.keys
-                    .iter()
-                    .enumerate()
-                    .map(|(i, k)| (format!("{i}").into(), (*k).into()))
-                    .collect(),
+                self.keys.clone(),
             )?),
         );
         for (key, value) in &self.app_layer {
@@ -81,19 +78,18 @@ impl BatchDef {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ItemDef {
     pub batch: BatchDef,
-    pub index: usize,
+    pub index: Key,
 }
 
 impl ItemDef {
-    pub fn item_key(&self) -> RawValue {
-        self.batch.ingredients.keys[self.index]
+    pub fn item_key(&self) -> Value {
+        self.batch.ingredients.keys[&self.index].clone()
     }
 
     pub fn item_hash(&self, params: &Params) -> pod2::middleware::Result<Hash> {
-        let index_key_hash = Key::new(format!("{}", self.index)).hash();
         Ok(hash_values(&[
             Value::from(self.batch.batch_hash(params)?),
-            Value::from(index_key_hash),
+            Value::from(self.index.hash()),
         ]))
     }
 
@@ -104,7 +100,7 @@ impl ItemDef {
         ]))
     }
 
-    pub fn new(batch: BatchDef, index: usize) -> Self {
+    pub fn new(batch: BatchDef, index: Key) -> Self {
         Self { batch, index }
     }
 }
@@ -182,13 +178,7 @@ impl<'a> ItemBuilder<'a> {
         let batch_hash = batch.batch_hash(self.params)?;
         let keys_dict = Dictionary::new(
             self.params.max_depth_mt_containers,
-            batch
-                .ingredients
-                .keys
-                .iter()
-                .enumerate()
-                .map(|(i, k)| (format!("{i}").into(), (*k).into()))
-                .collect(),
+            batch.ingredients.keys.clone(),
         )?;
 
         // Build BatchDef(item, ingredients, inputs, key, work)
@@ -203,25 +193,16 @@ impl<'a> ItemBuilder<'a> {
     pub fn st_item_in_batch(&mut self, item_def: ItemDef) -> anyhow::Result<Statement> {
         let item_hash = item_def.item_hash(self.params)?;
         let batch_hash = item_def.batch.batch_hash(self.params)?;
-        // TODO
         let keys_dict = Dictionary::new(
             self.params.max_depth_mt_containers,
-            item_def
-                .batch
-                .ingredients
-                .keys
-                .iter()
-                .enumerate()
-                .map(|(i, k)| (format!("{i}").into(), (*k).into()))
-                .collect(),
+            item_def.batch.ingredients.keys.clone(),
         )?;
-        let index_str = format!("{}", item_def.index);
 
         // Build ItemInBatch(item, batch)
         Ok(st_custom!(self.ctx,
         ItemInBatch() = (
-            HashOf(item_hash, batch_hash, index_str),
-            DictContains(keys_dict, index_str, item_def.item_key())
+            HashOf(item_hash, batch_hash, item_def.index.hash()),
+            DictContains(keys_dict, item_def.index.name(), item_def.item_key())
         ))?)
     }
 
@@ -237,23 +218,15 @@ impl<'a> ItemBuilder<'a> {
 
         let keys_dict = Dictionary::new(
             self.params.max_depth_mt_containers,
-            item_def
-                .batch
-                .ingredients
-                .keys
-                .iter()
-                .enumerate()
-                .map(|(i, k)| (format!("{i}").into(), (*k).into()))
-                .collect(),
+            item_def.batch.ingredients.keys.clone(),
         )?;
-        let index_str = format!("{}", item_def.index);
 
         // Build ItemDef(item, ingredients, inputs, key, work)
         Ok(st_custom!(self.ctx,
                       ItemDef() = (
             st_batch_def,
                           item_in_batch,
-                                      DictContains(keys_dict, index_str, item_def.item_key())
+                                      DictContains(keys_dict, item_def.index.name(), item_def.item_key())
         ))?)
     }
 
@@ -279,37 +252,34 @@ impl<'a> ItemBuilder<'a> {
             .ingredients
             .keys
             .iter()
-            .enumerate()
             .try_fold::<_, _, anyhow::Result<_>>(
-            (init_st, empty_set.clone(), empty_dict.clone()),
-            |(st_all_items_in_batch_prev, items_prev, keys_prev), (index, key)| {
-                let index_str = format!("{index}");
-                let item_hash =
-                    hash_values(&[Value::from(batch_hash), Value::from(index_str.clone())]);
+                (init_st, empty_set.clone(), empty_dict.clone()),
+                |(st_all_items_in_batch_prev, items_prev, keys_prev), (index, key)| {
+                    let item_hash = hash_values(&[batch_hash.into(), index.raw().into()]);
 
-                let mut keys = keys_prev.clone();
-                keys.insert(&Key::new(index_str.clone()), &(*key).into())?;
+                    let mut keys = keys_prev.clone();
+                    keys.insert(index, key)?;
 
-                let mut items = items_prev.clone();
-                items.insert(&item_hash.into())?;
+                    let mut items = items_prev.clone();
+                    items.insert(&item_hash.into())?;
 
-                let st_all_items_in_batch_recursive = st_custom!(self.ctx,
+                    let st_all_items_in_batch_recursive = st_custom!(self.ctx,
                         AllItemsInBatchRecursive() = (
                             st_all_items_in_batch_prev,
                             SetInsert(items, items_prev, item_hash),
-                            DictInsert(keys, keys_prev, index_str, key),
-                            HashOf(item_hash, batch_hash, index_str)
+                            DictInsert(keys, keys_prev, index.name(), key),
+                            HashOf(item_hash, batch_hash, index.hash())
                         ))?;
 
-                let st_all_items_in_batch = st_custom!(self.ctx,
+                    let st_all_items_in_batch = st_custom!(self.ctx,
                         AllItemsInBatch() = (
                             Statement::None,
                             st_all_items_in_batch_recursive
                         ))?;
 
-                Ok((st_all_items_in_batch, items, keys))
-            },
-        )?;
+                    Ok((st_all_items_in_batch, items, keys))
+                },
+            )?;
 
         Ok(st_all_items_in_batch)
     }
@@ -382,7 +352,6 @@ impl<'a> ItemBuilder<'a> {
     // the root to prove that inputs were previously created.
     pub fn st_commit_creation(
         &mut self,
-        // TODO update to multi-output (batch_def & st_all_items_in_batch)
         batch_def: BatchDef,
         st_nullifiers: Statement,
         created_items: Set,
@@ -446,15 +415,16 @@ mod tests {
             item_builder.ctx.builder.add_pod(input_item_key_pod);
         }
 
-        let key = Value::from(key).raw();
+        let index: Key = "0".into();
+        let key = Value::from(key);
         let ingredients_def = IngredientsDef {
             inputs: input_item_hashes,
-            keys: vec![key],
+            keys: [(index.clone(), key)].into_iter().collect(),
             app_layer: HashMap::from([("blueprint".to_string(), Value::from(blueprint))]),
         };
 
         let batch_def = BatchDef::new(ingredients_def, Value::from(42).raw());
-        let item_def = ItemDef::new(batch_def.clone(), 0);
+        let item_def = ItemDef::new(batch_def.clone(), index);
 
         let (st_nullifiers, _nullifiers) = if sts_item_key.is_empty() {
             item_builder.st_nullifiers(sts_item_key).unwrap()

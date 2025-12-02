@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use commitlib::{IngredientsDef, ItemDef};
 use log;
-use pod2::middleware::{EMPTY_VALUE, Hash, Params, RawValue, Statement, ToFields, Value};
+use pod2::middleware::{EMPTY_VALUE, Hash, Key, Params, Statement, ToFields, Value};
 use pod2utils::{macros::BuildContext, set, st_custom};
 
 use crate::constants::{AXE_BLUEPRINT, STONE_BLUEPRINT, WOOD_BLUEPRINT, WOODEN_AXE_BLUEPRINT};
@@ -16,14 +16,14 @@ pub struct MiningRecipe {
 }
 
 impl MiningRecipe {
-    pub fn prep_ingredients(&self, keys: &[RawValue], seed: i64) -> IngredientsDef {
+    pub fn prep_ingredients(&self, keys: HashMap<Key, Value>, seed: i64) -> IngredientsDef {
         let app_layer = HashMap::from([
             ("blueprint".to_string(), Value::from(self.blueprint.clone())),
             ("seed".to_string(), Value::from(seed)),
         ]);
         IngredientsDef {
             inputs: self.inputs.clone(),
-            keys: keys.to_vec(),
+            keys,
             app_layer,
         }
     }
@@ -31,13 +31,13 @@ impl MiningRecipe {
     pub fn do_mining(
         &self,
         params: &Params,
-        keys: &[RawValue],
+        keys: HashMap<Key, Value>,
         start_seed: i64,
         mine_max: u64,
     ) -> pod2::middleware::Result<Option<IngredientsDef>> {
         log::info!("Mining...");
         for seed in start_seed..=i64::MAX {
-            let ingredients = self.prep_ingredients(keys, seed);
+            let ingredients = self.prep_ingredients(keys.clone(), seed);
             let ingredients_hash = ingredients.hash(params)?;
             let mining_val = ingredients_hash.to_fields(params)[0];
             if mining_val.0 <= mine_max {
@@ -288,18 +288,20 @@ mod tests {
     fn test_mine_stone() -> anyhow::Result<()> {
         let params = Params::default();
         let mining_recipe = MiningRecipe::new(STONE_BLUEPRINT.to_string(), &[]);
-        let key = RawValue::from(0xBADC0DE);
+        let index: Key = "stone".into();
+        let key = Value::from(0xBADC0DE);
+        let keys: HashMap<_, _> = [(index.clone(), key.clone())].into_iter().collect();
 
         // Seed of 2612=0xA34 is a match with hash 6647892930992163=0x000A7EE9D427E832.
         // TODO: This test is going to get slower (~2s) whenever the ingredient
         // dict definition changes.  Need a better approach to testing mining.
         let mine_success =
-            mining_recipe.do_mining(&params, &[key], STONE_START_SEED, STONE_MINING_MAX)?;
+            mining_recipe.do_mining(&params, keys, STONE_START_SEED, STONE_MINING_MAX)?;
         assert!(mine_success.is_some());
 
         let ingredients_def = mine_success.unwrap();
         let batch_def = BatchDef::new(ingredients_def.clone(), STONE_WORK);
-        let item_def = ItemDef::new(batch_def, 0);
+        let item_def = ItemDef::new(batch_def, index);
         let item_hash = item_def.item_hash(&params)?;
         println!(
             "Mined stone {:?} from ingredients {:?}",
@@ -322,10 +324,12 @@ mod tests {
         let vd_set = &mock_vd_set();
 
         // Mine stone with a selected key.
-        let key = RawValue::from(0xBADC0DE);
+        let index: Key = "stone".into();
+        let key = Value::from(0xBADC0DE);
+        let keys: HashMap<_, _> = [(index.clone(), key.clone())].into_iter().collect();
         let mining_recipe = MiningRecipe::new(STONE_BLUEPRINT.to_string(), &[]);
         let ingredients_def = mining_recipe
-            .do_mining(&params, &[key], STONE_START_SEED, STONE_MINING_MAX)?
+            .do_mining(&params, keys.clone(), STONE_START_SEED, STONE_MINING_MAX)?
             .unwrap();
 
         let pow_pod = PowPod::new(
@@ -344,7 +348,7 @@ mod tests {
         let ingredients_dict = ingredients_def.dict(&params)?;
         let inputs_set = ingredients_def.inputs_set(&params)?;
         let batch_def = BatchDef::new(ingredients_def.clone(), pow_pod.output);
-        let item_def = ItemDef::new(batch_def.clone(), 0);
+        let item_def = ItemDef::new(batch_def.clone(), index);
         let item_hash = item_def.item_hash(&params)?;
 
         // Prove a stone POD.  This is the private POD for the player to store
@@ -398,13 +402,10 @@ mod tests {
                 ("item".to_string(), Value::from(item_hash)),
                 ("ingredients".to_string(), Value::from(ingredients_dict)),
                 ("inputs".to_string(), Value::from(inputs_set)),
-                ("key".to_string(), Value::from(key)),
+                ("key".to_string(), key.clone()),
                 (
                     "keys".into(),
-                    Value::from(Dictionary::new(
-                        params.max_depth_mt_containers,
-                        [("0".into(), key.into())].into_iter().collect(),
-                    )?),
+                    Value::from(Dictionary::new(params.max_depth_mt_containers, keys)?),
                 ),
                 ("work".to_string(), Value::from(pow_pod.output)),
             ]),
