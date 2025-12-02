@@ -7,7 +7,7 @@ use std::{
 
 use alloy::primitives::Address;
 use anyhow::{Context as _, Result, anyhow, bail};
-use commitlib::{ItemBuilder, ItemDef, predicates::CommitPredicates};
+use commitlib::{BatchDef, ItemBuilder, ItemDef, predicates::CommitPredicates};
 use common::{
     payload::{Payload, PayloadProof},
     set_from_value,
@@ -27,7 +27,7 @@ use pod2::{
     backends::plonky2::mainpod::Prover,
     frontend::{MainPod, MainPodBuilder},
     middleware::{
-        CustomPredicateBatch, DEFAULT_VD_SET, F, Params, Pod, RawValue, VDSet, containers::Set,
+        CustomPredicateBatch, DEFAULT_VD_SET, F, Key, Params, Pod, RawValue, VDSet, containers::Set,
     },
 };
 use pod2utils::macros::BuildContext;
@@ -192,7 +192,7 @@ impl Helper {
         for input_item_pod in input_item_pods {
             let st_item_key = input_item_pod.pod.pub_statements()[0].clone();
             sts_input_item_key.push(st_item_key);
-            let st_craft = input_item_pod.pod.pub_statements()[3].clone();
+            let st_craft = input_item_pod.pod.pub_statements()[4].clone();
             sts_input_craft.push(st_craft);
             item_builder.ctx.builder.add_pod(input_item_pod);
         }
@@ -222,7 +222,8 @@ impl Helper {
 
         let mut item_builder =
             ItemBuilder::new(BuildContext::new(&mut builder, &self.batches), &self.params);
-        let st_item_def = item_builder.st_item_def(item_def.clone()).unwrap();
+        let st_batch_def = item_builder.st_batch_def(item_def.batch.clone())?;
+        let st_item_def = item_builder.st_item_def(item_def.clone(), st_batch_def.clone())?;
         let st_item_key = item_builder.st_item_key(st_item_def.clone()).unwrap();
 
         let mut craft_builder =
@@ -256,9 +257,10 @@ impl Helper {
         };
 
         builder.reveal(&st_item_key); // 0: Required for consuming via Nullifiers
-        builder.reveal(&st_item_def); // 1: Required for committing via CommitCreation
-        builder.reveal(&st_nullifiers); // 2: Required for committing via CommitCreation
-        builder.reveal(&st_craft); // 3: App layer predicate
+        builder.reveal(&st_batch_def); // 1: Required for committing via CommitCreation
+        builder.reveal(&st_item_def); // 2: Explicit item predicate
+        builder.reveal(&st_nullifiers); // 3: Required for committing via CommitCreation
+        builder.reveal(&st_craft); // 4: App layer predicate
 
         info!("Proving item_pod");
         let start = std::time::Instant::now();
@@ -279,13 +281,13 @@ impl Helper {
 
         let mut item_builder =
             ItemBuilder::new(BuildContext::new(&mut builder, &self.batches), &self.params);
-        let st_item_def = crafted_item.pod.public_statements[1].clone();
-        let st_nullifiers = crafted_item.pod.public_statements[2].clone();
+        let st_batch_def = crafted_item.pod.public_statements[1].clone();
+        let st_nullifiers = crafted_item.pod.public_statements[3].clone();
         let st_commit_creation = item_builder.st_commit_creation(
-            crafted_item.def.clone(),
+            crafted_item.def.batch.clone(),
             st_nullifiers,
             created_items.clone(),
-            st_item_def,
+            st_batch_def,
         )?;
         builder.reveal(&st_commit_creation);
         let prover = &Prover {};
@@ -305,6 +307,8 @@ pub fn craft_item(
 ) -> anyhow::Result<()> {
     let vd_set = DEFAULT_VD_SET.clone();
     let key = rand_raw_value();
+    let index = Key::new(format!("{recipe}"));
+    let keys = [(index.clone(), key.into())].into_iter().collect();
     info!("About to craft \"{recipe}\" with key {key:#}");
     let (item_def, input_items, pow_pod) = match recipe {
         Recipe::Stone => {
@@ -313,7 +317,7 @@ pub fn craft_item(
             }
             let mining_recipe = MiningRecipe::new(STONE_BLUEPRINT.to_string(), &[]);
             let ingredients_def = mining_recipe
-                .do_mining(params, key, 0, STONE_MINING_MAX)?
+                .do_mining(params, keys, 0, STONE_MINING_MAX)?
                 .unwrap();
 
             let start = std::time::Instant::now();
@@ -324,14 +328,8 @@ pub fn craft_item(
                 RawValue::from(ingredients_def.dict(params)?.commitment()),
             )?;
             log::info!("[TIME] PowPod proving time: {:?}", start.elapsed());
-            (
-                ItemDef {
-                    ingredients: ingredients_def.clone(),
-                    work: pow_pod.output,
-                },
-                vec![],
-                Some(pow_pod),
-            )
+            let batch_def = BatchDef::new(ingredients_def.clone(), pow_pod.output);
+            (ItemDef::new(batch_def, index)?, vec![], Some(pow_pod))
         }
         Recipe::Wood => {
             if !inputs.is_empty() {
@@ -339,16 +337,10 @@ pub fn craft_item(
             }
             let mining_recipe = MiningRecipe::new(WOOD_BLUEPRINT.to_string(), &[]);
             let ingredients_def = mining_recipe
-                .do_mining(params, key, 0, WOOD_MINING_MAX)?
+                .do_mining(params, keys, 0, WOOD_MINING_MAX)?
                 .unwrap();
-            (
-                ItemDef {
-                    ingredients: ingredients_def.clone(),
-                    work: WOOD_WORK,
-                },
-                vec![],
-                None,
-            )
+            let batch_def = BatchDef::new(ingredients_def.clone(), WOOD_WORK);
+            (ItemDef::new(batch_def, index)?, vec![], None)
         }
         Recipe::Axe => {
             if inputs.len() != 2 {
@@ -361,16 +353,10 @@ pub fn craft_item(
                 &[wood.def.item_hash(params)?, stone.def.item_hash(params)?],
             );
             let ingredients_def = mining_recipe
-                .do_mining(params, key, 0, AXE_MINING_MAX)?
+                .do_mining(params, keys, 0, AXE_MINING_MAX)?
                 .unwrap();
-            (
-                ItemDef {
-                    ingredients: ingredients_def.clone(),
-                    work: AXE_WORK,
-                },
-                vec![wood, stone],
-                None,
-            )
+            let batch_def = BatchDef::new(ingredients_def.clone(), AXE_WORK);
+            (ItemDef::new(batch_def, index)?, vec![wood, stone], None)
         }
         Recipe::WoodenAxe => {
             if inputs.len() != 2 {
@@ -383,16 +369,10 @@ pub fn craft_item(
                 &[wood1.def.item_hash(params)?, wood2.def.item_hash(params)?],
             );
             let ingredients_def = mining_recipe
-                .do_mining(params, key, 0, WOODEN_AXE_MINING_MAX)?
+                .do_mining(params, keys, 0, WOODEN_AXE_MINING_MAX)?
                 .unwrap();
-            (
-                ItemDef {
-                    ingredients: ingredients_def.clone(),
-                    work: WOODEN_AXE_WORK,
-                },
-                vec![wood1, wood2],
-                None,
-            )
+            let batch_def = BatchDef::new(ingredients_def.clone(), WOODEN_AXE_WORK);
+            (ItemDef::new(batch_def, index)?, vec![wood1, wood2], None)
         }
     };
 

@@ -168,7 +168,7 @@ mod tests {
         builder.add_pod(main_pow_pod);
         let batch_def = BatchDef::new(ingredients_def.clone(), work);
         let batch_hash = batch_def.batch_hash(&params)?;
-        let item_def = ItemDef::new(batch_def.clone(), index.clone());
+        let item_def = ItemDef::new(batch_def.clone(), index.clone())?;
         let item_hash = item_def.item_hash(&params)?;
         let key_dict =
             Dictionary::new(params.max_depth_mt_containers, ingredients_def.keys.clone())?;

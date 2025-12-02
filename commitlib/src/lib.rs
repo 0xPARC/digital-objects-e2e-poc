@@ -3,6 +3,7 @@ pub mod util;
 
 use std::collections::{HashMap, HashSet};
 
+use anyhow::anyhow;
 use pod2::middleware::{
     EMPTY_HASH, EMPTY_VALUE, Hash, Key, Params, RawValue, Statement, Value,
     containers::{Dictionary, Set},
@@ -100,8 +101,12 @@ impl ItemDef {
         ]))
     }
 
-    pub fn new(batch: BatchDef, index: Key) -> Self {
-        Self { batch, index }
+    pub fn new(batch: BatchDef, index: Key) -> anyhow::Result<Self> {
+        if batch.ingredients.keys.get(&index).is_some() {
+            Ok(Self { batch, index })
+        } else {
+            Err(anyhow!("Invalid index: {index}"))
+        }
     }
 }
 
@@ -223,10 +228,10 @@ impl<'a> ItemBuilder<'a> {
 
         // Build ItemDef(item, ingredients, inputs, key, work)
         Ok(st_custom!(self.ctx,
-                      ItemDef() = (
-            st_batch_def,
-                          item_in_batch,
-                                      DictContains(keys_dict, item_def.index.name(), item_def.item_key())
+                ItemDef() = (
+                        st_batch_def,
+                        item_in_batch,
+                        DictContains(keys_dict, item_def.index.name(), item_def.item_key())
         ))?)
     }
 
@@ -424,7 +429,7 @@ mod tests {
         };
 
         let batch_def = BatchDef::new(ingredients_def, Value::from(42).raw());
-        let item_def = ItemDef::new(batch_def.clone(), index);
+        let item_def = ItemDef::new(batch_def.clone(), index).unwrap();
 
         let (st_nullifiers, _nullifiers) = if sts_item_key.is_empty() {
             item_builder.st_nullifiers(sts_item_key).unwrap()

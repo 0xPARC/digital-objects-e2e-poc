@@ -113,7 +113,11 @@ impl<'a> CraftBuilder<'a> {
         let mut s1 = empty_set.clone();
         s1.insert(&wood).unwrap();
         let mut inputs = s1.clone();
+        println!("1");
+        println!("{wood}");
+        println!("{stone}");
         inputs.insert(&stone).unwrap();
+        println!("2");
         Ok(st_custom!(self.ctx,
             AxeInputs() = (
                 SetInsert(s1, empty_set, wood),
@@ -301,7 +305,7 @@ mod tests {
 
         let ingredients_def = mine_success.unwrap();
         let batch_def = BatchDef::new(ingredients_def.clone(), STONE_WORK);
-        let item_def = ItemDef::new(batch_def, index);
+        let item_def = ItemDef::new(batch_def, index)?;
         let item_hash = item_def.item_hash(&params)?;
         println!(
             "Mined stone {:?} from ingredients {:?}",
@@ -348,7 +352,7 @@ mod tests {
         let ingredients_dict = ingredients_def.dict(&params)?;
         let inputs_set = ingredients_def.inputs_set(&params)?;
         let batch_def = BatchDef::new(ingredients_def.clone(), pow_pod.output);
-        let item_def = ItemDef::new(batch_def.clone(), index);
+        let item_def = ItemDef::new(batch_def.clone(), index)?;
         let item_hash = item_def.item_hash(&params)?;
 
         // Prove a stone POD.  This is the private POD for the player to store
@@ -374,7 +378,7 @@ mod tests {
 
             REQUEST(
                 BatchDef(batch, ingredients, inputs, keys, work)
-                ItemDef(item, ingredients, inputs, key, work)
+                ItemDef (item, ingredients, inputs, key, work)
                 ItemKey(item, key)
                 IsStone(item)
             )
