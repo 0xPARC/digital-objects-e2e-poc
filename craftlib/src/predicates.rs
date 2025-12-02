@@ -97,12 +97,16 @@ impl ItemPredicates {
 mod tests {
     use std::collections::{HashMap, HashSet};
 
-    use commitlib::{IngredientsDef, ItemDef, util::set_from_hashes};
+    use commitlib::{BatchDef, IngredientsDef, ItemDef, util::set_from_hashes};
     use pod2::{
         backends::plonky2::mock::mainpod::MockProver,
         frontend::{MainPod, MainPodBuilder, Operation},
         lang::parse,
-        middleware::{EMPTY_VALUE, Pod, RawValue, Statement, Value, hash_value},
+        middleware::{
+            EMPTY_VALUE, Pod, RawValue, Statement, Value,
+            containers::{Dictionary, Set},
+            hash_value,
+        },
     };
 
     use super::*;
@@ -137,7 +141,7 @@ mod tests {
         // Pre-calculate hashes and intermediate values.
         let ingredients_def: IngredientsDef = IngredientsDef {
             inputs: HashSet::new(),
-            key: RawValue::from(key),
+            keys: vec![RawValue::from(key)],
             app_layer: HashMap::from([
                 ("blueprint".to_string(), Value::from(STONE_BLUEPRINT)),
                 ("seed".to_string(), Value::from(seed)),
@@ -161,11 +165,20 @@ mod tests {
         let work: RawValue = pow_pod.output;
         let st_pow = main_pow_pod.public_statements[0].clone();
         builder.add_pod(main_pow_pod);
-        let item_def = ItemDef {
-            ingredients: ingredients_def.clone(),
-            work,
-        };
+        let batch_def = BatchDef::new(ingredients_def.clone(), work);
+        let batch_hash = batch_def.batch_hash(&params)?;
+        let item_def = ItemDef::new(batch_def.clone(), 0);
         let item_hash = item_def.item_hash(&params)?;
+        let key_dict = Dictionary::new(
+            params.max_depth_mt_containers,
+            ingredients_def
+                .keys
+                .clone()
+                .into_iter()
+                .enumerate()
+                .map(|(i, key)| (format!("{i}").into(), key.into()))
+                .collect(),
+        )?;
 
         // Sets for on-chain commitment
         let nullifiers = set_from_hashes(&params, &HashSet::new())?;
@@ -177,25 +190,43 @@ mod tests {
             ]),
         )?;
 
-        // Build ItemDef(item, ingredients, inputs, key, work)
+        // Build BatchDef(batch, ingredients, inputs, keys, work)
         let st_contains_inputs = builder.priv_op(Operation::dict_contains(
             ingredients_dict.clone(),
             "inputs",
             inputs_set.clone(),
         ))?;
+        let st_contains_keys = builder.priv_op(Operation::dict_contains(
+            ingredients_dict.clone(),
+            "keys",
+            key_dict.clone(),
+        ))?;
+        let st_batch_hash = builder.priv_op(Operation::hash_of(
+            batch_hash,
+            ingredients_dict.clone(),
+            batch_def.work,
+        ))?;
+        let st_batch_def = builder.pub_op(Operation::custom(
+            commit_preds.batch_def.clone(),
+            [st_contains_inputs, st_contains_keys, st_batch_hash],
+        ))?;
+
+        // Build ItemInBatch(item, batch, index, keys)
+        let st_item_hash = builder.priv_op(Operation::hash_of(item_hash, batch_hash, "0"))?;
         let st_contains_key = builder.priv_op(Operation::dict_contains(
-            ingredients_dict.clone(),
-            "key",
-            ingredients_def.key,
+            key_dict.clone(),
+            "0",
+            ingredients_def.keys[0],
         ))?;
-        let st_item_hash = builder.priv_op(Operation::hash_of(
-            item_hash,
-            ingredients_dict.clone(),
-            item_def.work,
+        let st_item_in_batch = builder.pub_op(Operation::custom(
+            commit_preds.item_in_batch.clone(),
+            [st_item_hash.clone(), st_contains_key.clone()],
         ))?;
-        let st_item_def = builder.pub_op(Operation::custom(
+
+        // Build ItemDef(item, ingredients, inputs, key, work)
+        let st_item_def = builder.priv_op(Operation::custom(
             commit_preds.item_def.clone(),
-            [st_contains_inputs, st_contains_key, st_item_hash],
+            [st_batch_def.clone(), st_item_in_batch, st_contains_key],
         ))?;
 
         // Build ItemKey(item, key)
@@ -230,10 +261,60 @@ mod tests {
             [st_nullifiers_empty, Statement::None],
         ))?;
 
+        // Build AllItemsInBatch(items, batch, keys)
+        let empty_set = Set::new(params.max_depth_mt_containers, HashSet::new())?;
+        let empty_dict = Dictionary::new(params.max_depth_mt_containers, HashMap::new())?;
+        let st_all_items_in_batch_empty = builder.op(
+            false,
+            vec![(1, batch_hash.into())],
+            Operation::custom(
+                commit_preds.all_items_in_batch_empty.clone(),
+                [
+                    Statement::Equal(empty_set.clone().into(), EMPTY_VALUE.into()),
+                    Statement::Equal(empty_dict.clone().into(), EMPTY_VALUE.into()),
+                ],
+            ),
+        )?;
+        let st_all_items_in_batch1 = builder.priv_op(Operation::custom(
+            commit_preds.all_items_in_batch.clone(),
+            [st_all_items_in_batch_empty, Statement::None],
+        ))?;
+        let items = {
+            let mut items = empty_set.clone();
+            items.insert(&item_hash.into())?;
+            items
+        };
+        let st_set_insert =
+            builder.priv_op(Operation::set_insert(items.clone(), empty_set, item_hash))?;
+        let st_dict_insert = builder.priv_op(Operation::dict_insert(
+            key_dict.clone(),
+            empty_dict,
+            "0",
+            key,
+        ))?;
+        let st_all_items_in_batch_recursive = builder.priv_op(Operation::custom(
+            commit_preds.all_items_in_batch_recursive.clone(),
+            [
+                st_all_items_in_batch1,
+                st_set_insert,
+                st_dict_insert,
+                st_item_hash,
+            ],
+        ))?;
+        let st_all_items_in_batch = builder.priv_op(Operation::custom(
+            commit_preds.all_items_in_batch.clone(),
+            [Statement::None, st_all_items_in_batch_recursive],
+        ))?;
+
         // Build CommitCreation(item, nullifiers, created_items)
         let _st_commit_crafting = builder.pub_op(Operation::custom(
             commit_preds.commit_creation.clone(),
-            [st_item_def.clone(), st_inputs_subset, st_nullifiers],
+            [
+                st_batch_def,
+                st_all_items_in_batch,
+                st_inputs_subset,
+                st_nullifiers,
+            ],
         ))?;
 
         // Build IsStone(item)
@@ -266,11 +347,11 @@ mod tests {
             {}
 
             REQUEST(
-                ItemDef(item, ingredients, inputs, key, work)
+                BatchDef(batch, ingredients, inputs, keys, work)
                 ItemKey(item, key)
                 SubsetOf(inputs, created_items)
                 Nullifiers(nullifiers, inputs)
-                CommitCreation(item, nullifiers, created_items)
+                CommitCreation(items, nullifiers, created_items)
                 IsStone(item)
             )
             "#,
@@ -289,10 +370,13 @@ mod tests {
         check_matched_wildcards(
             matched_wildcards,
             HashMap::from([
+                ("batch".into(), batch_hash.into()),
                 ("item".to_string(), Value::from(item_hash)),
+                ("items".into(), items.into()),
                 ("ingredients".to_string(), Value::from(ingredients_dict)),
                 ("inputs".to_string(), Value::from(inputs_set)),
                 ("key".to_string(), Value::from(key)),
+                ("keys".into(), key_dict.into()),
                 ("work".to_string(), Value::from(work)),
                 ("created_items".to_string(), Value::from(created_items)),
                 ("nullifiers".to_string(), Value::from(nullifiers)),
