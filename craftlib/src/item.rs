@@ -379,7 +379,7 @@ mod tests {
         )?;
 
         stone_main_pod.pod.verify()?;
-        assert_eq!(stone_main_pod.public_statements.len(), 4);
+        assert_eq!(stone_main_pod.public_statements.len(), 5);
         println!("Stone POD: {:?}", stone_main_pod.pod);
 
         // PODLang query to check the final statements.

@@ -25,7 +25,7 @@ use craftlib::{
 use plonky2::field::types::Field;
 use pod2::{
     backends::plonky2::mainpod::Prover,
-    frontend::{MainPod, MainPodBuilder, Operation},
+    frontend::{MainPod, MainPodBuilder},
     middleware::{
         CustomPredicateBatch, DEFAULT_VD_SET, F, Key, Params, Pod, RawValue, VDSet, Value,
         containers::Set,
@@ -184,6 +184,18 @@ impl Helper {
         pow_pod: Option<PowPod>,
     ) -> anyhow::Result<MainPod> {
         let prover = &Prover {};
+
+        // First take care of AllItemsInBatch statement.
+        let mut builder = MainPodBuilder::new(&self.params, &self.vd_set);
+        let mut item_builder =
+            ItemBuilder::new(BuildContext::new(&mut builder, &self.batches), &self.params);
+
+        let st_all_items_in_batch = item_builder.st_all_items_in_batch(item_def.batch.clone())?;
+
+        item_builder.ctx.builder.reveal(&st_all_items_in_batch); // 5: Required for committing via CommitCreation
+
+        let all_items_in_batch_pod = item_builder.ctx.builder.prove(prover)?;
+
         let mut builder = MainPodBuilder::new(&self.params, &self.vd_set);
         let mut item_builder =
             ItemBuilder::new(BuildContext::new(&mut builder, &self.batches), &self.params);
@@ -257,46 +269,20 @@ impl Helper {
             )?,
         };
 
+        builder.add_pod(all_items_in_batch_pod);
+
         builder.reveal(&st_item_key); // 0: Required for consuming via Nullifiers
         builder.reveal(&st_batch_def); // 1: Required for committing via CommitCreation
         builder.reveal(&st_item_def); // 2: Explicit item predicate
         builder.reveal(&st_nullifiers); // 3: Required for committing via CommitCreation
         builder.reveal(&st_craft); // 4: App layer predicate
+        builder.reveal(&st_all_items_in_batch); // 5: Required for committing via CommitCreation
 
-        info!("Proving preliminary item_pod");
+        info!("Proving item_pod");
         let start = std::time::Instant::now();
         let item_key_pod = builder.prove(prover).unwrap();
         log::info!("[TIME] pod proving time: {:?}", start.elapsed());
         item_key_pod.pod.verify().unwrap();
-
-        // Now construct a POD with the same revealed statements plus an AllItemsInBatch statement.
-        let mut builder = MainPodBuilder::new(&self.params, &self.vd_set);
-        let mut item_builder =
-            ItemBuilder::new(BuildContext::new(&mut builder, &self.batches), &self.params);
-
-        item_builder.ctx.builder.add_pod(item_key_pod.clone());
-
-        println!("{}", item_key_pod.public_statements.len());
-        item_key_pod
-            .public_statements
-            .into_iter()
-            .try_for_each(|st| {
-                item_builder
-                    .ctx
-                    .builder
-                    .pub_op(Operation::copy(st))
-                    .map(|_| ())
-            })?;
-
-        let st_all_items_in_batch = item_builder.st_all_items_in_batch(item_def.batch)?;
-
-        item_builder.ctx.builder.reveal(&st_all_items_in_batch); // 5: Required for committing via CommitCreation
-
-        info!("Proving actual item_pod");
-        let start = std::time::Instant::now();
-        let item_key_pod = item_builder.ctx.builder.prove(prover)?;
-        log::info!("[TIME] pod proving time: {:?}", start.elapsed());
-        item_key_pod.pod.verify()?;
 
         Ok(item_key_pod)
     }
