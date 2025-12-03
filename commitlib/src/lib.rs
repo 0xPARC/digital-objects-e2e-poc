@@ -102,7 +102,7 @@ impl ItemDef {
     }
 
     pub fn new(batch: BatchDef, index: Key) -> anyhow::Result<Self> {
-        if batch.ingredients.keys.get(&index).is_some() {
+        if batch.ingredients.keys.contains_key(&index) {
             Ok(Self { batch, index })
         } else {
             Err(anyhow!("Invalid index: {index}"))

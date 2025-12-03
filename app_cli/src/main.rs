@@ -74,14 +74,17 @@ async fn main() -> anyhow::Result<()> {
             // Verify that the item exists on-blob-space:
             // first get the merkle proof of item existence from the Synchronizer
             let item = RawValue::from(crafted_item.def.item_hash(&params)?);
-            let item_hex: String = format!("{item:#}");
+
+            // Single item => set containing one element
+            // TODO: Generalise.
+            let item_set_hex: String = format!("{item:#}");
             let (epoch, _): (u64, RawValue) =
                 reqwest::blocking::get(format!("{}/created_items_root", cfg.sync_url,))?.json()?;
             info!("Verifying commitment of item {item:#} via synchronizer at epoch {epoch}");
             let (epoch, mtp): (u64, MerkleProof) = reqwest::blocking::get(format!(
                 "{}/created_item/{}",
                 cfg.sync_url,
-                &item_hex[2..]
+                &item_set_hex[2..]
             ))?
             .json()?;
             info!("mtp at epoch {epoch}: {mtp:?}");

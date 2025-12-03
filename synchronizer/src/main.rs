@@ -407,9 +407,11 @@ impl Node {
             );
         }
 
-        // Check that output is unique
-        if state.created_items.contains(&Value::from(payload.item)) {
-            bail!("item {} exists in created_items", payload.item);
+        // Check that outputs are unique
+        for item in &payload.items {
+            if state.created_items.contains(&(*item).into()) {
+                bail!("item {} exists in created_items", item);
+            }
         }
 
         // Check that inputs are unique
@@ -431,10 +433,14 @@ impl Node {
         // instead of single item. This will make the st_hash match the expected
         // one, which in turn will make the public_inputs be valid when the
         // Synchronizer decompresses & verifies the proof.
+        let item_set = Set::new(
+            self.params.max_depth_mt_containers,
+            payload.items.iter().map(|rv| (*rv).into()).collect(),
+        )?;
         let st_commit_creation = Statement::Custom(
             self.pred_commit_creation.clone(),
             vec![
-                Value::from(payload.item),
+                item_set.into(),
                 nullifiers_set,
                 Value::from(payload.created_items_root),
             ],
@@ -447,11 +453,11 @@ impl Node {
         for nullifier in &payload.nullifiers {
             state.nullifiers.insert(*nullifier);
         }
-        // Register item
-        state
-            .created_items
-            .insert(&Value::from(payload.item))
-            .unwrap();
+
+        // Register items
+        for item in payload.items {
+            state.created_items.insert(&item.into())?;
+        }
 
         state.epoch += 1;
         let created_items_root = state.created_items.commitment();

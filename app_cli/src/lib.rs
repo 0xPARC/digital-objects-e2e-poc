@@ -27,7 +27,8 @@ use pod2::{
     backends::plonky2::mainpod::Prover,
     frontend::{MainPod, MainPodBuilder},
     middleware::{
-        CustomPredicateBatch, DEFAULT_VD_SET, F, Key, Params, Pod, RawValue, VDSet, containers::Set,
+        CustomPredicateBatch, DEFAULT_VD_SET, F, Key, Params, Pod, RawValue, VDSet, Value,
+        containers::Set,
     },
 };
 use pod2utils::macros::BuildContext;
@@ -414,9 +415,11 @@ pub async fn commit_item(params: &Params, cfg: &Config, input: &Path) -> anyhow:
     let st_commit_creation = pod.public_statements[0].clone();
     let nullifier_set = set_from_value(&st_commit_creation.args()[1].literal()?)?;
     let nullifiers: Vec<RawValue> = nullifier_set.set().iter().map(|v| v.raw()).collect();
+    // Single item => set containing one element
+    let items = vec![Value::from(crafted_item.def.item_hash(params)?).raw()];
     let payload_bytes = Payload {
         proof: PayloadProof::Plonky2(Box::new(shrunk_main_pod_proof.clone())),
-        item: RawValue::from(crafted_item.def.item_hash(params)?),
+        items,
         created_items_root: RawValue::from(created_items.commitment()),
         nullifiers,
     }
