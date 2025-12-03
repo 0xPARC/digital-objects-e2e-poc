@@ -227,6 +227,13 @@ mod tests {
         prover: &dyn MainPodProver,
         vd_set: &VDSet,
     ) -> anyhow::Result<MainPod> {
+        // Prove AllItemsInBatch
+        let mut builder = MainPodBuilder::new(&Default::default(), vd_set);
+        let mut item_builder = ItemBuilder::new(BuildContext::new(&mut builder, batches), params);
+        let st_all_items_in_batch = item_builder.st_all_items_in_batch(item_def.batch.clone())?;
+        item_builder.ctx.builder.reveal(&st_all_items_in_batch);
+        let all_items_in_batch_pod = item_builder.ctx.builder.prove(prover)?;
+
         let mut builder = MainPodBuilder::new(&Default::default(), vd_set);
         let mut item_builder = ItemBuilder::new(BuildContext::new(&mut builder, batches), params);
         let st_batch_def = item_builder.st_batch_def(item_def.batch.clone())?;
@@ -235,11 +242,14 @@ mod tests {
         item_builder.ctx.builder.reveal(&st_item_def);
         let st_item_key = item_builder.st_item_key(st_item_def.clone())?;
         item_builder.ctx.builder.reveal(&st_item_key);
+        let st_all_items_in_batch = all_items_in_batch_pod.public_statements[0].clone();
+        item_builder.ctx.builder.reveal(&st_all_items_in_batch);
 
         let st_pow = pow_pod.public_statements[0].clone();
 
         let mut craft_builder = CraftBuilder::new(BuildContext::new(&mut builder, batches), params);
         craft_builder.ctx.builder.add_pod(pow_pod);
+        craft_builder.ctx.builder.add_pod(all_items_in_batch_pod);
         let st_is_stone = craft_builder.st_is_stone(item_def, st_item_def, st_pow)?;
         craft_builder.ctx.builder.reveal(&st_is_stone);
 
@@ -265,6 +275,7 @@ mod tests {
 
         // TODO: Consider a more robust lookup for this which doesn't depend on index.
         let st_batch_def = item_main_pod.public_statements[0].clone();
+        let st_all_items_in_batch = item_main_pod.public_statements[3].clone();
         builder.add_pod(item_main_pod);
 
         let mut item_builder = ItemBuilder::new(BuildContext::new(&mut builder, batches), params);
@@ -274,6 +285,7 @@ mod tests {
             st_nullifier,
             created_items,
             st_batch_def,
+            st_all_items_in_batch,
         )?;
         builder.reveal(&st_commit_creation);
 

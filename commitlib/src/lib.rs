@@ -361,13 +361,12 @@ impl<'a> ItemBuilder<'a> {
         st_nullifiers: Statement,
         created_items: Set,
         st_batch_def: Statement,
+        st_all_items_in_batch: Statement,
     ) -> anyhow::Result<Statement> {
         let st_inputs_subset = self.st_super_sub_set(
             batch_def.ingredients.inputs_set(self.params)?,
             created_items,
         )?;
-
-        let st_all_items_in_batch = self.st_all_items_in_batch(batch_def)?;
 
         // Build CommitCreation(item, nullifiers, created_items)
         let st_commit_creation = st_custom!(self.ctx,
