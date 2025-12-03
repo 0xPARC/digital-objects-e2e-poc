@@ -428,11 +428,6 @@ impl Node {
             )
             .unwrap(),
         );
-        // WIP:
-        // TODO update st_commit_creation to match the new statement after batch
-        // instead of single item. This will make the st_hash match the expected
-        // one, which in turn will make the public_inputs be valid when the
-        // Synchronizer decompresses & verifies the proof.
         let item_set = Set::new(
             self.params.max_depth_mt_containers,
             payload.items.iter().map(|rv| (*rv).into()).collect(),

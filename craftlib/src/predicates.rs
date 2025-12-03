@@ -83,6 +83,60 @@ impl ItemPredicates {
                 WoodenAxeInputs(inputs)
             )
             "#,
+            // multi-output related predicates:
+            // (simplified version without tools & durability)
+            r#"
+            // disassemble 2 Stones into 2 outputs: Dust,Gravel.
+            
+            // inputs: 2 Stones
+            StoneDisassembleInputs(inputs, private: s1, stone1, stone2) = AND(
+                SetInsert(s1, {}, stone1)
+                SetInsert(inputs, s1, stone2)
+
+                // prove the ingredients are correct
+                IsStone(stone1)
+                IsStone(stone2)
+            )
+            // outputs: 1 Dust, 1 Gravel
+            StoneDisassembleOutputs(inputs, private: batch, k1, _dust_key, _gravel_key) = AND(
+                HashOf(dust, batch, "dust")
+                HashOf(gravel, batch, "gravel")
+                DictInsert(k1, {}, "dust", _dust_key)
+                DictInsert(keys, k1, "gravel", _gravel_key)
+            )
+            // helper to have a single predicate for the inputs & outputs
+            StoneDisassembleInputsOutputs(inputs, private: batch, k1, s1, stone1, stone2, _dust_key, _gravel_key) = AND (
+                StoneDisassembleInputs(inputs)
+                StoneDisassembleOutputs(inputs)
+            )
+            StoneDisassemble(dust, gravel, stone1, stone2, private: batch, ingredients, inputs, work, _dust_key, _gravel_key) = AND(
+                BatchDef(batch, ingredients, inputs, keys, work)
+                DictContains(ingredients, "blueprint", "dust")
+                DictContains(ingredients, "blueprint", "gravel")
+
+                StoneDisassembleInputsOutputs(inputs)
+            )
+            "#,
+            // WIP, NOTE: for the next 2 predicates I'm not sure on the
+            // approach; might be missing stuff.
+            r#"
+            // can only obtain Dust from disassembling 2 stones
+            IsDust(item, private: ingredients, inputs, key, work) = AND(
+                ItemDef(item, ingredients, inputs, key, work)
+                DictContains(ingredients, "blueprint", "dust")
+                Equal(work, {})
+        
+                StoneDisassemble(inputs)
+            )
+            // can only obtain Gravel from disassembling 2 stones
+            IsGravel(item, private: ingredients, inputs, key, work) = AND(
+                ItemDef(item, ingredients, inputs, key, work)
+                DictContains(ingredients, "blueprint", "gravel")
+                Equal(work, {})
+        
+                StoneDisassemble(inputs)
+            )
+            "#,
         ];
         let defs = PredicateDefs::new(params, &batch_defs, slice::from_ref(&commit_preds.defs));
 
