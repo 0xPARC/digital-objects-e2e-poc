@@ -1,11 +1,16 @@
 use std::collections::{HashMap, HashSet};
 
-use commitlib::{IngredientsDef, ItemDef};
+use commitlib::{BatchDef, IngredientsDef, ItemDef};
 use log;
-use pod2::middleware::{EMPTY_VALUE, Hash, Key, Params, Statement, ToFields, Value};
+use pod2::middleware::{
+    EMPTY_VALUE, Hash, Key, Params, Statement, ToFields, Value, containers::Dictionary,
+};
 use pod2utils::{macros::BuildContext, set, st_custom};
 
-use crate::constants::{AXE_BLUEPRINT, STONE_BLUEPRINT, WOOD_BLUEPRINT, WOODEN_AXE_BLUEPRINT};
+use crate::constants::{
+    AXE_BLUEPRINT, DUST_BLUEPRINT, GRAVEL_BLUEPRINT, STONE_BLUEPRINT, WOOD_BLUEPRINT,
+    WOODEN_AXE_BLUEPRINT,
+};
 
 // Reusable recipe for an item to be mined, not including the variable
 // cryptographic values.
@@ -181,6 +186,108 @@ impl<'a> CraftBuilder<'a> {
                 DictContains(item_def.batch.ingredients.dict(self.params)?, "blueprint", WOODEN_AXE_BLUEPRINT),
                 Equal(item_def.batch.work, EMPTY_VALUE),
                 st_wooden_axe_inputs
+            ))?)
+    }
+
+    fn st_stone_disassemble_inputs(
+        &mut self,
+        st_is_stone1: Statement,
+        st_is_stone2: Statement,
+    ) -> anyhow::Result<Statement> {
+        let stone1 = st_is_stone1.args()[0].literal().unwrap();
+        let stone2 = st_is_stone2.args()[0].literal().unwrap();
+        let empty_set = set!(self.params.max_depth_mt_containers).unwrap();
+        let mut s1 = empty_set.clone();
+        s1.insert(&stone1).unwrap();
+        let mut inputs = s1.clone();
+        inputs.insert(&stone2).unwrap();
+        Ok(st_custom!(self.ctx,
+            StoneDisassembleInputs() = (
+                SetInsert(s1, empty_set, stone1),
+                SetInsert(inputs, s1, stone2),
+                st_is_stone1,
+                st_is_stone2
+            ))?)
+    }
+    pub fn st_stone_disassemble_outputs(
+        &mut self,
+        batch_def: BatchDef,
+    ) -> anyhow::Result<Statement> {
+        let batch_hash = batch_def.batch_hash(self.params)?;
+
+        let keys_dict = Dictionary::new(
+            self.params.max_depth_mt_containers,
+            batch_def.ingredients.keys.clone(),
+        )?;
+
+        Ok(st_custom!(self.ctx,
+        StoneDisassembleOutputs() = (
+            // TODO WIP
+            todo!(),
+            HashOf(dust_hash, batch_hash, item_def.index.hash()),
+            HashOf(gravel_hash, batch_hash, item_def.index.hash()),
+            DictContains(keys_dict, item_def.index.name(), item_def.item_key())
+            DictContains(keys_dict, item_def.index.name(), item_def.item_key())
+        ))?)
+    }
+    fn st_stone_disassemble_inputs_outputs(
+        &mut self,
+        st_is_stone1: Statement,
+        st_is_stone2: Statement,
+        batch_def: BatchDef,
+    ) -> anyhow::Result<Statement> {
+        let st_stone_disassemble_inputs =
+            self.st_stone_disassemble_inputs(st_is_stone1, st_is_stone2)?;
+        let st_stone_disassemble_outputs = self.st_stone_disassemble_outputs(batch_def)?;
+
+        Ok(st_custom!(self.ctx,
+        StoneDisassembleInputsOutputs() = (
+            st_stone_disassemble_inputs,
+            st_stone_disassemble_outputs,
+        ))?)
+    }
+    fn st_stone_disassemble(
+        &mut self,
+        st_stone_disassemble_inputs_outputs: Statement,
+        st_batch_def: Statement,
+    ) -> anyhow::Result<Statement> {
+        Ok(st_custom!(self.ctx,
+        StoneDisassemble() = (
+            st_batch_def,
+            // TODO
+            todo!(),
+            st_stone_disassemble_inputs_outputs,
+        ))?)
+    }
+
+    pub fn st_is_dust(
+        &mut self,
+        item_def: ItemDef,
+        st_item_def: Statement,
+        st_stone_disassemble_inputs_outputs: Statement,
+        st_is_dust: Statement,
+    ) -> anyhow::Result<Statement> {
+        Ok(st_custom!(self.ctx,
+            IsAxe() = (
+                st_item_def,
+                DictContains(item_def.batch.ingredients.dict(self.params)?, "blueprint", DUST_BLUEPRINT),
+                Equal(item_def.batch.work, EMPTY_VALUE),
+                st_stone_disassemble_inputs_outputs,
+            ))?)
+    }
+    pub fn st_is_gravel(
+        &mut self,
+        item_def: ItemDef,
+        st_item_def: Statement,
+        st_stone_disassemble_inputs_outputs: Statement,
+        st_is_gravel: Statement,
+    ) -> anyhow::Result<Statement> {
+        Ok(st_custom!(self.ctx,
+            IsAxe() = (
+                st_item_def,
+                DictContains(item_def.batch.ingredients.dict(self.params)?, "blueprint", GRAVEL_BLUEPRINT),
+                Equal(item_def.batch.work, EMPTY_VALUE),
+                st_stone_disassemble_inputs_outputs,
             ))?)
     }
 }

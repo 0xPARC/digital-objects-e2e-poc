@@ -41,8 +41,7 @@ impl ItemPredicates {
                 // TODO input POD: SequentialWork(ingredients, work, 5)
                 // TODO input POD: HashInRange(0, 1<<5, ingredients)
             )
-            "#,
-            r#"
+
             AxeInputs(inputs, private: s1, wood, stone) = AND(
                 // 2 ingredients
                 SetInsert(s1, {}, wood)
@@ -62,6 +61,8 @@ impl ItemPredicates {
         
                 AxeInputs(inputs)
             )
+            "#,
+            r#"
         
             // Wooden Axe:
             WoodenAxeInputs(inputs, private: s1, wood1, wood2) = AND(
@@ -82,10 +83,10 @@ impl ItemPredicates {
         
                 WoodenAxeInputs(inputs)
             )
-            "#,
+
+
             // multi-output related predicates:
             // (simplified version without tools & durability)
-            r#"
             // disassemble 2 Stones into 2 outputs: Dust,Gravel.
             
             // inputs: 2 Stones
@@ -106,6 +107,8 @@ impl ItemPredicates {
                 DictInsert(k1, {}, "dust", _dust_key)
                 DictInsert(keys, k1, "gravel", _gravel_key)
             )
+            "#,
+            r#"
 
             // helper to have a single predicate for the inputs & outputs
             StoneDisassembleInputsOutputs(inputs) = AND (
@@ -114,17 +117,14 @@ impl ItemPredicates {
             )
 
             StoneDisassemble(inputs,
-                    private: batch, keys, ingredients) = AND(
-                BatchDef(batch, ingredients, inputs, keys, {}) // no work
+                    private: batch, keys, ingredients, work) = AND(
+                BatchDef(batch, ingredients, inputs, keys, work)
                 DictContains(ingredients, "blueprint", "dust")
                 DictContains(ingredients, "blueprint", "gravel")
 
                 StoneDisassembleInputsOutputs(inputs)
             )
-            "#,
-            // WIP, NOTE: for the next 2 predicates I'm not sure on the
-            // approach; might be missing stuff.
-            r#"
+
             // can only obtain Dust from disassembling 2 stones
             IsDust(item, private: ingredients, inputs, key, work) = AND(
                 ItemDef(item, ingredients, inputs, key, work)
@@ -183,7 +183,7 @@ mod tests {
         assert!(commit_preds.defs.batches.len() == 4);
 
         let item_preds = ItemPredicates::compile(&params, &commit_preds);
-        assert!(item_preds.defs.batches.len() == 4);
+        assert!(item_preds.defs.batches.len() == 3);
     }
 
     #[test]
