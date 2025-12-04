@@ -97,20 +97,25 @@ impl ItemPredicates {
                 IsStone(stone1)
                 IsStone(stone2)
             )
+
             // outputs: 1 Dust, 1 Gravel
-            StoneDisassembleOutputs(inputs, private: batch, k1, _dust_key, _gravel_key) = AND(
+            StoneDisassembleOutputs(inputs,
+                    private: batch, keys, k1, dust, gravel, _dust_key, _gravel_key) = AND(
                 HashOf(dust, batch, "dust")
                 HashOf(gravel, batch, "gravel")
                 DictInsert(k1, {}, "dust", _dust_key)
                 DictInsert(keys, k1, "gravel", _gravel_key)
             )
+
             // helper to have a single predicate for the inputs & outputs
-            StoneDisassembleInputsOutputs(inputs, private: batch, k1, s1, stone1, stone2, _dust_key, _gravel_key) = AND (
+            StoneDisassembleInputsOutputs(inputs) = AND (
                 StoneDisassembleInputs(inputs)
                 StoneDisassembleOutputs(inputs)
             )
-            StoneDisassemble(dust, gravel, stone1, stone2, private: batch, ingredients, inputs, work, _dust_key, _gravel_key) = AND(
-                BatchDef(batch, ingredients, inputs, keys, work)
+
+            StoneDisassemble(inputs,
+                    private: batch, keys, ingredients) = AND(
+                BatchDef(batch, ingredients, inputs, keys, {}) // no work
                 DictContains(ingredients, "blueprint", "dust")
                 DictContains(ingredients, "blueprint", "gravel")
 
@@ -128,8 +133,9 @@ impl ItemPredicates {
         
                 StoneDisassemble(inputs)
             )
+
             // can only obtain Gravel from disassembling 2 stones
-            IsGravel(item, private: ingredients, inputs, key, work) = AND(
+            IsGravel(item, private: ingredients, inputs, key, work, dust, gravel) = AND(
                 ItemDef(item, ingredients, inputs, key, work)
                 DictContains(ingredients, "blueprint", "gravel")
                 Equal(work, {})
@@ -177,7 +183,7 @@ mod tests {
         assert!(commit_preds.defs.batches.len() == 4);
 
         let item_preds = ItemPredicates::compile(&params, &commit_preds);
-        assert!(item_preds.defs.batches.len() == 2);
+        assert!(item_preds.defs.batches.len() == 4);
     }
 
     #[test]
