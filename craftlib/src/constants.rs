@@ -21,6 +21,6 @@ pub const DUST_BLUEPRINT: &str = "dust";
 pub const DUST_MINING_MAX: u64 = 0x0020_0000_0000_0000;
 pub const DUST_WORK: RawValue = EMPTY_VALUE;
 
-pub const GRAVEL_BLUEPRINT: &str = "gravel";
-pub const GRAVEL_MINING_MAX: u64 = 0x0020_0000_0000_0000;
-pub const GRAVEL_WORK: RawValue = EMPTY_VALUE;
+pub const GEM_BLUEPRINT: &str = "gem";
+pub const GEM_MINING_MAX: u64 = 0x0020_0000_0000_0000;
+pub const GEM_WORK: RawValue = EMPTY_VALUE;

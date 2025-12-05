@@ -8,7 +8,7 @@ use pod2::middleware::{
 use pod2utils::{macros::BuildContext, set, st_custom};
 
 use crate::constants::{
-    AXE_BLUEPRINT, DUST_BLUEPRINT, GRAVEL_BLUEPRINT, STONE_BLUEPRINT, WOOD_BLUEPRINT,
+    AXE_BLUEPRINT, DUST_BLUEPRINT, GEM_BLUEPRINT, STONE_BLUEPRINT, WOOD_BLUEPRINT,
     WOODEN_AXE_BLUEPRINT,
 };
 
@@ -17,6 +17,8 @@ use crate::constants::{
 #[derive(Debug, Clone)]
 pub struct MiningRecipe {
     pub inputs: HashSet<Hash>,
+    // Q: should it always be a string even for multiple outputs? for now we're
+    // joining the multiple strings with a '+'
     pub blueprint: String,
 }
 
@@ -189,7 +191,7 @@ impl<'a> CraftBuilder<'a> {
             ))?)
     }
 
-    fn st_stone_disassemble_inputs(
+    pub fn st_stone_disassemble_inputs(
         &mut self,
         st_is_stone1: Statement,
         st_is_stone2: Statement,
@@ -215,9 +217,10 @@ impl<'a> CraftBuilder<'a> {
     ) -> anyhow::Result<Statement> {
         let batch_hash = batch_def.batch_hash(self.params)?;
         let dust_hash = hash_values(&[batch_hash.into(), DUST_BLUEPRINT.into()]);
-        let gravel_hash = hash_values(&[batch_hash.into(), GRAVEL_BLUEPRINT.into()]);
+        let gem_hash = hash_values(&[batch_hash.into(), GEM_BLUEPRINT.into()]);
+        dbg!(&batch_def.ingredients.keys);
         let dust_key = batch_def.ingredients.keys[&DUST_BLUEPRINT.into()].clone();
-        let gravel_key = batch_def.ingredients.keys[&GRAVEL_BLUEPRINT.into()].clone();
+        let gem_key = batch_def.ingredients.keys[&GEM_BLUEPRINT.into()].clone();
 
         let keys_dict = Dictionary::new(
             self.params.max_depth_mt_containers,
@@ -231,12 +234,12 @@ impl<'a> CraftBuilder<'a> {
         Ok(st_custom!(self.ctx,
             StoneDisassembleOutputs() = (
             HashOf(dust_hash, batch_hash, DUST_BLUEPRINT),
-            HashOf(gravel_hash, batch_hash, GRAVEL_BLUEPRINT),
+            HashOf(gem_hash, batch_hash, GEM_BLUEPRINT),
             DictInsert(k1_dict, empty_dict, DUST_BLUEPRINT, dust_key),
-            DictInsert(keys_dict, k1_dict, GRAVEL_BLUEPRINT, gravel_key)
+            DictInsert(keys_dict, k1_dict, GEM_BLUEPRINT, gem_key)
         ))?)
     }
-    fn st_stone_disassemble_inputs_outputs(
+    pub fn st_stone_disassemble_inputs_outputs(
         &mut self,
         st_is_stone1: Statement,
         st_is_stone2: Statement,
@@ -252,7 +255,7 @@ impl<'a> CraftBuilder<'a> {
             st_stone_disassemble_outputs
         ))?)
     }
-    fn st_stone_disassemble(
+    pub fn st_stone_disassemble(
         &mut self,
         st_stone_disassemble_inputs_outputs: Statement,
         st_batch_def: Statement,
@@ -261,7 +264,7 @@ impl<'a> CraftBuilder<'a> {
         Ok(st_custom!(self.ctx,
         StoneDisassemble() = (
             st_batch_def,
-            DictContains(batch_def.ingredients.dict(self.params)?, "blueprint", format!("{DUST_BLUEPRINT}+{GRAVEL_BLUEPRINT}")),
+            DictContains(batch_def.ingredients.dict(self.params)?, "blueprint", format!("{DUST_BLUEPRINT}+{GEM_BLUEPRINT}")),
             st_stone_disassemble_inputs_outputs
         ))?)
     }
@@ -269,29 +272,44 @@ impl<'a> CraftBuilder<'a> {
     pub fn st_is_dust(
         &mut self,
         item_def: ItemDef,
-        st_item_def: Statement,
-        st_stone_disassemble_inputs_outputs: Statement,
+        st_item_def: Statement, // TODO rm
+        st_stone_disassemble: Statement,
     ) -> anyhow::Result<Statement> {
+        let batch_hash = item_def.batch.batch_hash(self.params)?;
+        let dust_hash = hash_values(&[batch_hash.into(), DUST_BLUEPRINT.into()]);
+        let keys_dict = Dictionary::new(
+            self.params.max_depth_mt_containers,
+            item_def.batch.ingredients.keys.clone(),
+        )?;
+        let dust_key = item_def.batch.ingredients.keys[&DUST_BLUEPRINT.into()].clone();
         Ok(st_custom!(self.ctx,
             IsDust() = (
-                st_item_def,
-                DictContains(item_def.batch.ingredients.dict(self.params)?, "blueprint", DUST_BLUEPRINT),
+                HashOf(dust_hash, batch_hash, DUST_BLUEPRINT),
+                DictContains(keys_dict, DUST_BLUEPRINT, dust_key),
                 Equal(item_def.batch.work, EMPTY_VALUE),
-                st_stone_disassemble_inputs_outputs
+                st_stone_disassemble
             ))?)
     }
-    pub fn st_is_gravel(
+    pub fn st_is_gem(
         &mut self,
         item_def: ItemDef,
         st_item_def: Statement,
-        st_stone_disassemble_inputs_outputs: Statement,
+        st_stone_disassemble: Statement,
     ) -> anyhow::Result<Statement> {
+        let batch_hash = item_def.batch.batch_hash(self.params)?;
+        let gem_hash = hash_values(&[batch_hash.into(), GEM_BLUEPRINT.into()]);
+        let keys_dict = Dictionary::new(
+            self.params.max_depth_mt_containers,
+            item_def.batch.ingredients.keys.clone(),
+        )?;
+        let gem_key = item_def.batch.ingredients.keys[&GEM_BLUEPRINT.into()].clone();
+
         Ok(st_custom!(self.ctx,
-            IsGravel() = (
-                st_item_def,
-                DictContains(item_def.batch.ingredients.dict(self.params)?, "blueprint", GRAVEL_BLUEPRINT),
+            IsGem() = (
+                HashOf(gem_hash, batch_hash, GEM_BLUEPRINT),
+                DictContains(keys_dict, GEM_BLUEPRINT, gem_key),
                 Equal(item_def.batch.work, EMPTY_VALUE),
-                st_stone_disassemble_inputs_outputs
+                st_stone_disassemble
             ))?)
     }
 }

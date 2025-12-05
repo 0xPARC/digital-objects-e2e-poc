@@ -87,7 +87,7 @@ impl ItemPredicates {
 
             // multi-output related predicates:
             // (simplified version without tools & durability)
-            // disassemble 2 Stones into 2 outputs: Dust,Gravel.
+            // disassemble 2 Stones into 2 outputs: Dust,Gem.
             
             // inputs: 2 Stones
             StoneDisassembleInputs(inputs, private: s1, stone1, stone2) = AND(
@@ -99,47 +99,47 @@ impl ItemPredicates {
                 IsStone(stone2)
             )
 
-            // outputs: 1 Dust, 1 Gravel
-            StoneDisassembleOutputs(inputs,
-                    private: batch, keys, k1, dust, gravel, _dust_key, _gravel_key) = AND(
+            // outputs: 1 Dust, 1 Gem
+            StoneDisassembleOutputs(batch, keys,
+                    private: k1, dust, gem, _dust_key, _gem_key) = AND(
                 HashOf(dust, batch, "dust")
-                HashOf(gravel, batch, "gravel")
+                HashOf(gem, batch, "gem")
                 DictInsert(k1, {}, "dust", _dust_key)
-                DictInsert(keys, k1, "gravel", _gravel_key)
+                DictInsert(keys, k1, "gem", _gem_key)
             )
             "#,
             r#"
 
             // helper to have a single predicate for the inputs & outputs
-            StoneDisassembleInputsOutputs(inputs) = AND (
+            StoneDisassembleInputsOutputs(inputs, batch, keys) = AND (
                 StoneDisassembleInputs(inputs)
-                StoneDisassembleOutputs(inputs)
+                StoneDisassembleOutputs(batch, keys)
             )
 
-            StoneDisassemble(inputs,
-                    private: batch, keys, ingredients, work) = AND(
+            StoneDisassemble(batch, keys, work,
+                    private: inputs, ingredients) = AND(
                 BatchDef(batch, ingredients, inputs, keys, work)
-                DictContains(ingredients, "blueprint", "dust+gravel")
+                DictContains(ingredients, "blueprint", "dust+gem")
 
-                StoneDisassembleInputsOutputs(inputs)
+                StoneDisassembleInputsOutputs(inputs, batch, keys)
             )
 
             // can only obtain Dust from disassembling 2 stones
-            IsDust(item, private: ingredients, inputs, key, work) = AND(
-                ItemDef(item, ingredients, inputs, key, work)
-                DictContains(ingredients, "blueprint", "dust")
+            IsDust(item, private: batch, ingredients, inputs, keys, key, work) = AND(
+                HashOf(item, batch, "dust")
+                DictContains(keys, "dust", key)
                 Equal(work, {})
         
-                StoneDisassemble(inputs)
+                StoneDisassemble(batch, keys, work)
             )
 
-            // can only obtain Gravel from disassembling 2 stones
-            IsGravel(item, private: ingredients, inputs, key, work, dust, gravel) = AND(
-                ItemDef(item, ingredients, inputs, key, work)
-                DictContains(ingredients, "blueprint", "gravel")
+            // can only obtain Gem from disassembling 2 stones
+            IsGem(item, private: batch, ingredients, inputs, keys, key, work) = AND(
+                HashOf(item, batch, "gem")
+                DictContains(keys, "gem", key)
                 Equal(work, {})
         
-                StoneDisassemble(inputs)
+                StoneDisassemble(batch, keys, work)
             )
             "#,
         ];
