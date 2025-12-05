@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use commitlib::{BatchDef, IngredientsDef, ItemDef};
 use log;
 use pod2::middleware::{
-    EMPTY_VALUE, Hash, Key, Params, Statement, ToFields, Value, containers::Dictionary,
+    EMPTY_VALUE, Hash, Key, Params, Statement, ToFields, Value, containers::Dictionary, hash_values,
 };
 use pod2utils::{macros::BuildContext, set, st_custom};
 
@@ -214,20 +214,26 @@ impl<'a> CraftBuilder<'a> {
         batch_def: BatchDef,
     ) -> anyhow::Result<Statement> {
         let batch_hash = batch_def.batch_hash(self.params)?;
+        let dust_hash = hash_values(&[batch_hash.into(), DUST_BLUEPRINT.into()]);
+        let gravel_hash = hash_values(&[batch_hash.into(), GRAVEL_BLUEPRINT.into()]);
+        let dust_key = batch_def.ingredients.keys[&DUST_BLUEPRINT.into()].clone();
+        let gravel_key = batch_def.ingredients.keys[&GRAVEL_BLUEPRINT.into()].clone();
 
         let keys_dict = Dictionary::new(
             self.params.max_depth_mt_containers,
             batch_def.ingredients.keys.clone(),
         )?;
 
+        let empty_dict = Dictionary::new(self.params.max_depth_mt_containers, HashMap::new())?;
+        let mut k1_dict = empty_dict.clone();
+        k1_dict.insert(&DUST_BLUEPRINT.into(), &dust_key)?;
+
         Ok(st_custom!(self.ctx,
-        StoneDisassembleOutputs() = (
-            // TODO WIP
-            todo!(),
-            HashOf(dust_hash, batch_hash, item_def.index.hash()),
-            HashOf(gravel_hash, batch_hash, item_def.index.hash()),
-            DictContains(keys_dict, item_def.index.name(), item_def.item_key())
-            DictContains(keys_dict, item_def.index.name(), item_def.item_key())
+            StoneDisassembleOutputs() = (
+            HashOf(dust_hash, batch_hash, DUST_BLUEPRINT),
+            HashOf(gravel_hash, batch_hash, GRAVEL_BLUEPRINT),
+            DictInsert(k1_dict, empty_dict, DUST_BLUEPRINT, dust_key),
+            DictInsert(keys_dict, k1_dict, GRAVEL_BLUEPRINT, gravel_key)
         ))?)
     }
     fn st_stone_disassemble_inputs_outputs(
@@ -243,20 +249,20 @@ impl<'a> CraftBuilder<'a> {
         Ok(st_custom!(self.ctx,
         StoneDisassembleInputsOutputs() = (
             st_stone_disassemble_inputs,
-            st_stone_disassemble_outputs,
+            st_stone_disassemble_outputs
         ))?)
     }
     fn st_stone_disassemble(
         &mut self,
         st_stone_disassemble_inputs_outputs: Statement,
         st_batch_def: Statement,
+        batch_def: BatchDef,
     ) -> anyhow::Result<Statement> {
         Ok(st_custom!(self.ctx,
         StoneDisassemble() = (
             st_batch_def,
-            // TODO
-            todo!(),
-            st_stone_disassemble_inputs_outputs,
+            DictContains(batch_def.ingredients.dict(self.params)?, "blueprint", format!("{DUST_BLUEPRINT}+{GRAVEL_BLUEPRINT}")),
+            st_stone_disassemble_inputs_outputs
         ))?)
     }
 
@@ -265,14 +271,13 @@ impl<'a> CraftBuilder<'a> {
         item_def: ItemDef,
         st_item_def: Statement,
         st_stone_disassemble_inputs_outputs: Statement,
-        st_is_dust: Statement,
     ) -> anyhow::Result<Statement> {
         Ok(st_custom!(self.ctx,
-            IsAxe() = (
+            IsDust() = (
                 st_item_def,
                 DictContains(item_def.batch.ingredients.dict(self.params)?, "blueprint", DUST_BLUEPRINT),
                 Equal(item_def.batch.work, EMPTY_VALUE),
-                st_stone_disassemble_inputs_outputs,
+                st_stone_disassemble_inputs_outputs
             ))?)
     }
     pub fn st_is_gravel(
@@ -280,14 +285,13 @@ impl<'a> CraftBuilder<'a> {
         item_def: ItemDef,
         st_item_def: Statement,
         st_stone_disassemble_inputs_outputs: Statement,
-        st_is_gravel: Statement,
     ) -> anyhow::Result<Statement> {
         Ok(st_custom!(self.ctx,
-            IsAxe() = (
+            IsGravel() = (
                 st_item_def,
                 DictContains(item_def.batch.ingredients.dict(self.params)?, "blueprint", GRAVEL_BLUEPRINT),
                 Equal(item_def.batch.work, EMPTY_VALUE),
-                st_stone_disassemble_inputs_outputs,
+                st_stone_disassemble_inputs_outputs
             ))?)
     }
 }

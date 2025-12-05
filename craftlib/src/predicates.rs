@@ -119,8 +119,7 @@ impl ItemPredicates {
             StoneDisassemble(inputs,
                     private: batch, keys, ingredients, work) = AND(
                 BatchDef(batch, ingredients, inputs, keys, work)
-                DictContains(ingredients, "blueprint", "dust")
-                DictContains(ingredients, "blueprint", "gravel")
+                DictContains(ingredients, "blueprint", "dust+gravel")
 
                 StoneDisassembleInputsOutputs(inputs)
             )
