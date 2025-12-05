@@ -108,3 +108,5 @@ The files in `app_gui/assets` are distributed under the Flaticon License:
 - `uranium.png`: <a href="https://www.flaticon.com/free-icons/uranium" title="uranium icons">Uranium icons created by Freepik - Flaticon</a>
 - `tomato.png`: <a href="https://www.flaticon.com/free-icons/tomato" title="tomato icons">Tomato icons created by PixelPerfect - Flaticon</a>
 - `steel-sword.png`: <a href="https://www.flaticon.com/free-icons/steel-sword" title="steel sword icons">Steel sword icons created by Assia Benkerroum - Flaticon</a>
+- `dust.png`: <a href="https://www.flaticon.com/free-icon/sand_4492623">Dust icon created by Freepik</a>
+- `gem.png`: <a href="https://www.flaticon.com/free-icon/zirconia_6577837">Dust icon created by Freepik</a>

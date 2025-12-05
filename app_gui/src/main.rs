@@ -280,6 +280,10 @@ impl App {
                     egui::include_image!("../assets/tomato.png")
                 } else if name.starts_with("Steel Sword") {
                     egui::include_image!("../assets/steel-sword.png")
+                } else if name.starts_with("Dust") {
+                    egui::include_image!("../assets/dust.png")
+                } else if name.starts_with("Gem") {
+                    egui::include_image!("../assets/gem.png")
                 } else {
                     egui::include_image!("../assets/empty.png")
                 })
