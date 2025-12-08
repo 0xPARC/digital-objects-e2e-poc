@@ -229,7 +229,7 @@ impl App {
                 // Mock toggle taken into account.
                 for verb in Verb::list()
                     .into_iter()
-                    .filter(|v| self.mock_mode || v == &Verb::Gather || v == &Verb::Craft)
+                    .filter(|v| self.mock_mode || v == &Verb::Gather || v == &Verb::Craft || v == &Verb::Disassemble)
                 {
                     if ui
                         .selectable_label(Some(verb) == self.crafting.selected_verb, verb.as_str())
