@@ -209,36 +209,46 @@ impl Helper {
 
         let mut sts_input_item_key = Vec::new();
         let mut sts_input_craft = Vec::new();
+
+        // TODO: Use recursion here to be able to make use of more than 2 input PODs.
         for input_item_pod in input_item_pods {
             let st_item_key = input_item_pod.pod.pub_statements()[0].clone();
             sts_input_item_key.push(st_item_key);
             let st_craft = input_item_pod.pod.pub_statements()[4].clone();
             sts_input_craft.push(st_craft);
-            item_builder.ctx.builder.add_pod(input_item_pod);
+            item_builder.ctx.builder.add_pod(input_item_pod);            
         }
 
-        let (st_nullifiers, _nullifiers) = if sts_input_item_key.is_empty() {
-            item_builder.st_nullifiers(sts_input_item_key).unwrap()
-        } else {
-            // The default params don't have enough custom statement verifications to fit
-            // everything in a single pod, so we split it in two.
-            let (st_nullifiers, nullifiers) =
-                item_builder.st_nullifiers(sts_input_item_key).unwrap();
-            item_builder.ctx.builder.reveal(&st_nullifiers);
-            // Propagate sts_input_craft for use in st_craft
-            for st_input_craft in &sts_input_craft {
-                item_builder.ctx.builder.reveal(st_input_craft);
-            }
+        // Prove and proceed.
+        sts_input_item_key.iter().chain(sts_input_craft.iter()).for_each(|st| item_builder.ctx.builder.reveal(st));
+        info!("Proving input_item_pod...");
+        let input_item_pod = item_builder.ctx.builder.prove(prover)?;
 
-            info!("Proving nullifiers_pod...");
-            let nullifiers_pod = builder.prove(prover).unwrap();
-            nullifiers_pod.pod.verify().unwrap();
-            builder = MainPodBuilder::new(&self.params, &self.vd_set);
-            item_builder =
-                ItemBuilder::new(BuildContext::new(&mut builder, &self.batches), &self.params);
-            item_builder.ctx.builder.add_pod(nullifiers_pod);
-            (st_nullifiers, nullifiers)
-        };
+        // Take care of nullifiers.
+        builder = MainPodBuilder::new(&self.params, &self.vd_set);
+        item_builder =
+            ItemBuilder::new(BuildContext::new(&mut builder, &self.batches), &self.params);
+
+        item_builder.ctx.builder.add_pod(input_item_pod.clone());
+        item_builder.ctx.builder.add_pod(all_items_in_batch_pod.clone());
+        
+        // By the way, the default params don't have enough custom statement verifications
+        // to fit everything in a single pod, hence all the splits.
+        let (st_nullifiers, _nullifiers) =
+            item_builder.st_nullifiers(sts_input_item_key).unwrap();
+        item_builder.ctx.builder.reveal(&st_nullifiers);
+        all_items_in_batch_pod.public_statements.iter().for_each(|st| item_builder.ctx.builder.reveal(st));
+            
+        info!("Proving nullifiers_et_al_pod...");
+        let nullifiers_et_al_pod = builder.prove(prover).unwrap();
+        nullifiers_et_al_pod.pod.verify().unwrap();
+
+        // Start afresh for item POD.
+        builder = MainPodBuilder::new(&self.params, &self.vd_set);
+        item_builder =
+            ItemBuilder::new(BuildContext::new(&mut builder, &self.batches), &self.params);
+        item_builder.ctx.builder.add_pod(nullifiers_et_al_pod);
+        item_builder.ctx.builder.add_pod(input_item_pod.clone());
 
         let mut item_builder =
             ItemBuilder::new(BuildContext::new(&mut builder, &self.batches), &self.params);
@@ -250,7 +260,8 @@ impl Helper {
         builder.reveal(&st_batch_def); // 1: Required for committing via CommitCreation
         builder.reveal(&st_item_def); // 2: Explicit item predicate
         builder.reveal(&st_nullifiers); // 3: Required for committing via CommitCreation
-
+        builder.reveal(&st_all_items_in_batch); // 4: Required for committing via CommitCreation
+        
         info!("Proving item_pod");
         let start = std::time::Instant::now();
         let item_key_pod = builder.prove(prover).unwrap();
@@ -260,13 +271,14 @@ impl Helper {
         // new pod
         let mut builder = MainPodBuilder::new(&self.params, &self.vd_set);
 
-        builder.add_pod(all_items_in_batch_pod);
         builder.add_pod(item_key_pod);
+        builder.add_pod(input_item_pod);
 
         let mut craft_builder =
             CraftBuilder::new(BuildContext::new(&mut builder, &self.batches), &self.params);
         let st_craft = match recipe {
             Recipe::Stone => {
+                craft_builder.ctx.builder.input_pods.pop();
                 // unwrap safe since if we're at Stone, pow_pod is Some
                 let pow_pod = pow_pod.unwrap();
                 let st_pow = pow_pod.pub_statements()[0].clone();
