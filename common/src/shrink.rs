@@ -175,6 +175,5 @@ pub fn shrink_compress_pod(
         &indices,
         &shrunk_main_pod_build.circuit_data.common.fri_params,
     );
-    println!("PIS: {:?}", proof_with_pis.public_inputs);
     Ok(compressed_proof)
 }

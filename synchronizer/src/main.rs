@@ -476,7 +476,6 @@ impl Node {
             PayloadProof::Plonky2(proof) => proof,
             PayloadProof::Groth16(_) => todo!(),
         };
-        println!("PIS: {:?}", public_inputs);
         let proof_with_pis = CompressedProofWithPublicInputs {
             proof: *shrunk_main_pod_proof,
             public_inputs,
