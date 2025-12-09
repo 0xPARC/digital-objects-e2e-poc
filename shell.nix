@@ -8,7 +8,7 @@ let
     wayland
     wayland.dev
     wayland-protocols
-    sway
+    emacs
     mesa
     mesa-gl-headers
     egl-wayland

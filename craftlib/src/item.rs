@@ -120,11 +120,7 @@ impl<'a> CraftBuilder<'a> {
         let mut s1 = empty_set.clone();
         s1.insert(&wood).unwrap();
         let mut inputs = s1.clone();
-        println!("1");
-        println!("{wood}");
-        println!("{stone}");
         inputs.insert(&stone).unwrap();
-        println!("2");
         Ok(st_custom!(self.ctx,
             AxeInputs() = (
                 SetInsert(s1, empty_set, wood),
@@ -218,7 +214,6 @@ impl<'a> CraftBuilder<'a> {
         let batch_hash = batch_def.batch_hash(self.params)?;
         let dust_hash = hash_values(&[batch_hash.into(), DUST_BLUEPRINT.into()]);
         let gem_hash = hash_values(&[batch_hash.into(), GEM_BLUEPRINT.into()]);
-        dbg!(&batch_def.ingredients.keys);
         let dust_key = batch_def.ingredients.keys[&DUST_BLUEPRINT.into()].clone();
         let gem_key = batch_def.ingredients.keys[&GEM_BLUEPRINT.into()].clone();
 
@@ -255,6 +250,49 @@ impl<'a> CraftBuilder<'a> {
             st_stone_disassemble_outputs
         ))?)
     }
+    pub fn st_is_dust(
+        &mut self,
+        item_def: ItemDef,
+        st_stone_disassemble: Statement,
+    ) -> anyhow::Result<Statement> {
+        let batch_hash = item_def.batch.batch_hash(self.params)?;
+        let dust_hash = hash_values(&[batch_hash.into(), DUST_BLUEPRINT.into()]);
+        let keys_dict = Dictionary::new(
+            self.params.max_depth_mt_containers,
+            item_def.batch.ingredients.keys.clone(),
+        )?;
+        let dust_key = item_def.batch.ingredients.keys[&DUST_BLUEPRINT.into()].clone();
+        Ok(st_custom!(self.ctx,
+           IsDust() = (
+               HashOf(dust_hash, batch_hash, DUST_BLUEPRINT),
+               DictContains(keys_dict, DUST_BLUEPRINT, dust_key),
+               Equal(item_def.batch.work, EMPTY_VALUE),
+               st_stone_disassemble
+           ))?)
+    }
+
+    pub fn st_is_gem(
+        &mut self,
+        item_def: ItemDef,
+        st_stone_disassemble: Statement,
+    ) -> anyhow::Result<Statement> {
+        let batch_hash = item_def.batch.batch_hash(self.params)?;
+        let gem_hash = hash_values(&[batch_hash.into(), GEM_BLUEPRINT.into()]);
+        let keys_dict = Dictionary::new(
+            self.params.max_depth_mt_containers,
+            item_def.batch.ingredients.keys.clone(),
+        )?;
+        let gem_key = item_def.batch.ingredients.keys[&GEM_BLUEPRINT.into()].clone();
+
+        Ok(st_custom!(self.ctx,
+            IsGem() = (
+                HashOf(gem_hash, batch_hash, GEM_BLUEPRINT),
+                DictContains(keys_dict, GEM_BLUEPRINT, gem_key),
+                Equal(item_def.batch.work, EMPTY_VALUE),
+                st_stone_disassemble
+            ))?)
+    }
+
     pub fn st_stone_disassemble(
         &mut self,
         st_stone_disassemble_inputs_outputs: Statement,

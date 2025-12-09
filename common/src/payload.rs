@@ -52,7 +52,7 @@ impl Payload {
             .expect("vec write");
         self.proof.write_bytes(&mut buffer);
         write_elems(&mut buffer, &self.created_items_root.0);
-        // TODO: What are the constraints on these lengths apart from the type casts below?
+
         assert!(self.items.len() < 256);
         buffer
             .write_all(&(self.items.len() as u8).to_le_bytes())
@@ -60,6 +60,7 @@ impl Payload {
         for item in &self.items {
             write_elems(&mut buffer, &item.0);
         }
+
         assert!(self.nullifiers.len() < 256);
         buffer
             .write_all(&(self.nullifiers.len() as u8).to_le_bytes())

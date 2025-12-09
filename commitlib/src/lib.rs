@@ -205,9 +205,9 @@ impl<'a> ItemBuilder<'a> {
 
         // Build ItemInBatch(item, batch)
         Ok(st_custom!(self.ctx,
-        ItemInBatch() = (
-            HashOf(item_hash, batch_hash, item_def.index.hash()),
-            DictContains(keys_dict, item_def.index.name(), item_def.item_key())
+            	ItemInBatch() = (
+              		   HashOf(item_hash, batch_hash, item_def.index.hash()),
+            		   DictContains(keys_dict, item_def.index.name(), item_def.item_key())
         ))?)
     }
 

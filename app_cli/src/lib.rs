@@ -513,19 +513,21 @@ pub fn craft_item(
 
     // TODO instead of 'i', use 'index' (which is the blueprint (which takes
     // values as 'dust', 'gem'))
-    for (i, pod) in pods.iter().enumerate() {
+    for (def, pod) in std::iter::zip(item_def, pods.iter()) {
+        let i = def.index.clone();
         let crafted_item = CraftedItem {
             pod: pod.clone(),
-            def: item_def[i].clone(),
+            def,
         };
-        let sufix = if pods.len() > 1 {
-            format!("_{i}")
+        let suffix = if pods.len() > 1 {
+            format!("_{}", i.name())
         } else {
             "".to_string()
         };
-        let mut file = std::fs::File::create(format! {"{}{sufix}", output.display()})?;
+        let filename = format! {"{}{suffix}", output.display()};
+        let mut file = std::fs::File::create(&filename)?;
         serde_json::to_writer(&mut file, &crafted_item)?;
-        info!("Stored crafted item mined with recipe {recipe} to {output:?}{sufix}");
+        info!("Stored crafted item mined with recipe {recipe} to {filename}");
     }
 
     Ok(())

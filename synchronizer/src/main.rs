@@ -380,7 +380,7 @@ impl Node {
                         info!("Valid do_blob at slot {}, blob_index {}!", slot, blob.index);
                     }
                     Err(e) => {
-                        error!("Ignoring blob due: Invalid do_blob: {:?}", e);
+                        info!("Ignoring blob due to invalid do_blob: {:?}", e);
                         continue;
                     }
                 };
