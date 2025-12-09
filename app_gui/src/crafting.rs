@@ -550,7 +550,7 @@ pub struct Crafting {
     // Input index to item index
     pub input_items: HashMap<usize, usize>,
     pub output_filename: String,
-    pub craft_result: Option<Result<PathBuf>>,
+    pub craft_result: Option<Result<Vec<PathBuf>>>,
     pub commit_result: Option<Result<PathBuf>>,
 }
 
@@ -811,8 +811,21 @@ impl App {
             if button_commit_clicked {
                 if self.crafting.output_filename.is_empty() {
                     self.crafting.commit_result = Some(Err(anyhow!("Please enter a filename.")));
+                } else if self.crafting.craft_result.is_none()
+                    || self.crafting.craft_result.as_ref().unwrap().is_err()
+                {
+                    self.crafting.commit_result = Some(Err(anyhow!(
+                        "The item(s) must first be successfully crafted."
+                    )));
                 } else {
-                    let input = Path::new(&self.cfg.pods_path).join(&self.crafting.output_filename);
+                    let first_output_filename = &self
+                        .crafting
+                        .craft_result
+                        .as_ref()
+                        .unwrap()
+                        .as_ref()
+                        .unwrap()[0];
+                    let input = Path::new(&self.cfg.pods_path).join(first_output_filename);
                     self.task_req_tx
                         .send(Request::Commit {
                             params: self.params.clone(),

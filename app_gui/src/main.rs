@@ -51,8 +51,10 @@ impl eframe::App for App {
         if let Ok(res) = self.task_res_rx.try_recv() {
             match res {
                 Response::Craft(r) => {
-                    if let Ok(entry) = &r {
-                        self.load_item(entry, false).unwrap();
+                    if let Ok(entries) = &r {
+                        entries
+                            .iter()
+                            .for_each(|entry| self.load_item(entry, false).unwrap());
                     } else {
                         log::error!("{r:?}");
                     }
@@ -70,8 +72,10 @@ impl eframe::App for App {
                     self.crafting.commit_result = Some(r);
                 }
                 Response::CraftAndCommit(r) => {
-                    if let Ok(entry) = &r {
-                        self.load_item(entry, false).unwrap();
+                    if let Ok(entries) = &r {
+                        entries
+                            .iter()
+                            .for_each(|entry| self.load_item(entry, false).unwrap());
                     } else {
                         log::error!("{r:?}");
                     }
@@ -80,7 +84,7 @@ impl eframe::App for App {
                     // Reset filename
                     self.crafting.output_filename = "".to_string();
                     self.crafting.craft_result = None;
-                    self.crafting.commit_result = Some(r);
+                    self.crafting.commit_result = r.map(|entries| Ok(entries[0].clone())).ok();
                 }
                 Response::Null => {}
             }

@@ -39,9 +39,9 @@ pub enum Request {
 }
 
 pub enum Response {
-    Craft(Result<PathBuf>),
+    Craft(Result<Vec<PathBuf>>),
     Commit(Result<PathBuf>),
-    CraftAndCommit(Result<PathBuf>),
+    CraftAndCommit(Result<Vec<PathBuf>>),
     Null,
 }
 
@@ -67,22 +67,27 @@ pub fn handle_req(task_status: &RwLock<TaskStatus>, req: Request) -> Response {
             output,
             input_paths,
         } => {
-            if let Response::Craft(Result::Err(e)) = craft(
+            let craft_res = craft(
                 task_status,
                 &params,
                 pods_path,
                 recipe,
                 output.clone(),
                 input_paths,
-            ) {
-                return Response::CraftAndCommit(Result::Err(e));
-            };
-            let res = commit(task_status, &params, cfg, output.clone());
-            let r = match res {
-                Response::Commit(result) => result,
-                _ => Err(anyhow!("unexpected response")),
-            };
-            Response::CraftAndCommit(r)
+            );
+            match craft_res {
+                Response::Craft(Result::Err(e)) => Response::CraftAndCommit(Result::Err(e)),
+                Response::Craft(Result::Ok(output_paths)) => {
+                    // TODO: Maybe have a separate batch or commitment POD?
+                    let res = commit(task_status, &params, cfg, output_paths[0].clone());
+                    let r = match res {
+                        Response::Commit(_) => Result::Ok(output_paths),
+                        _ => Err(anyhow!("unexpected response")),
+                    };
+                    Response::CraftAndCommit(r)
+                }
+                _ => Response::CraftAndCommit(Err(anyhow!("unexpected response"))),
+            }
         }
         Request::Exit => Response::Null,
     }
@@ -123,7 +128,7 @@ fn craft(
     }
 
     task_status.write().unwrap().busy = None;
-    Response::Craft(r.map(|_| output))
+    Response::Craft(r)
 }
 fn commit(
     task_status: &RwLock<TaskStatus>,

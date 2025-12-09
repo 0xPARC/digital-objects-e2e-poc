@@ -51,7 +51,7 @@ use synchronizer::{
     },
 };
 use tokio::{runtime::Runtime, time::sleep};
-use tracing::{debug, error, info, trace};
+use tracing::{debug, info, trace};
 
 pub mod endpoints;
 

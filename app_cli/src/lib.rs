@@ -377,7 +377,7 @@ pub fn craft_item(
     recipe: Recipe,
     output: &Path,
     inputs: &[PathBuf],
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Vec<PathBuf>> {
     let vd_set = DEFAULT_VD_SET.clone();
     let key = rand_raw_value();
     let index = Key::new(format!("{recipe}"));
@@ -511,26 +511,34 @@ pub fn craft_item(
         })
         .collect::<Result<Vec<_>>>()?;
 
-    // TODO instead of 'i', use 'index' (which is the blueprint (which takes
-    // values as 'dust', 'gem'))
-    for (def, pod) in std::iter::zip(item_def, pods.iter()) {
-        let i = def.index.clone();
+    let filenames: Vec<PathBuf> = item_def
+        .iter()
+        .map(|ItemDef { index, batch: _ }| {
+            let suffix = if pods.len() > 1 {
+                format!("_{}", index.name())
+            } else {
+                "".to_string()
+            };
+            format! {"{}{suffix}", output.display()}.into()
+        })
+        .collect();
+
+    for (filename, (def, pod)) in
+        std::iter::zip(filenames.iter(), std::iter::zip(item_def, pods.iter()))
+    {
         let crafted_item = CraftedItem {
             pod: pod.clone(),
             def,
         };
-        let suffix = if pods.len() > 1 {
-            format!("_{}", i.name())
-        } else {
-            "".to_string()
-        };
-        let filename = format! {"{}{suffix}", output.display()};
-        let mut file = std::fs::File::create(&filename)?;
+        let mut file = std::fs::File::create(filename)?;
         serde_json::to_writer(&mut file, &crafted_item)?;
-        info!("Stored crafted item mined with recipe {recipe} to {filename}");
+        info!(
+            "Stored crafted item mined with recipe {recipe} to {}",
+            filename.display()
+        );
     }
 
-    Ok(())
+    Ok(filenames)
 }
 
 pub async fn commit_item(params: &Params, cfg: &Config, input: &Path) -> anyhow::Result<()> {
