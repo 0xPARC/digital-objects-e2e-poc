@@ -28,8 +28,8 @@ enum Commands {
     Craft {
         #[arg(long, value_name = "RECIPE")]
         recipe: String,
-        #[arg(long, value_name = "FILE")]
-        output: PathBuf,
+        #[arg(long = "input", value_name = "FILE")]
+        outputs: Vec<PathBuf>,
         #[arg(long = "input", value_name = "FILE")]
         inputs: Vec<PathBuf>,
     },
@@ -59,11 +59,11 @@ async fn main() -> anyhow::Result<()> {
     match cli.command {
         Some(Commands::Craft {
             recipe,
-            output,
+            outputs,
             inputs,
         }) => {
             let recipe = Recipe::from_str(&recipe)?;
-            craft_item(&params, recipe, &output, &inputs)?;
+            craft_item(&params, recipe, &outputs, &inputs)?;
         }
         Some(Commands::Commit { input }) => {
             commit_item(&params, &cfg, &input).await?;

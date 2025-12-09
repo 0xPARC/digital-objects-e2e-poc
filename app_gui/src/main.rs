@@ -68,7 +68,7 @@ impl eframe::App for App {
                         log::error!("{e:?}");
                     }
                     // Reset filename
-                    self.crafting.output_filename = "".to_string();
+                    self.crafting.outputs_filename = vec![];
                     self.crafting.commit_result = Some(r);
                 }
                 Response::CraftAndCommit(r) => {
@@ -82,7 +82,7 @@ impl eframe::App for App {
                     self.refresh_items().unwrap();
                     self.crafting.input_items = HashMap::new();
                     // Reset filename
-                    self.crafting.output_filename = "".to_string();
+                    self.crafting.outputs_filename = vec![];
                     self.crafting.craft_result = None;
                     self.crafting.commit_result = r.map(|entries| Ok(entries[0].clone())).ok();
                 }

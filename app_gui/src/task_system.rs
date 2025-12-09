@@ -19,7 +19,7 @@ pub enum Request {
         params: Params,
         pods_path: String,
         recipe: Recipe,
-        output: PathBuf,
+        outputs: Vec<PathBuf>,
         input_paths: Vec<PathBuf>,
     },
     Commit {
@@ -32,7 +32,7 @@ pub enum Request {
         cfg: Config,
         pods_path: String,
         recipe: Recipe,
-        output: PathBuf,
+        outputs: Vec<PathBuf>,
         input_paths: Vec<PathBuf>,
     },
     Exit,
@@ -55,16 +55,23 @@ pub fn handle_req(task_status: &RwLock<TaskStatus>, req: Request) -> Response {
             params,
             pods_path,
             recipe,
-            output,
+            outputs,
             input_paths,
-        } => craft(task_status, &params, pods_path, recipe, output, input_paths),
+        } => craft(
+            task_status,
+            &params,
+            pods_path,
+            recipe,
+            outputs,
+            input_paths,
+        ),
         Request::Commit { params, cfg, input } => commit(task_status, &params, cfg, input),
         Request::CraftAndCommit {
             params,
             cfg,
             pods_path,
             recipe,
-            output,
+            outputs,
             input_paths,
         } => {
             let craft_res = craft(
@@ -72,7 +79,7 @@ pub fn handle_req(task_status: &RwLock<TaskStatus>, req: Request) -> Response {
                 &params,
                 pods_path,
                 recipe,
-                output.clone(),
+                outputs,
                 input_paths,
             );
             match craft_res {
@@ -98,13 +105,13 @@ fn craft(
     params: &Params,
     pods_path: String,
     recipe: Recipe,
-    output: PathBuf,
+    outputs: Vec<PathBuf>,
     input_paths: Vec<PathBuf>,
 ) -> Response {
     set_busy_task(task_status, "Crafting");
 
     let start = std::time::Instant::now();
-    let r = craft_item(params, recipe, &output, &input_paths);
+    let r = craft_item(params, recipe, &outputs, &input_paths);
     log::info!("[TIME] total Craft Item time: {:?}", start.elapsed());
 
     // move the files of the used inputs into the `used` subdir

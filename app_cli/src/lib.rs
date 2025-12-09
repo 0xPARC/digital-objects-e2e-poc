@@ -16,8 +16,8 @@ use common::{
 use craftlib::{
     constants::{
         AXE_BLUEPRINT, AXE_MINING_MAX, AXE_WORK, DUST_BLUEPRINT, DUST_MINING_MAX, DUST_WORK,
-        GEM_BLUEPRINT, STONE_BLUEPRINT, STONE_MINING_MAX, WOOD_BLUEPRINT, WOOD_MINING_MAX,
-        WOOD_WORK, WOODEN_AXE_BLUEPRINT, WOODEN_AXE_MINING_MAX, WOODEN_AXE_WORK,
+        GEM_BLUEPRINT, STONE_BLUEPRINT, STONE_MINING_MAX, STONE_WORK_COST, WOOD_BLUEPRINT,
+        WOOD_MINING_MAX, WOOD_WORK, WOODEN_AXE_BLUEPRINT, WOODEN_AXE_MINING_MAX, WOODEN_AXE_WORK,
     },
     item::{CraftBuilder, MiningRecipe},
     powpod::PowPod,
@@ -375,7 +375,7 @@ impl Helper {
 pub fn craft_item(
     params: &Params,
     recipe: Recipe,
-    output: &Path,
+    outputs: &[PathBuf],
     inputs: &[PathBuf],
 ) -> anyhow::Result<Vec<PathBuf>> {
     let vd_set = DEFAULT_VD_SET.clone();
@@ -397,7 +397,7 @@ pub fn craft_item(
             let pow_pod = PowPod::new(
                 params,
                 vd_set.clone(),
-                3, // num_iters
+                STONE_WORK_COST, // num_iters
                 RawValue::from(ingredients_def.dict(params)?.commitment()),
             )?;
             log::info!("[TIME] PowPod proving time: {:?}", start.elapsed());
@@ -491,7 +491,7 @@ pub fn craft_item(
     // create output dir (if there is a parent dir), in case it does not exist
     // yet, so that later when creating the file we don't get an error if the
     // directory does not exist
-    if let Some(dir) = output.parent() {
+    if let Some(dir) = outputs[0].parent() {
         std::fs::create_dir_all(dir)?;
     }
 
@@ -513,14 +513,8 @@ pub fn craft_item(
 
     let filenames: Vec<PathBuf> = item_def
         .iter()
-        .map(|ItemDef { index, batch: _ }| {
-            let suffix = if pods.len() > 1 {
-                format!("_{}", index.name())
-            } else {
-                "".to_string()
-            };
-            format! {"{}{suffix}", output.display()}.into()
-        })
+        .enumerate()
+        .map(|(i, _)| format! {"{}", outputs[i].display()}.into())
         .collect();
 
     for (filename, (def, pod)) in

@@ -474,7 +474,7 @@ mod tests {
         let pow_pod = PowPod::new(
             &params,
             vd_set.clone(),
-            3, // num_iters
+            crate::constants::STONE_WORK_COST, // num_iters
             RawValue::from(ingredients_def.dict(&params)?.commitment()),
         )?;
         let main_pow_pod = MainPod {

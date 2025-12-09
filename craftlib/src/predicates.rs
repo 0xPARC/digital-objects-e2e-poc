@@ -4,6 +4,8 @@ use commitlib::predicates::CommitPredicates;
 use pod2::middleware::{CustomPredicateRef, Params};
 use pod2utils::PredicateDefs;
 
+use crate::constants::STONE_WORK_COST;
+
 pub struct ItemPredicates {
     pub defs: PredicateDefs,
 
@@ -18,7 +20,8 @@ impl ItemPredicates {
         // 8 arguments per predicate, at most 5 of which are public
         // 5 statements per predicate
         let batch_defs = [
-            r#"
+            &format!(
+                r#"
             use intro Pow(count, input, output) from 0x3493488bc23af15ac5fabe38c3cb6c4b66adb57e3898adf201ae50cc57183f65 // powpod vd hash
         
             // Example of a mined item with no inputs or sequential work.
@@ -26,25 +29,25 @@ impl ItemPredicates {
             // 10 leading 0s.
             IsStone(item, private: ingredients, inputs, key, work) = AND(
                 ItemDef(item, ingredients, inputs, key, work)
-                Equal(inputs, {})
+                Equal(inputs, {{}})
                 DictContains(ingredients, "blueprint", "stone")
-                Pow(3, ingredients, work)
+                Pow({STONE_WORK_COST}, ingredients, work)
             )
         
             // Example of a mined item which is more common but takes more work to
             // extract.
             IsWood(item, private: ingredients, inputs, key, work) = AND(
                 ItemDef(item, ingredients, inputs, key, work)
-                Equal(inputs, {})
+                Equal(inputs, {{}})
                 DictContains(ingredients, "blueprint", "wood")
-                Equal(work, {})
+                Equal(work, {{}})
                 // TODO input POD: SequentialWork(ingredients, work, 5)
                 // TODO input POD: HashInRange(0, 1<<5, ingredients)
             )
 
             AxeInputs(inputs, private: s1, wood, stone) = AND(
                 // 2 ingredients
-                SetInsert(s1, {}, wood)
+                SetInsert(s1, {{}}, wood)
                 SetInsert(inputs, s1, stone)
         
                 // prove the ingredients are correct.
@@ -57,11 +60,12 @@ impl ItemPredicates {
             IsAxe(item, private: ingredients, inputs, key, work) = AND(
                 ItemDef(item, ingredients, inputs, key, work)
                 DictContains(ingredients, "blueprint", "axe")
-                Equal(work, {})
+                Equal(work, {{}})
         
                 AxeInputs(inputs)
             )
-            "#,
+            "#
+            ),
             r#"
         
             // Wooden Axe:
@@ -214,7 +218,7 @@ mod tests {
         let pow_pod = PowPod::new(
             &params,
             vd_set.clone(),
-            3,
+            STONE_WORK_COST,
             RawValue::from(ingredients_def.dict(&params)?.commitment()),
         )?;
         let main_pow_pod = MainPod {

@@ -3,12 +3,13 @@
 let
   dlopenLibraries = with pkgs; [
     libxkbcommon
-    libxkbcommon.dev
+    # libxkbcommon.dev
 
+    #vulkan-loader
     wayland
-    wayland.dev
+    # wayland.dev
     wayland-protocols
-    emacs
+    sway
     mesa
     mesa-gl-headers
     egl-wayland
@@ -17,9 +18,10 @@ let
 in pkgs.mkShell {
   nativeBuildInputs = with pkgs; [
     rustup
-    mesa
-    mesa-gl-headers
+    gcc
+    pkg-config
   ];
 
-  env.RUSTFLAGS = "-C link-arg=-Wl,-rpath,${pkgs.lib.makeLibraryPath dlopenLibraries}";
+  env.RUSTFLAGS = "-C linker=clang -C link-arg=-Wl,-rpath,${pkgs.lib.makeLibraryPath dlopenLibraries}";
+  LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath dlopenLibraries;
 }
