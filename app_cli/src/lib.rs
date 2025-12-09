@@ -216,11 +216,14 @@ impl Helper {
             sts_input_item_key.push(st_item_key);
             let st_craft = input_item_pod.pod.pub_statements()[4].clone();
             sts_input_craft.push(st_craft);
-            item_builder.ctx.builder.add_pod(input_item_pod);            
+            item_builder.ctx.builder.add_pod(input_item_pod);
         }
 
         // Prove and proceed.
-        sts_input_item_key.iter().chain(sts_input_craft.iter()).for_each(|st| item_builder.ctx.builder.reveal(st));
+        sts_input_item_key
+            .iter()
+            .chain(sts_input_craft.iter())
+            .for_each(|st| item_builder.ctx.builder.reveal(st));
         info!("Proving input_item_pod...");
         let input_item_pod = item_builder.ctx.builder.prove(prover)?;
 
@@ -230,15 +233,20 @@ impl Helper {
             ItemBuilder::new(BuildContext::new(&mut builder, &self.batches), &self.params);
 
         item_builder.ctx.builder.add_pod(input_item_pod.clone());
-        item_builder.ctx.builder.add_pod(all_items_in_batch_pod.clone());
-        
+        item_builder
+            .ctx
+            .builder
+            .add_pod(all_items_in_batch_pod.clone());
+
         // By the way, the default params don't have enough custom statement verifications
         // to fit everything in a single pod, hence all the splits.
-        let (st_nullifiers, _nullifiers) =
-            item_builder.st_nullifiers(sts_input_item_key).unwrap();
+        let (st_nullifiers, _nullifiers) = item_builder.st_nullifiers(sts_input_item_key).unwrap();
         item_builder.ctx.builder.reveal(&st_nullifiers);
-        all_items_in_batch_pod.public_statements.iter().for_each(|st| item_builder.ctx.builder.reveal(st));
-            
+        all_items_in_batch_pod
+            .public_statements
+            .iter()
+            .for_each(|st| item_builder.ctx.builder.reveal(st));
+
         info!("Proving nullifiers_et_al_pod...");
         let nullifiers_et_al_pod = builder.prove(prover).unwrap();
         nullifiers_et_al_pod.pod.verify().unwrap();
@@ -261,7 +269,7 @@ impl Helper {
         builder.reveal(&st_item_def); // 2: Explicit item predicate
         builder.reveal(&st_nullifiers); // 3: Required for committing via CommitCreation
         builder.reveal(&st_all_items_in_batch); // 4: Required for committing via CommitCreation
-        
+
         info!("Proving item_pod");
         let start = std::time::Instant::now();
         let item_key_pod = builder.prove(prover).unwrap();
@@ -310,12 +318,11 @@ impl Helper {
                         sts_input_craft[1].clone(),
                         item_def.batch.clone(),
                     )?;
-                let st_stone_disassemble = craft_builder.st_stone_disassemble(
+                craft_builder.st_stone_disassemble(
                     st_stone_disassemble_inputs_outputs,
                     st_batch_def.clone(),
                     item_def.batch.clone(),
-                )?;
-                st_stone_disassemble
+                )?
             }
         };
 

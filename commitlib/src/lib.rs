@@ -450,13 +450,16 @@ mod tests {
         let item_hash = item_def.item_hash(params).unwrap();
         created_items.insert(&Value::from(item_hash)).unwrap();
         let st_batch_def = item_builder.st_batch_def(batch_def.clone()).unwrap();
-
+        let st_all_items_in_batch = item_builder
+            .st_all_items_in_batch(batch_def.clone())
+            .unwrap();
         let _st_commit_creation = item_builder
             .st_commit_creation(
                 batch_def.clone(),
                 st_nullifiers,
                 created_items.clone(),
                 st_batch_def,
+                st_all_items_in_batch,
             )
             .unwrap();
 
