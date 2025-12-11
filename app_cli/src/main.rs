@@ -28,7 +28,7 @@ enum Commands {
     Craft {
         #[arg(long, value_name = "RECIPE")]
         recipe: String,
-        #[arg(long = "input", value_name = "FILE")]
+        #[arg(long = "output", value_name = "FILE")]
         outputs: Vec<PathBuf>,
         #[arg(long = "input", value_name = "FILE")]
         inputs: Vec<PathBuf>,
