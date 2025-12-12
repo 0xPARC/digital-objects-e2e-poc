@@ -20,6 +20,7 @@ pub enum Process {
     Wood,
     Axe,
     WoodenAxe,
+    DisassembleStone,
     Mock(&'static str),
 }
 
@@ -97,6 +98,63 @@ IsWoodenAxe(item, private: ingredients, inputs, key, work, s1, wood1, wood2) = A
     // prove the ingredients are correct.
     IsWood(wood1)
     IsWood(wood2)
+)"#,
+        ..Default::default()
+    };
+    static ref DISASSEMBLE_STONE_DATA: ProcessData = ProcessData {
+        description: "Disassemble Stone into Dust+Gem.",
+        input_ingredients: &["Stone", "Stone"],
+        outputs: &["Dust", "Gem"],
+        predicate: r#"
+// inputs: 2 Stones
+StoneDisassembleInputs(inputs, private: s1, stone1, stone2) = AND(
+    SetInsert(s1, {}, stone1)
+    SetInsert(inputs, s1, stone2)
+
+    // prove the ingredients are correct
+    IsStone(stone1)
+    IsStone(stone2)
+)
+
+// outputs: 1 Dust, 1 Gem
+StoneDisassembleOutputs(batch, keys,
+        private: k1, dust, gem, _dust_key, _gem_key) = AND(
+    HashOf(dust, batch, "dust")
+    HashOf(gem, batch, "gem")
+    DictInsert(k1, {}, "dust", _dust_key)
+    DictInsert(keys, k1, "gem", _gem_key)
+)
+
+// helper to have a single predicate for the inputs & outputs
+StoneDisassembleInputsOutputs(inputs, batch, keys) = AND (
+    StoneDisassembleInputs(inputs)
+    StoneDisassembleOutputs(batch, keys)
+)
+
+StoneDisassemble(batch, keys, work,
+        private: inputs, ingredients) = AND(
+    BatchDef(batch, ingredients, inputs, keys, work)
+    DictContains(ingredients, "blueprint", "dust+gem")
+
+    StoneDisassembleInputsOutputs(inputs, batch, keys)
+)
+
+// can only obtain Dust from disassembling 2 stones
+IsDust(item, private: batch, ingredients, inputs, keys, key, work) = AND(
+    HashOf(item, batch, "dust")
+    DictContains(keys, "dust", key)
+    Equal(work, {})
+
+    StoneDisassemble(batch, keys, work)
+)
+
+// can only obtain Gem from disassembling 2 stones
+IsGem(item, private: batch, ingredients, inputs, keys, key, work) = AND(
+    HashOf(item, batch, "gem")
+    DictContains(keys, "gem", key)
+    Equal(work, {})
+
+    StoneDisassemble(batch, keys, work)
 )"#,
         ..Default::default()
     };
@@ -400,6 +458,7 @@ impl Process {
             Self::Wood => Some(Recipe::Wood),
             Self::Axe => Some(Recipe::Axe),
             Self::WoodenAxe => Some(Recipe::WoodenAxe),
+            Self::DisassembleStone => Some(Recipe::DustGem),
             Self::Mock(_) => None,
         }
     }
@@ -410,6 +469,7 @@ impl Process {
             Self::Wood => &WOOD_DATA,
             Self::Axe => &AXE_DATA,
             Self::WoodenAxe => &WOODEN_AXE_DATA,
+            Self::DisassembleStone => &DISASSEMBLE_STONE_DATA,
             Self::Mock("Destroy") => &DESTROY_DATA,
             Self::Mock("Tomato") => &TOMATO_DATA,
             Self::Mock("Steel Sword") => &STEEL_SWORD_DATA,
@@ -461,7 +521,7 @@ impl Verb {
             ],
             Self::Craft => vec![Axe, WoodenAxe, Mock("Tree House")],
             Self::Produce => vec![Mock("Tomato"), Mock("Steel Sword")],
-            Self::Disassemble => vec![Mock("Disassemble-H2O")],
+            Self::Disassemble => vec![DisassembleStone, Mock("Disassemble-H2O")],
             Self::Destroy => vec![Mock("Destroy")],
         }
     }
@@ -489,8 +549,8 @@ pub struct Crafting {
     pub selected_action: Option<&'static str>,
     // Input index to item index
     pub input_items: HashMap<usize, usize>,
-    pub output_filename: String,
-    pub craft_result: Option<Result<PathBuf>>,
+    pub outputs_filename: Vec<String>,
+    pub craft_result: Option<Result<Vec<PathBuf>>>,
     pub commit_result: Option<Result<PathBuf>>,
 }
 
@@ -677,11 +737,20 @@ impl App {
 
             self.crafting.selected_action = selected_action;
 
-            // NOTE: If we don't show filenames in the left panel, then we shouldn't ask for a
-            // filename either.
-            if self.crafting.output_filename.is_empty() {
-                self.crafting.output_filename =
-                    format!("{:?}_{}", process, self.items.len() + self.used_items.len());
+            // prepare the outputs names that will be used to store the outputs files
+            let process_outputs = process.data().outputs;
+            if self.crafting.outputs_filename.is_empty() {
+                self.crafting.outputs_filename = process_outputs
+                    .iter()
+                    .enumerate()
+                    .map(|(i, process_output)| {
+                        format!(
+                            "{}_{}",
+                            process_output,
+                            self.items.len() + self.used_items.len() + i
+                        )
+                    })
+                    .collect();
             }
 
             ui.add_space(8.0);
@@ -711,11 +780,15 @@ impl App {
                 });
 
             if button_craft_clicked {
-                if self.crafting.output_filename.is_empty() {
+                if self.crafting.outputs_filename.is_empty() {
                     self.crafting.craft_result = Some(Err(anyhow!("Please enter a filename.")));
                 } else {
-                    let output =
-                        Path::new(&self.cfg.pods_path).join(&self.crafting.output_filename);
+                    let outputs_paths = self
+                        .crafting
+                        .outputs_filename
+                        .iter()
+                        .map(|output| Path::new(&self.cfg.pods_path).join(output))
+                        .collect();
                     let input_paths = (0..inputs.len())
                         .map(|i| {
                             self.crafting
@@ -738,7 +811,7 @@ impl App {
                                         params: self.params.clone(),
                                         pods_path: self.cfg.pods_path.clone(),
                                         recipe,
-                                        output,
+                                        outputs: outputs_paths,
                                         input_paths,
                                     })
                                     .unwrap();
@@ -749,10 +822,23 @@ impl App {
             }
 
             if button_commit_clicked {
-                if self.crafting.output_filename.is_empty() {
+                if self.crafting.outputs_filename.is_empty() {
                     self.crafting.commit_result = Some(Err(anyhow!("Please enter a filename.")));
+                } else if self.crafting.craft_result.is_none()
+                    || self.crafting.craft_result.as_ref().unwrap().is_err()
+                {
+                    self.crafting.commit_result = Some(Err(anyhow!(
+                        "The item(s) must first be successfully crafted."
+                    )));
                 } else {
-                    let input = Path::new(&self.cfg.pods_path).join(&self.crafting.output_filename);
+                    let first_output_filename = &self
+                        .crafting
+                        .craft_result
+                        .as_ref()
+                        .unwrap()
+                        .as_ref()
+                        .unwrap()[0];
+                    let input = Path::new(&self.cfg.pods_path).join(first_output_filename);
                     self.task_req_tx
                         .send(Request::Commit {
                             params: self.params.clone(),
@@ -764,11 +850,15 @@ impl App {
             }
 
             if button_craft_and_commit_clicked {
-                if self.crafting.output_filename.is_empty() {
+                if self.crafting.outputs_filename.is_empty() {
                     self.crafting.commit_result = Some(Err(anyhow!("Please enter a filename.")));
                 } else {
-                    let output =
-                        Path::new(&self.cfg.pods_path).join(&self.crafting.output_filename);
+                    let outputs_paths = self
+                        .crafting
+                        .outputs_filename
+                        .iter()
+                        .map(|output| Path::new(&self.cfg.pods_path).join(output))
+                        .collect();
                     let input_paths = (0..inputs.len())
                         .map(|i| {
                             self.crafting
@@ -792,7 +882,7 @@ impl App {
                                         cfg: self.cfg.clone(),
                                         pods_path: self.cfg.pods_path.clone(),
                                         recipe,
-                                        output,
+                                        outputs: outputs_paths,
                                         input_paths,
                                     })
                                     .unwrap();

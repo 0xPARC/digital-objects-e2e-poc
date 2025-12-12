@@ -380,7 +380,7 @@ impl Node {
                         info!("Valid do_blob at slot {}, blob_index {}!", slot, blob.index);
                     }
                     Err(e) => {
-                        info!("Invalid do_blob: {:?}", e);
+                        info!("Ignoring blob due to invalid do_blob: {:?}", e);
                         continue;
                     }
                 };
@@ -407,9 +407,11 @@ impl Node {
             );
         }
 
-        // Check that output is unique
-        if state.created_items.contains(&Value::from(payload.item)) {
-            bail!("item {} exists in created_items", payload.item);
+        // Check that outputs are unique
+        for item in &payload.items {
+            if state.created_items.contains(&(*item).into()) {
+                bail!("item {} exists in created_items", item);
+            }
         }
 
         // Check that inputs are unique
@@ -426,10 +428,14 @@ impl Node {
             )
             .unwrap(),
         );
+        let item_set = Set::new(
+            self.params.max_depth_mt_containers,
+            payload.items.iter().map(|rv| (*rv).into()).collect(),
+        )?;
         let st_commit_creation = Statement::Custom(
             self.pred_commit_creation.clone(),
             vec![
-                Value::from(payload.item),
+                item_set.into(),
                 nullifiers_set,
                 Value::from(payload.created_items_root),
             ],
@@ -442,11 +448,11 @@ impl Node {
         for nullifier in &payload.nullifiers {
             state.nullifiers.insert(*nullifier);
         }
-        // Register item
-        state
-            .created_items
-            .insert(&Value::from(payload.item))
-            .unwrap();
+
+        // Register items
+        for item in payload.items {
+            state.created_items.insert(&item.into())?;
+        }
 
         state.epoch += 1;
         let created_items_root = state.created_items.commitment();
@@ -474,12 +480,10 @@ impl Node {
             proof: *shrunk_main_pod_proof,
             public_inputs,
         };
-        let proof = proof_with_pis
-            .decompress(
-                &self.verifier_circuit_data.verifier_only.circuit_digest,
-                &self.common_circuit_data,
-            )
-            .unwrap();
+        let proof = proof_with_pis.decompress(
+            &self.verifier_circuit_data.verifier_only.circuit_digest,
+            &self.common_circuit_data,
+        )?;
         self.verifier_circuit_data.verify(proof)
     }
 }

@@ -51,8 +51,10 @@ impl eframe::App for App {
         if let Ok(res) = self.task_res_rx.try_recv() {
             match res {
                 Response::Craft(r) => {
-                    if let Ok(entry) = &r {
-                        self.load_item(entry, false).unwrap();
+                    if let Ok(entries) = &r {
+                        entries
+                            .iter()
+                            .for_each(|entry| self.load_item(entry, false).unwrap());
                     } else {
                         log::error!("{r:?}");
                     }
@@ -66,21 +68,23 @@ impl eframe::App for App {
                         log::error!("{e:?}");
                     }
                     // Reset filename
-                    self.crafting.output_filename = "".to_string();
+                    self.crafting.outputs_filename = vec![];
                     self.crafting.commit_result = Some(r);
                 }
                 Response::CraftAndCommit(r) => {
-                    if let Ok(entry) = &r {
-                        self.load_item(entry, false).unwrap();
+                    if let Ok(entries) = &r {
+                        entries
+                            .iter()
+                            .for_each(|entry| self.load_item(entry, false).unwrap());
                     } else {
                         log::error!("{r:?}");
                     }
                     self.refresh_items().unwrap();
                     self.crafting.input_items = HashMap::new();
                     // Reset filename
-                    self.crafting.output_filename = "".to_string();
+                    self.crafting.outputs_filename = vec![];
                     self.crafting.craft_result = None;
-                    self.crafting.commit_result = Some(r);
+                    self.crafting.commit_result = r.map(|entries| Ok(entries[0].clone())).ok();
                 }
                 Response::Null => {}
             }
@@ -227,10 +231,12 @@ impl App {
             ui.horizontal(|ui| {
                 ui.set_min_height(32.0);
                 // Mock toggle taken into account.
-                for verb in Verb::list()
-                    .into_iter()
-                    .filter(|v| self.mock_mode || v == &Verb::Gather || v == &Verb::Craft)
-                {
+                for verb in Verb::list().into_iter().filter(|v| {
+                    self.mock_mode
+                        || v == &Verb::Gather
+                        || v == &Verb::Craft
+                        || v == &Verb::Disassemble
+                }) {
                     if ui
                         .selectable_label(Some(verb) == self.crafting.selected_verb, verb.as_str())
                         .clicked()
@@ -280,6 +286,10 @@ impl App {
                     egui::include_image!("../assets/tomato.png")
                 } else if name.starts_with("Steel Sword") {
                     egui::include_image!("../assets/steel-sword.png")
+                } else if name.starts_with("Dust") {
+                    egui::include_image!("../assets/dust.png")
+                } else if name.starts_with("Gem") {
+                    egui::include_image!("../assets/gem.png")
                 } else {
                     egui::include_image!("../assets/empty.png")
                 })

@@ -3,6 +3,7 @@ pub mod util;
 
 use std::collections::{HashMap, HashSet};
 
+use anyhow::anyhow;
 use pod2::middleware::{
     EMPTY_HASH, EMPTY_VALUE, Hash, Key, Params, RawValue, Statement, Value,
     containers::{Dictionary, Set},
@@ -21,7 +22,8 @@ pub const CONSUMED_ITEM_EXTERNAL_NULLIFIER: &str = "consumed item external nulli
 pub struct IngredientsDef {
     // These properties are committed on-chain
     pub inputs: HashSet<Hash>,
-    pub key: RawValue,
+    // TODO: Maybe replace this with a Value -> Value map?
+    pub keys: HashMap<Key, Value>,
 
     // These properties are used only by the application layer
     pub app_layer: HashMap<String, Value>,
@@ -31,7 +33,13 @@ impl IngredientsDef {
     pub fn dict(&self, params: &Params) -> pod2::middleware::Result<Dictionary> {
         let mut map = HashMap::new();
         map.insert(Key::from("inputs"), Value::from(self.inputs_set(params)?));
-        map.insert(Key::from("key"), Value::from(self.key));
+        map.insert(
+            Key::from("keys"),
+            Value::from(Dictionary::new(
+                params.max_depth_mt_containers,
+                self.keys.clone(),
+            )?),
+        );
         for (key, value) in &self.app_layer {
             map.insert(Key::from(key), value.clone());
         }
@@ -47,18 +55,42 @@ impl IngredientsDef {
     }
 }
 
-// Rust-level definition of an item, used to derive its ID (hash).
+// Rust-level definition of a batch, used to derive its ID (hash).
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ItemDef {
+pub struct BatchDef {
     pub ingredients: IngredientsDef,
     pub work: RawValue,
 }
 
-impl ItemDef {
-    pub fn item_hash(&self, params: &Params) -> pod2::middleware::Result<Hash> {
+impl BatchDef {
+    pub fn batch_hash(&self, params: &Params) -> pod2::middleware::Result<Hash> {
         Ok(hash_values(&[
             Value::from(self.ingredients.dict(params)?),
             Value::from(self.work),
+        ]))
+    }
+
+    pub fn new(ingredients: IngredientsDef, work: RawValue) -> Self {
+        Self { ingredients, work }
+    }
+}
+
+// Rust-level definition of an item, used to derive its ID (hash).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ItemDef {
+    pub batch: BatchDef,
+    pub index: Key,
+}
+
+impl ItemDef {
+    pub fn item_key(&self) -> Value {
+        self.batch.ingredients.keys[&self.index].clone()
+    }
+
+    pub fn item_hash(&self, params: &Params) -> pod2::middleware::Result<Hash> {
+        Ok(hash_values(&[
+            Value::from(self.batch.batch_hash(params)?),
+            Value::from(self.index.hash()),
         ]))
     }
 
@@ -69,8 +101,12 @@ impl ItemDef {
         ]))
     }
 
-    pub fn new(ingredients: IngredientsDef, work: RawValue) -> Self {
-        Self { ingredients, work }
+    pub fn new(batch: BatchDef, index: Key) -> anyhow::Result<Self> {
+        if batch.ingredients.keys.contains_key(&index) {
+            Ok(Self { batch, index })
+        } else {
+            Err(anyhow!("Invalid index: {index}"))
+        }
     }
 }
 
@@ -89,31 +125,6 @@ pub struct ItemBuilder<'a> {
 impl<'a> ItemBuilder<'a> {
     pub fn new(ctx: BuildContext<'a>, params: &'a Params) -> Self {
         Self { ctx, params }
-    }
-
-    // Adds statements to MainPodBilder to represent a generic item based on the
-    // ItemDef.  Includes the following public predicates: ItemDef, ItemKey
-    // Returns the Statement object for ItemDef for use in further statements.
-    pub fn st_item_def(&mut self, item_def: ItemDef) -> anyhow::Result<Statement> {
-        let ingredients_dict = item_def.ingredients.dict(self.params)?;
-        let inputs_set = item_def.ingredients.inputs_set(self.params)?;
-        let item_hash = item_def.item_hash(self.params)?;
-
-        // Build ItemDef(item, ingredients, inputs, key, work)
-        Ok(st_custom!(self.ctx,
-        ItemDef() = (
-            DictContains(ingredients_dict, "inputs", inputs_set),
-            DictContains(ingredients_dict, "key", item_def.ingredients.key),
-            HashOf(item_hash, ingredients_dict, item_def.work)
-        ))?)
-    }
-
-    pub fn st_item_key(&mut self, st_item_def: Statement) -> anyhow::Result<Statement> {
-        // Build ItemKey(item, key)
-        Ok(st_custom!(self.ctx,
-        ItemKey() = (
-            st_item_def
-        ))?)
     }
 
     fn st_super_sub_set_recursive(
@@ -164,6 +175,126 @@ impl<'a> ItemBuilder<'a> {
                     st_recursive
                 ))?)
         }
+    }
+
+    pub fn st_batch_def(&mut self, batch: BatchDef) -> anyhow::Result<Statement> {
+        let ingredients_dict = batch.ingredients.dict(self.params)?;
+        let inputs_set = batch.ingredients.inputs_set(self.params)?;
+        let batch_hash = batch.batch_hash(self.params)?;
+        let keys_dict = Dictionary::new(
+            self.params.max_depth_mt_containers,
+            batch.ingredients.keys.clone(),
+        )?;
+
+        // Build BatchDef(item, ingredients, inputs, key, work)
+        Ok(st_custom!(self.ctx,
+        BatchDef() = (
+            DictContains(ingredients_dict, "inputs", inputs_set),
+            DictContains(ingredients_dict, "keys", keys_dict),
+            HashOf(batch_hash, ingredients_dict, batch.work)
+        ))?)
+    }
+
+    pub fn st_item_in_batch(&mut self, item_def: ItemDef) -> anyhow::Result<Statement> {
+        let item_hash = item_def.item_hash(self.params)?;
+        let batch_hash = item_def.batch.batch_hash(self.params)?;
+        let keys_dict = Dictionary::new(
+            self.params.max_depth_mt_containers,
+            item_def.batch.ingredients.keys.clone(),
+        )?;
+
+        // Build ItemInBatch(item, batch)
+        Ok(st_custom!(self.ctx,
+            	ItemInBatch() = (
+              		   HashOf(item_hash, batch_hash, item_def.index.hash()),
+            		   DictContains(keys_dict, item_def.index.name(), item_def.item_key())
+        ))?)
+    }
+
+    // Adds statements to MainPodBilder to represent a generic item based on the
+    // ItemDef.  Includes the following public predicates: ItemDef, ItemKey
+    // Returns the Statement object for ItemDef for use in further statements.
+    pub fn st_item_def(
+        &mut self,
+        item_def: ItemDef,
+        st_batch_def: Statement,
+    ) -> anyhow::Result<Statement> {
+        let item_in_batch = self.st_item_in_batch(item_def.clone())?;
+
+        let keys_dict = Dictionary::new(
+            self.params.max_depth_mt_containers,
+            item_def.batch.ingredients.keys.clone(),
+        )?;
+
+        // Build ItemDef(item, ingredients, inputs, key, work)
+        Ok(st_custom!(self.ctx,
+                ItemDef() = (
+                        st_batch_def,
+                        item_in_batch,
+                        DictContains(keys_dict, item_def.index.name(), item_def.item_key())
+        ))?)
+    }
+
+    pub fn st_all_items_in_batch(&mut self, batch_def: BatchDef) -> anyhow::Result<Statement> {
+        let batch_hash = batch_def.batch_hash(self.params)?;
+
+        let empty_set = set!(self.params.max_depth_mt_containers)?;
+        let empty_dict = Dictionary::new(self.params.max_depth_mt_containers, HashMap::new())?;
+
+        // Build AllItemsInBatch(items, batch, keys)
+        let st_all_items_in_batch_empty = st_custom!(self.ctx,
+            AllItemsInBatchEmpty(batch = batch_hash) = (
+                Equal(&empty_set, EMPTY_VALUE),
+                Equal(&empty_dict, EMPTY_VALUE)
+            ))?;
+        let init_st = st_custom!(self.ctx,
+            AllItemsInBatch() = (
+                st_all_items_in_batch_empty,
+                Statement::None
+            ))?;
+
+        let (st_all_items_in_batch, _, _) = batch_def
+            .ingredients
+            .keys
+            .iter()
+            .try_fold::<_, _, anyhow::Result<_>>(
+                (init_st, empty_set.clone(), empty_dict.clone()),
+                |(st_all_items_in_batch_prev, items_prev, keys_prev), (index, key)| {
+                    let item_hash = hash_values(&[batch_hash.into(), index.raw().into()]);
+
+                    let mut keys = keys_prev.clone();
+                    keys.insert(index, key)?;
+
+                    let mut items = items_prev.clone();
+                    items.insert(&item_hash.into())?;
+
+                    let st_all_items_in_batch_recursive = st_custom!(self.ctx,
+                        AllItemsInBatchRecursive() = (
+                            st_all_items_in_batch_prev,
+                            SetInsert(items, items_prev, item_hash),
+                            DictInsert(keys, keys_prev, index.name(), key),
+                            HashOf(item_hash, batch_hash, index.hash())
+                        ))?;
+
+                    let st_all_items_in_batch = st_custom!(self.ctx,
+                        AllItemsInBatch() = (
+                            Statement::None,
+                            st_all_items_in_batch_recursive
+                        ))?;
+
+                    Ok((st_all_items_in_batch, items, keys))
+                },
+            )?;
+
+        Ok(st_all_items_in_batch)
+    }
+
+    pub fn st_item_key(&mut self, st_item_def: Statement) -> anyhow::Result<Statement> {
+        // Build ItemKey(item, key)
+        Ok(st_custom!(self.ctx,
+        ItemKey() = (
+            st_item_def
+        ))?)
     }
 
     // Adds statements to MainPodBilder to prove correct nullifiers for a set of
@@ -226,18 +357,22 @@ impl<'a> ItemBuilder<'a> {
     // the root to prove that inputs were previously created.
     pub fn st_commit_creation(
         &mut self,
-        item_def: ItemDef,
+        batch_def: BatchDef,
         st_nullifiers: Statement,
         created_items: Set,
-        st_item_def: Statement,
+        st_batch_def: Statement,
+        st_all_items_in_batch: Statement,
     ) -> anyhow::Result<Statement> {
-        let st_inputs_subset =
-            self.st_super_sub_set(item_def.ingredients.inputs_set(self.params)?, created_items)?;
+        let st_inputs_subset = self.st_super_sub_set(
+            batch_def.ingredients.inputs_set(self.params)?,
+            created_items,
+        )?;
 
         // Build CommitCreation(item, nullifiers, created_items)
         let st_commit_creation = st_custom!(self.ctx,
             CommitCreation() = (
-                st_item_def.clone(),
+                st_batch_def,
+                st_all_items_in_batch,
                 st_inputs_subset,
                 st_nullifiers
             ))?;
@@ -284,16 +419,17 @@ mod tests {
             item_builder.ctx.builder.add_pod(input_item_key_pod);
         }
 
-        let key = Value::from(key).raw();
+        let index: Key = "0".into();
+        let key = Value::from(key);
         let ingredients_def = IngredientsDef {
             inputs: input_item_hashes,
-            key,
+            keys: [(index.clone(), key)].into_iter().collect(),
             app_layer: HashMap::from([("blueprint".to_string(), Value::from(blueprint))]),
         };
-        let item_def = ItemDef {
-            ingredients: ingredients_def,
-            work: Value::from(42).raw(),
-        };
+
+        let batch_def = BatchDef::new(ingredients_def, Value::from(42).raw());
+        let item_def = ItemDef::new(batch_def.clone(), index).unwrap();
+
         let (st_nullifiers, _nullifiers) = if sts_item_key.is_empty() {
             item_builder.st_nullifiers(sts_item_key).unwrap()
         } else {
@@ -313,14 +449,17 @@ mod tests {
 
         let item_hash = item_def.item_hash(params).unwrap();
         created_items.insert(&Value::from(item_hash)).unwrap();
-        let st_item_def = item_builder.st_item_def(item_def.clone()).unwrap();
-
+        let st_batch_def = item_builder.st_batch_def(batch_def.clone()).unwrap();
+        let st_all_items_in_batch = item_builder
+            .st_all_items_in_batch(batch_def.clone())
+            .unwrap();
         let _st_commit_creation = item_builder
             .st_commit_creation(
-                item_def.clone(),
+                batch_def.clone(),
                 st_nullifiers,
                 created_items.clone(),
-                st_item_def,
+                st_batch_def,
+                st_all_items_in_batch,
             )
             .unwrap();
 
@@ -330,7 +469,8 @@ mod tests {
 
         let mut builder = MainPodBuilder::new(params, vd_set);
         let mut item_builder = ItemBuilder::new(BuildContext::new(&mut builder, batches), params);
-        let st_item_def = item_builder.st_item_def(item_def).unwrap();
+        let st_batch_def = item_builder.st_batch_def(batch_def.clone()).unwrap();
+        let st_item_def = item_builder.st_item_def(item_def, st_batch_def).unwrap();
         let st_item_key = item_builder.st_item_key(st_item_def).unwrap();
         item_builder.ctx.builder.reveal(&st_item_key);
 

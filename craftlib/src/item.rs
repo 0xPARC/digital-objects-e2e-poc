@@ -1,29 +1,36 @@
 use std::collections::{HashMap, HashSet};
 
-use commitlib::{IngredientsDef, ItemDef};
+use commitlib::{BatchDef, IngredientsDef, ItemDef};
 use log;
-use pod2::middleware::{EMPTY_VALUE, Hash, Params, RawValue, Statement, ToFields, Value};
+use pod2::middleware::{
+    EMPTY_VALUE, Hash, Key, Params, Statement, ToFields, Value, containers::Dictionary, hash_values,
+};
 use pod2utils::{macros::BuildContext, set, st_custom};
 
-use crate::constants::{AXE_BLUEPRINT, STONE_BLUEPRINT, WOOD_BLUEPRINT, WOODEN_AXE_BLUEPRINT};
+use crate::constants::{
+    AXE_BLUEPRINT, DUST_BLUEPRINT, GEM_BLUEPRINT, STONE_BLUEPRINT, WOOD_BLUEPRINT,
+    WOODEN_AXE_BLUEPRINT,
+};
 
 // Reusable recipe for an item to be mined, not including the variable
 // cryptographic values.
 #[derive(Debug, Clone)]
 pub struct MiningRecipe {
     pub inputs: HashSet<Hash>,
+    // Q: should it always be a string even for multiple outputs? for now we're
+    // joining the multiple strings with a '+'
     pub blueprint: String,
 }
 
 impl MiningRecipe {
-    pub fn prep_ingredients(&self, key: RawValue, seed: i64) -> IngredientsDef {
+    pub fn prep_ingredients(&self, keys: HashMap<Key, Value>, seed: i64) -> IngredientsDef {
         let app_layer = HashMap::from([
             ("blueprint".to_string(), Value::from(self.blueprint.clone())),
             ("seed".to_string(), Value::from(seed)),
         ]);
         IngredientsDef {
             inputs: self.inputs.clone(),
-            key,
+            keys,
             app_layer,
         }
     }
@@ -31,13 +38,13 @@ impl MiningRecipe {
     pub fn do_mining(
         &self,
         params: &Params,
-        key: RawValue,
+        keys: HashMap<Key, Value>,
         start_seed: i64,
         mine_max: u64,
     ) -> pod2::middleware::Result<Option<IngredientsDef>> {
         log::info!("Mining...");
         for seed in start_seed..=i64::MAX {
-            let ingredients = self.prep_ingredients(key, seed);
+            let ingredients = self.prep_ingredients(keys.clone(), seed);
             let ingredients_hash = ingredients.hash(params)?;
             let mining_val = ingredients_hash.to_fields(params)[0];
             if mining_val.0 <= mine_max {
@@ -81,8 +88,8 @@ impl<'a> CraftBuilder<'a> {
         Ok(st_custom!(self.ctx,
             IsStone() = (
                 st_item_def,
-                Equal(item_def.ingredients.inputs_set(self.params)?, EMPTY_VALUE),
-                DictContains(item_def.ingredients.dict(self.params)?, "blueprint", STONE_BLUEPRINT),
+                Equal(item_def.batch.ingredients.inputs_set(self.params)?, EMPTY_VALUE),
+                DictContains(item_def.batch.ingredients.dict(self.params)?, "blueprint", STONE_BLUEPRINT),
                 st_pow
             ))?)
     }
@@ -96,9 +103,9 @@ impl<'a> CraftBuilder<'a> {
         Ok(st_custom!(self.ctx,
             IsWood() = (
                 st_item_def,
-                Equal(item_def.ingredients.inputs_set(self.params)?, EMPTY_VALUE),
-                DictContains(item_def.ingredients.dict(self.params)?, "blueprint", WOOD_BLUEPRINT),
-                Equal(item_def.work, EMPTY_VALUE)
+                Equal(item_def.batch.ingredients.inputs_set(self.params)?, EMPTY_VALUE),
+                DictContains(item_def.batch.ingredients.dict(self.params)?, "blueprint", WOOD_BLUEPRINT),
+                Equal(item_def.batch.work, EMPTY_VALUE)
             ))?)
     }
 
@@ -135,8 +142,8 @@ impl<'a> CraftBuilder<'a> {
         Ok(st_custom!(self.ctx,
             IsAxe() = (
                 st_item_def,
-                DictContains(item_def.ingredients.dict(self.params)?, "blueprint", AXE_BLUEPRINT),
-                Equal(item_def.work, EMPTY_VALUE),
+                DictContains(item_def.batch.ingredients.dict(self.params)?, "blueprint", AXE_BLUEPRINT),
+                Equal(item_def.batch.work, EMPTY_VALUE),
                 st_axe_inputs
             ))?)
     }
@@ -174,10 +181,130 @@ impl<'a> CraftBuilder<'a> {
         Ok(st_custom!(self.ctx,
             IsWoodenAxe() = (
                 st_item_def,
-                DictContains(item_def.ingredients.dict(self.params)?, "blueprint", WOODEN_AXE_BLUEPRINT),
-                Equal(item_def.work, EMPTY_VALUE),
+                DictContains(item_def.batch.ingredients.dict(self.params)?, "blueprint", WOODEN_AXE_BLUEPRINT),
+                Equal(item_def.batch.work, EMPTY_VALUE),
                 st_wooden_axe_inputs
             ))?)
+    }
+
+    pub fn st_stone_disassemble_inputs(
+        &mut self,
+        st_is_stone1: Statement,
+        st_is_stone2: Statement,
+    ) -> anyhow::Result<Statement> {
+        let stone1 = st_is_stone1.args()[0].literal().unwrap();
+        let stone2 = st_is_stone2.args()[0].literal().unwrap();
+        let empty_set = set!(self.params.max_depth_mt_containers).unwrap();
+        let mut s1 = empty_set.clone();
+        s1.insert(&stone1).unwrap();
+        let mut inputs = s1.clone();
+        inputs.insert(&stone2).unwrap();
+        Ok(st_custom!(self.ctx,
+            StoneDisassembleInputs() = (
+                SetInsert(s1, empty_set, stone1),
+                SetInsert(inputs, s1, stone2),
+                st_is_stone1,
+                st_is_stone2
+            ))?)
+    }
+    pub fn st_stone_disassemble_outputs(
+        &mut self,
+        batch_def: BatchDef,
+    ) -> anyhow::Result<Statement> {
+        let batch_hash = batch_def.batch_hash(self.params)?;
+        let dust_hash = hash_values(&[batch_hash.into(), DUST_BLUEPRINT.into()]);
+        let gem_hash = hash_values(&[batch_hash.into(), GEM_BLUEPRINT.into()]);
+        let dust_key = batch_def.ingredients.keys[&DUST_BLUEPRINT.into()].clone();
+        let gem_key = batch_def.ingredients.keys[&GEM_BLUEPRINT.into()].clone();
+
+        let keys_dict = Dictionary::new(
+            self.params.max_depth_mt_containers,
+            batch_def.ingredients.keys.clone(),
+        )?;
+
+        let empty_dict = Dictionary::new(self.params.max_depth_mt_containers, HashMap::new())?;
+        let mut k1_dict = empty_dict.clone();
+        k1_dict.insert(&DUST_BLUEPRINT.into(), &dust_key)?;
+
+        Ok(st_custom!(self.ctx,
+            StoneDisassembleOutputs() = (
+            HashOf(dust_hash, batch_hash, DUST_BLUEPRINT),
+            HashOf(gem_hash, batch_hash, GEM_BLUEPRINT),
+            DictInsert(k1_dict, empty_dict, DUST_BLUEPRINT, dust_key),
+            DictInsert(keys_dict, k1_dict, GEM_BLUEPRINT, gem_key)
+        ))?)
+    }
+    pub fn st_stone_disassemble_inputs_outputs(
+        &mut self,
+        st_is_stone1: Statement,
+        st_is_stone2: Statement,
+        batch_def: BatchDef,
+    ) -> anyhow::Result<Statement> {
+        let st_stone_disassemble_inputs =
+            self.st_stone_disassemble_inputs(st_is_stone1, st_is_stone2)?;
+        let st_stone_disassemble_outputs = self.st_stone_disassemble_outputs(batch_def)?;
+
+        Ok(st_custom!(self.ctx,
+        StoneDisassembleInputsOutputs() = (
+            st_stone_disassemble_inputs,
+            st_stone_disassemble_outputs
+        ))?)
+    }
+    pub fn st_is_dust(
+        &mut self,
+        item_def: ItemDef,
+        st_stone_disassemble: Statement,
+    ) -> anyhow::Result<Statement> {
+        let batch_hash = item_def.batch.batch_hash(self.params)?;
+        let dust_hash = hash_values(&[batch_hash.into(), DUST_BLUEPRINT.into()]);
+        let keys_dict = Dictionary::new(
+            self.params.max_depth_mt_containers,
+            item_def.batch.ingredients.keys.clone(),
+        )?;
+        let dust_key = item_def.batch.ingredients.keys[&DUST_BLUEPRINT.into()].clone();
+        Ok(st_custom!(self.ctx,
+           IsDust() = (
+               HashOf(dust_hash, batch_hash, DUST_BLUEPRINT),
+               DictContains(keys_dict, DUST_BLUEPRINT, dust_key),
+               Equal(item_def.batch.work, EMPTY_VALUE),
+               st_stone_disassemble
+           ))?)
+    }
+
+    pub fn st_is_gem(
+        &mut self,
+        item_def: ItemDef,
+        st_stone_disassemble: Statement,
+    ) -> anyhow::Result<Statement> {
+        let batch_hash = item_def.batch.batch_hash(self.params)?;
+        let gem_hash = hash_values(&[batch_hash.into(), GEM_BLUEPRINT.into()]);
+        let keys_dict = Dictionary::new(
+            self.params.max_depth_mt_containers,
+            item_def.batch.ingredients.keys.clone(),
+        )?;
+        let gem_key = item_def.batch.ingredients.keys[&GEM_BLUEPRINT.into()].clone();
+
+        Ok(st_custom!(self.ctx,
+            IsGem() = (
+                HashOf(gem_hash, batch_hash, GEM_BLUEPRINT),
+                DictContains(keys_dict, GEM_BLUEPRINT, gem_key),
+                Equal(item_def.batch.work, EMPTY_VALUE),
+                st_stone_disassemble
+            ))?)
+    }
+
+    pub fn st_stone_disassemble(
+        &mut self,
+        st_stone_disassemble_inputs_outputs: Statement,
+        st_batch_def: Statement,
+        batch_def: BatchDef,
+    ) -> anyhow::Result<Statement> {
+        Ok(st_custom!(self.ctx,
+        StoneDisassemble() = (
+            st_batch_def,
+            DictContains(batch_def.ingredients.dict(self.params)?, "blueprint", format!("{DUST_BLUEPRINT}+{GEM_BLUEPRINT}")),
+            st_stone_disassemble_inputs_outputs
+        ))?)
     }
 }
 
@@ -186,14 +313,17 @@ mod tests {
 
     use std::{collections::HashMap, sync::Arc};
 
-    use commitlib::{ItemBuilder, ItemDef, predicates::CommitPredicates, util::set_from_hashes};
+    use commitlib::{
+        BatchDef, ItemBuilder, ItemDef, predicates::CommitPredicates, util::set_from_hashes,
+    };
     use pod2::{
         backends::plonky2::mock::mainpod::MockProver,
         frontend::{MainPod, MainPodBuilder},
         lang::parse,
         middleware::{
             CustomPredicateBatch, EMPTY_VALUE, MainPodProver, Params, Pod, RawValue, VDSet, Value,
-            containers::Set, hash_value,
+            containers::{Dictionary, Set},
+            hash_value,
         },
     };
 
@@ -220,17 +350,29 @@ mod tests {
         prover: &dyn MainPodProver,
         vd_set: &VDSet,
     ) -> anyhow::Result<MainPod> {
+        // Prove AllItemsInBatch
         let mut builder = MainPodBuilder::new(&Default::default(), vd_set);
         let mut item_builder = ItemBuilder::new(BuildContext::new(&mut builder, batches), params);
-        let st_item_def = item_builder.st_item_def(item_def.clone())?;
+        let st_all_items_in_batch = item_builder.st_all_items_in_batch(item_def.batch.clone())?;
+        item_builder.ctx.builder.reveal(&st_all_items_in_batch);
+        let all_items_in_batch_pod = item_builder.ctx.builder.prove(prover)?;
+
+        let mut builder = MainPodBuilder::new(&Default::default(), vd_set);
+        let mut item_builder = ItemBuilder::new(BuildContext::new(&mut builder, batches), params);
+        let st_batch_def = item_builder.st_batch_def(item_def.batch.clone())?;
+        let st_item_def = item_builder.st_item_def(item_def.clone(), st_batch_def.clone())?;
+        item_builder.ctx.builder.reveal(&st_batch_def);
         item_builder.ctx.builder.reveal(&st_item_def);
         let st_item_key = item_builder.st_item_key(st_item_def.clone())?;
         item_builder.ctx.builder.reveal(&st_item_key);
+        let st_all_items_in_batch = all_items_in_batch_pod.public_statements[0].clone();
+        item_builder.ctx.builder.reveal(&st_all_items_in_batch);
 
         let st_pow = pow_pod.public_statements[0].clone();
 
         let mut craft_builder = CraftBuilder::new(BuildContext::new(&mut builder, batches), params);
         craft_builder.ctx.builder.add_pod(pow_pod);
+        craft_builder.ctx.builder.add_pod(all_items_in_batch_pod);
         let st_is_stone = craft_builder.st_is_stone(item_def, st_item_def, st_pow)?;
         craft_builder.ctx.builder.reveal(&st_is_stone);
 
@@ -255,13 +397,19 @@ mod tests {
         let mut builder = MainPodBuilder::new(&Default::default(), vd_set);
 
         // TODO: Consider a more robust lookup for this which doesn't depend on index.
-        let st_item_def = item_main_pod.public_statements[0].clone();
+        let st_batch_def = item_main_pod.public_statements[0].clone();
+        let st_all_items_in_batch = item_main_pod.public_statements[3].clone();
         builder.add_pod(item_main_pod);
 
         let mut item_builder = ItemBuilder::new(BuildContext::new(&mut builder, batches), params);
         let (st_nullifier, _) = item_builder.st_nullifiers(vec![])?;
-        let st_commit_creation =
-            item_builder.st_commit_creation(item_def, st_nullifier, created_items, st_item_def)?;
+        let st_commit_creation = item_builder.st_commit_creation(
+            item_def.batch,
+            st_nullifier,
+            created_items,
+            st_batch_def,
+            st_all_items_in_batch,
+        )?;
         builder.reveal(&st_commit_creation);
 
         // Prove MainPOD
@@ -279,17 +427,20 @@ mod tests {
     fn test_mine_stone() -> anyhow::Result<()> {
         let params = Params::default();
         let mining_recipe = MiningRecipe::new(STONE_BLUEPRINT.to_string(), &[]);
-        let key = RawValue::from(0xBADC0DE);
+        let index: Key = "stone".into();
+        let key = Value::from(0xBADC0DE);
+        let keys: HashMap<_, _> = [(index.clone(), key.clone())].into_iter().collect();
 
         // Seed of 2612=0xA34 is a match with hash 6647892930992163=0x000A7EE9D427E832.
         // TODO: This test is going to get slower (~2s) whenever the ingredient
         // dict definition changes.  Need a better approach to testing mining.
         let mine_success =
-            mining_recipe.do_mining(&params, key, STONE_START_SEED, STONE_MINING_MAX)?;
+            mining_recipe.do_mining(&params, keys, STONE_START_SEED, STONE_MINING_MAX)?;
         assert!(mine_success.is_some());
 
         let ingredients_def = mine_success.unwrap();
-        let item_def = ItemDef::new(ingredients_def.clone(), STONE_WORK);
+        let batch_def = BatchDef::new(ingredients_def.clone(), STONE_WORK);
+        let item_def = ItemDef::new(batch_def, index)?;
         let item_hash = item_def.item_hash(&params)?;
         println!(
             "Mined stone {:?} from ingredients {:?}",
@@ -312,16 +463,18 @@ mod tests {
         let vd_set = &mock_vd_set();
 
         // Mine stone with a selected key.
-        let key = RawValue::from(0xBADC0DE);
+        let index: Key = "stone".into();
+        let key = Value::from(0xBADC0DE);
+        let keys: HashMap<_, _> = [(index.clone(), key.clone())].into_iter().collect();
         let mining_recipe = MiningRecipe::new(STONE_BLUEPRINT.to_string(), &[]);
         let ingredients_def = mining_recipe
-            .do_mining(&params, key, STONE_START_SEED, STONE_MINING_MAX)?
+            .do_mining(&params, keys.clone(), STONE_START_SEED, STONE_MINING_MAX)?
             .unwrap();
 
         let pow_pod = PowPod::new(
             &params,
             vd_set.clone(),
-            3, // num_iters
+            crate::constants::STONE_WORK_COST, // num_iters
             RawValue::from(ingredients_def.dict(&params)?.commitment()),
         )?;
         let main_pow_pod = MainPod {
@@ -333,10 +486,8 @@ mod tests {
         // Pre-calculate hashes and intermediate values.
         let ingredients_dict = ingredients_def.dict(&params)?;
         let inputs_set = ingredients_def.inputs_set(&params)?;
-        let item_def = ItemDef {
-            ingredients: ingredients_def.clone(),
-            work: pow_pod.output,
-        };
+        let batch_def = BatchDef::new(ingredients_def.clone(), pow_pod.output);
+        let item_def = ItemDef::new(batch_def.clone(), index)?;
         let item_hash = item_def.item_hash(&params)?;
 
         // Prove a stone POD.  This is the private POD for the player to store
@@ -351,8 +502,8 @@ mod tests {
         )?;
 
         stone_main_pod.pod.verify()?;
-        assert_eq!(stone_main_pod.public_statements.len(), 3);
-        //println!("Stone POD: {:?}", stone_main_pod.pod);
+        assert_eq!(stone_main_pod.public_statements.len(), 5);
+        println!("Stone POD: {:?}", stone_main_pod.pod);
 
         // PODLang query to check the final statements.
         let stone_query = format!(
@@ -361,7 +512,8 @@ mod tests {
             {}
 
             REQUEST(
-                ItemDef(item, ingredients, inputs, key, work)
+                BatchDef(batch, ingredients, inputs, keys, work)
+                ItemDef (item, ingredients, inputs, key, work)
                 ItemKey(item, key)
                 IsStone(item)
             )
@@ -385,10 +537,15 @@ mod tests {
         check_matched_wildcards(
             matched_wildcards,
             HashMap::from([
+                ("batch".into(), Value::from(batch_def.batch_hash(&params)?)),
                 ("item".to_string(), Value::from(item_hash)),
                 ("ingredients".to_string(), Value::from(ingredients_dict)),
                 ("inputs".to_string(), Value::from(inputs_set)),
-                ("key".to_string(), Value::from(key)),
+                ("key".to_string(), key.clone()),
+                (
+                    "keys".into(),
+                    Value::from(Dictionary::new(params.max_depth_mt_containers, keys)?),
+                ),
                 ("work".to_string(), Value::from(pow_pod.output)),
             ]),
         );
@@ -416,7 +573,7 @@ mod tests {
 
         commit_main_pod.pod.verify()?;
         assert_eq!(commit_main_pod.public_statements.len(), 1);
-        //println!("Commit POD: {:?}", stone_main_pod.pod);
+        println!("Commit POD: {:?}", commit_main_pod.pod);
 
         // PODLang query to check the final statement.
         let commit_query = format!(
@@ -424,7 +581,7 @@ mod tests {
             {}
 
             REQUEST(
-                CommitCreation(item, nullifiers, created_items)
+                CommitCreation(items, nullifiers, created_items)
             )
             "#,
             &commit_preds.defs.imports,
@@ -446,7 +603,13 @@ mod tests {
         check_matched_wildcards(
             matched_wildcards,
             HashMap::from([
-                ("item".to_string(), Value::from(item_hash)),
+                (
+                    "items".to_string(),
+                    Value::from(Set::new(
+                        params.max_depth_mt_containers,
+                        [item_hash.into()].into_iter().collect(),
+                    )?),
+                ),
                 ("created_items".to_string(), Value::from(created_items)),
                 ("nullifiers".to_string(), Value::from(EMPTY_VALUE)),
             ]),

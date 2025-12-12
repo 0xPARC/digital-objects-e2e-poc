@@ -27,7 +27,7 @@ $tmux new-session -d -s fullflow
 $tmux split-window -v
 
 # run the Synchronizer server
-$tmux send-keys -t fullflow:0.0 'RUST_LOG=synchronizer=debug cargo run --release -p synchronizer' C-m
+$tmux send-keys -t fullflow:0.0 'RUST_LOG=synchronizer=debug,info cargo run --release -p synchronizer' C-m
 
 
 # app command line:
