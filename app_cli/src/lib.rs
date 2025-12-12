@@ -201,51 +201,58 @@ impl Helper {
 
         item_builder.ctx.builder.reveal(&st_all_items_in_batch); // 5: Required for committing via CommitCreation
 
-        let all_items_in_batch_pod = item_builder.ctx.builder.prove(prover)?;
-
-        let mut builder = MainPodBuilder::new(&self.params, &self.vd_set);
-        let mut item_builder =
-            ItemBuilder::new(BuildContext::new(&mut builder, &self.batches), &self.params);
-
         let mut sts_input_item_key = Vec::new();
         let mut sts_input_craft = Vec::new();
+        let mut input_item_pod = None;
 
-        // TODO: Use recursion here to be able to make use of more than 2 input PODs.
-        for input_item_pod in input_item_pods {
-            let st_item_key = input_item_pod.pod.pub_statements()[0].clone();
-            sts_input_item_key.push(st_item_key);
-            let st_craft = input_item_pod.pod.pub_statements()[4].clone();
-            sts_input_craft.push(st_craft);
-            item_builder.ctx.builder.add_pod(input_item_pod);
+        // Need more intermediate PODs if there are input items.
+        if !input_item_pods.is_empty() {
+            info!("Proving all_items_in_batch_pod...");
+            let all_items_in_batch_pod = item_builder.ctx.builder.prove(prover)?;
+            builder = MainPodBuilder::new(&self.params, &self.vd_set);
+            item_builder =
+                ItemBuilder::new(BuildContext::new(&mut builder, &self.batches), &self.params);
+            // TODO: Use recursion here to be able to make use of more than 2 input PODs.
+            for input_item_pod in input_item_pods {
+                let st_item_key = input_item_pod.pod.pub_statements()[0].clone();
+                sts_input_item_key.push(st_item_key);
+                let st_craft = input_item_pod.pod.pub_statements()[4].clone();
+                sts_input_craft.push(st_craft);
+                item_builder.ctx.builder.add_pod(input_item_pod);
+            }
+
+            // Prove and proceed.
+            sts_input_item_key
+                .iter()
+                .chain(sts_input_craft.iter())
+                .for_each(|st| item_builder.ctx.builder.reveal(st));
+            info!("Proving input_item_pod...");
+            input_item_pod = Some(item_builder.ctx.builder.prove(prover)?);
+
+            // Take care of nullifiers.
+            builder = MainPodBuilder::new(&self.params, &self.vd_set);
+            item_builder =
+                ItemBuilder::new(BuildContext::new(&mut builder, &self.batches), &self.params);
+
+            item_builder
+                .ctx
+                .builder
+                .add_pod(input_item_pod.clone().unwrap());
+            item_builder
+                .ctx
+                .builder
+                .add_pod(all_items_in_batch_pod.clone());
+            all_items_in_batch_pod
+                .public_statements
+                .iter()
+                .for_each(|st| item_builder.ctx.builder.reveal(st));
         }
-
-        // Prove and proceed.
-        sts_input_item_key
-            .iter()
-            .chain(sts_input_craft.iter())
-            .for_each(|st| item_builder.ctx.builder.reveal(st));
-        info!("Proving input_item_pod...");
-        let input_item_pod = item_builder.ctx.builder.prove(prover)?;
-
-        // Take care of nullifiers.
-        builder = MainPodBuilder::new(&self.params, &self.vd_set);
-        item_builder =
-            ItemBuilder::new(BuildContext::new(&mut builder, &self.batches), &self.params);
-
-        item_builder.ctx.builder.add_pod(input_item_pod.clone());
-        item_builder
-            .ctx
-            .builder
-            .add_pod(all_items_in_batch_pod.clone());
 
         // By the way, the default params don't have enough custom statement verifications
         // to fit everything in a single pod, hence all the splits.
         let (st_nullifiers, _nullifiers) = item_builder.st_nullifiers(sts_input_item_key).unwrap();
         item_builder.ctx.builder.reveal(&st_nullifiers);
-        all_items_in_batch_pod
-            .public_statements
-            .iter()
-            .for_each(|st| item_builder.ctx.builder.reveal(st));
+        item_builder.ctx.builder.reveal(&st_all_items_in_batch);
 
         info!("Proving nullifiers_et_al_pod...");
         let nullifiers_et_al_pod = builder.prove(prover).unwrap();
@@ -256,7 +263,10 @@ impl Helper {
         item_builder =
             ItemBuilder::new(BuildContext::new(&mut builder, &self.batches), &self.params);
         item_builder.ctx.builder.add_pod(nullifiers_et_al_pod);
-        item_builder.ctx.builder.add_pod(input_item_pod.clone());
+
+        input_item_pod
+            .iter()
+            .for_each(|p| item_builder.ctx.builder.add_pod(p.clone()));
 
         let mut item_builder =
             ItemBuilder::new(BuildContext::new(&mut builder, &self.batches), &self.params);
@@ -280,13 +290,14 @@ impl Helper {
         let mut builder = MainPodBuilder::new(&self.params, &self.vd_set);
 
         builder.add_pod(item_key_pod);
-        builder.add_pod(input_item_pod);
+        input_item_pod
+            .iter()
+            .for_each(|p| builder.add_pod(p.clone()));
 
         let mut craft_builder =
             CraftBuilder::new(BuildContext::new(&mut builder, &self.batches), &self.params);
         let st_craft = match recipe {
             Recipe::Stone => {
-                craft_builder.ctx.builder.input_pods.pop();
                 // unwrap safe since if we're at Stone, pow_pod is Some
                 let pow_pod = pow_pod.unwrap();
                 let st_pow = pow_pod.pub_statements()[0].clone();
