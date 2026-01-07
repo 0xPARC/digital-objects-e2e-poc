@@ -28,8 +28,8 @@ enum Commands {
     Craft {
         #[arg(long, value_name = "RECIPE")]
         recipe: String,
-        #[arg(long, value_name = "FILE")]
-        output: PathBuf,
+        #[arg(long = "output", value_name = "FILE")]
+        outputs: Vec<PathBuf>,
         #[arg(long = "input", value_name = "FILE")]
         inputs: Vec<PathBuf>,
     },
@@ -59,11 +59,11 @@ async fn main() -> anyhow::Result<()> {
     match cli.command {
         Some(Commands::Craft {
             recipe,
-            output,
+            outputs,
             inputs,
         }) => {
             let recipe = Recipe::from_str(&recipe)?;
-            craft_item(&params, recipe, &output, &inputs)?;
+            craft_item(&params, recipe, &outputs, &inputs)?;
         }
         Some(Commands::Commit { input }) => {
             commit_item(&params, &cfg, &input).await?;
@@ -74,14 +74,17 @@ async fn main() -> anyhow::Result<()> {
             // Verify that the item exists on-blob-space:
             // first get the merkle proof of item existence from the Synchronizer
             let item = RawValue::from(crafted_item.def.item_hash(&params)?);
-            let item_hex: String = format!("{item:#}");
+
+            // Single item => set containing one element
+            // TODO: Generalise.
+            let item_set_hex: String = format!("{item:#}");
             let (epoch, _): (u64, RawValue) =
                 reqwest::blocking::get(format!("{}/created_items_root", cfg.sync_url,))?.json()?;
             info!("Verifying commitment of item {item:#} via synchronizer at epoch {epoch}");
             let (epoch, mtp): (u64, MerkleProof) = reqwest::blocking::get(format!(
                 "{}/created_item/{}",
                 cfg.sync_url,
-                &item_hex[2..]
+                &item_set_hex[2..]
             ))?
             .json()?;
             info!("mtp at epoch {epoch}: {mtp:?}");

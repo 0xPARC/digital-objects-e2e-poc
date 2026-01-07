@@ -19,7 +19,7 @@ pub enum Request {
         params: Params,
         pods_path: String,
         recipe: Recipe,
-        output: PathBuf,
+        outputs: Vec<PathBuf>,
         input_paths: Vec<PathBuf>,
     },
     Commit {
@@ -32,16 +32,16 @@ pub enum Request {
         cfg: Config,
         pods_path: String,
         recipe: Recipe,
-        output: PathBuf,
+        outputs: Vec<PathBuf>,
         input_paths: Vec<PathBuf>,
     },
     Exit,
 }
 
 pub enum Response {
-    Craft(Result<PathBuf>),
+    Craft(Result<Vec<PathBuf>>),
     Commit(Result<PathBuf>),
-    CraftAndCommit(Result<PathBuf>),
+    CraftAndCommit(Result<Vec<PathBuf>>),
     Null,
 }
 
@@ -55,34 +55,46 @@ pub fn handle_req(task_status: &RwLock<TaskStatus>, req: Request) -> Response {
             params,
             pods_path,
             recipe,
-            output,
+            outputs,
             input_paths,
-        } => craft(task_status, &params, pods_path, recipe, output, input_paths),
+        } => craft(
+            task_status,
+            &params,
+            pods_path,
+            recipe,
+            outputs,
+            input_paths,
+        ),
         Request::Commit { params, cfg, input } => commit(task_status, &params, cfg, input),
         Request::CraftAndCommit {
             params,
             cfg,
             pods_path,
             recipe,
-            output,
+            outputs,
             input_paths,
         } => {
-            if let Response::Craft(Result::Err(e)) = craft(
+            let craft_res = craft(
                 task_status,
                 &params,
                 pods_path,
                 recipe,
-                output.clone(),
+                outputs,
                 input_paths,
-            ) {
-                return Response::CraftAndCommit(Result::Err(e));
-            };
-            let res = commit(task_status, &params, cfg, output.clone());
-            let r = match res {
-                Response::Commit(result) => result,
-                _ => Err(anyhow!("unexpected response")),
-            };
-            Response::CraftAndCommit(r)
+            );
+            match craft_res {
+                Response::Craft(Result::Err(e)) => Response::CraftAndCommit(Result::Err(e)),
+                Response::Craft(Result::Ok(output_paths)) => {
+                    // TODO: Maybe have a separate batch or commitment POD?
+                    let res = commit(task_status, &params, cfg, output_paths[0].clone());
+                    let r = match res {
+                        Response::Commit(_) => Result::Ok(output_paths),
+                        _ => Err(anyhow!("unexpected response")),
+                    };
+                    Response::CraftAndCommit(r)
+                }
+                _ => Response::CraftAndCommit(Err(anyhow!("unexpected response"))),
+            }
         }
         Request::Exit => Response::Null,
     }
@@ -93,13 +105,13 @@ fn craft(
     params: &Params,
     pods_path: String,
     recipe: Recipe,
-    output: PathBuf,
+    outputs: Vec<PathBuf>,
     input_paths: Vec<PathBuf>,
 ) -> Response {
     set_busy_task(task_status, "Crafting");
 
     let start = std::time::Instant::now();
-    let r = craft_item(params, recipe, &output, &input_paths);
+    let r = craft_item(params, recipe, &outputs, &input_paths);
     log::info!("[TIME] total Craft Item time: {:?}", start.elapsed());
 
     // move the files of the used inputs into the `used` subdir
@@ -123,7 +135,7 @@ fn craft(
     }
 
     task_status.write().unwrap().busy = None;
-    Response::Craft(r.map(|_| output))
+    Response::Craft(r)
 }
 fn commit(
     task_status: &RwLock<TaskStatus>,

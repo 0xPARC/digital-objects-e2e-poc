@@ -37,7 +37,7 @@ pub fn read_elems<const N: usize>(bytes: &mut impl Read) -> Result<[F; N]> {
 #[allow(clippy::large_enum_variant)]
 pub struct Payload {
     pub proof: PayloadProof,
-    pub item: RawValue,
+    pub items: Vec<RawValue>,
     pub created_items_root: RawValue,
     pub nullifiers: Vec<RawValue>,
 }
@@ -51,9 +51,17 @@ impl Payload {
             .write_all(&PAYLOAD_MAGIC.to_le_bytes())
             .expect("vec write");
         self.proof.write_bytes(&mut buffer);
-        write_elems(&mut buffer, &self.item.0);
         write_elems(&mut buffer, &self.created_items_root.0);
-        assert!(self.nullifiers.len() <= 255);
+
+        assert!(self.items.len() < 256);
+        buffer
+            .write_all(&(self.items.len() as u8).to_le_bytes())
+            .expect("vec write");
+        for item in &self.items {
+            write_elems(&mut buffer, &item.0);
+        }
+
+        assert!(self.nullifiers.len() < 256);
         buffer
             .write_all(&(self.nullifiers.len() as u8).to_le_bytes())
             .expect("vec write");
@@ -76,8 +84,16 @@ impl Payload {
 
         let (proof, len) = PayloadProof::from_bytes(bytes, common_data)?;
         bytes = &bytes[len..];
-        let item = RawValue(read_elems(&mut bytes)?);
         let created_items_root = RawValue(read_elems(&mut bytes)?);
+        let items_len = {
+            let mut buffer = [0; 1];
+            bytes.read_exact(&mut buffer)?;
+            u8::from_le_bytes(buffer)
+        };
+        let mut items = Vec::with_capacity(items_len as usize);
+        for _ in 0..items_len {
+            items.push(RawValue(read_elems(&mut bytes)?));
+        }
         let nullifiers_len = {
             let mut buffer = [0; 1];
             bytes.read_exact(&mut buffer)?;
@@ -89,7 +105,7 @@ impl Payload {
         }
         Ok(Self {
             proof,
-            item,
+            items,
             created_items_root,
             nullifiers,
         })
@@ -194,7 +210,14 @@ mod tests {
 
         let payload = {
             let mut builder = MainPodBuilder::new(&params, vd_set);
-            let item = Value::from("dummy_item");
+            let items = vec![Value::from("dummy_item").raw()];
+            let item_set = Value::from(
+                Set::new(
+                    params.max_depth_mt_containers,
+                    items.iter().map(|rv| (*rv).into()).collect(),
+                )
+                .unwrap(),
+            );
             let nullifiers = vec![
                 Value::from(1).raw(),
                 Value::from(2).raw(),
@@ -213,7 +236,7 @@ mod tests {
                 .op(
                     true,
                     vec![
-                        (0, item.clone()),
+                        (0, item_set.clone()),
                         (1, nullifiers_set.clone()),
                         (2, created_items.clone()),
                     ],
@@ -237,7 +260,7 @@ mod tests {
 
             Payload {
                 proof: PayloadProof::Plonky2(Box::new(shrunk_main_pod_proof.clone())),
-                item: item.raw(),
+                items,
                 created_items_root: created_items.raw(),
                 nullifiers,
             }
@@ -257,10 +280,15 @@ mod tests {
             )
             .unwrap(),
         );
+        let item_set = Set::new(
+            params.max_depth_mt_containers,
+            payload.items.iter().map(|rv| (*rv).into()).collect(),
+        )
+        .unwrap();
         let st = Statement::Custom(
             pred,
             vec![
-                Value::from(payload.item),
+                item_set.into(),
                 nullifiers_set,
                 Value::from(payload.created_items_root),
             ],
