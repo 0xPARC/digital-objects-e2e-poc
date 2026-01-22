@@ -19,8 +19,8 @@ impl ItemPredicates {
         // 5 statements per predicate
         let batch_defs = [
             r#"
-            use intro Pow(count, input, output) from 0x3493488bc23af15ac5fabe38c3cb6c4b66adb57e3898adf201ae50cc57183f65 // powpod vd hash
-        
+            use intro Vdf(count, input, output) from 0x3493488bc23af15ac5fabe38c3cb6c4b66adb57e3898adf201ae50cc57183f65 // vdfpod vd hash
+
             // Example of a mined item with no inputs or sequential work.
             // Stone requires working in a stone mine (blueprint="stone") and
             // 10 leading 0s.
@@ -28,9 +28,9 @@ impl ItemPredicates {
                 ItemDef(item, ingredients, inputs, key, work)
                 Equal(inputs, {})
                 DictContains(ingredients, "blueprint", "stone")
-                Pow(3, ingredients, work)
+                Vdf(3, ingredients, work)
             )
-        
+
             // Example of a mined item which is more common but takes more work to
             // extract.
             IsWood(item, private: ingredients, inputs, key, work) = AND(
@@ -47,28 +47,28 @@ impl ItemPredicates {
                 // 2 ingredients
                 SetInsert(s1, {}, wood)
                 SetInsert(inputs, s1, stone)
-        
+
                 // prove the ingredients are correct.
                 IsWood(wood)
                 IsStone(stone)
             )
-        
+
             // Combining Stone and Wood to get Axe is easy (no sequential work).
             // TODO: Require a smelter as a tool
             IsAxe(item, private: ingredients, inputs, key, work) = AND(
                 ItemDef(item, ingredients, inputs, key, work)
                 DictContains(ingredients, "blueprint", "axe")
                 Equal(work, {})
-        
+
                 AxeInputs(inputs)
             )
-        
+
             // Wooden Axe:
             WoodenAxeInputs(inputs, private: s1, wood1, wood2) = AND(
                 // 2 ingredients
                 SetInsert(s1, {}, wood1)
                 SetInsert(inputs, s1, wood2)
-        
+
                 // prove the ingredients are correct.
                 IsWood(wood1)
                 IsWood(wood2)
@@ -79,7 +79,7 @@ impl ItemPredicates {
                 ItemDef(item, ingredients, inputs, key, work)
                 DictContains(ingredients, "blueprint", "wooden-axe")
                 Equal(work, {})
-        
+
                 WoodenAxeInputs(inputs)
             )
             "#,
@@ -108,8 +108,8 @@ mod tests {
     use super::*;
     use crate::{
         constants::STONE_BLUEPRINT,
-        powpod::PowPod,
         test_util::test::{check_matched_wildcards, mock_vd_set},
+        vdfpod::VdfPod,
     };
 
     #[test]
@@ -145,22 +145,22 @@ mod tests {
         };
         let ingredients_dict = ingredients_def.dict(&params)?;
         let inputs_set = ingredients_def.inputs_set(&params)?;
-        // compute the PowPod
+        // compute the VdfPod
         let vd_set = &mock_vd_set();
-        let pow_pod = PowPod::new(
+        let vdf_pod = VdfPod::new(
             &params,
             vd_set.clone(),
             3,
             RawValue::from(ingredients_def.dict(&params)?.commitment()),
         )?;
-        let main_pow_pod = MainPod {
-            pod: Box::new(pow_pod.clone()),
-            public_statements: pow_pod.pub_statements(),
+        let main_vdf_pod = MainPod {
+            pod: Box::new(vdf_pod.clone()),
+            public_statements: vdf_pod.pub_statements(),
             params: params.clone(),
         };
-        let work: RawValue = pow_pod.output;
-        let st_pow = main_pow_pod.public_statements[0].clone();
-        builder.add_pod(main_pow_pod);
+        let work: RawValue = vdf_pod.output;
+        let st_vdf = main_vdf_pod.public_statements[0].clone();
+        builder.add_pod(main_vdf_pod);
         let item_def = ItemDef {
             ingredients: ingredients_def.clone(),
             work,
@@ -248,7 +248,7 @@ mod tests {
                 st_item_def,
                 st_inputs_eq_empty,
                 st_contains_blueprint,
-                st_pow,
+                st_vdf,
             ],
         ))?;
 

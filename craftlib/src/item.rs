@@ -75,7 +75,7 @@ impl<'a> CraftBuilder<'a> {
         &mut self,
         item_def: ItemDef,
         st_item_def: Statement,
-        st_pow: Statement,
+        st_vdf: Statement,
     ) -> anyhow::Result<Statement> {
         // Build IsStone(item)
         Ok(st_custom!(self.ctx,
@@ -83,7 +83,7 @@ impl<'a> CraftBuilder<'a> {
                 st_item_def,
                 Equal(item_def.ingredients.inputs_set(self.params)?, EMPTY_VALUE),
                 DictContains(item_def.ingredients.dict(self.params)?, "blueprint", STONE_BLUEPRINT),
-                st_pow
+                st_vdf
             ))?)
     }
 
@@ -200,9 +200,9 @@ mod tests {
     use super::*;
     use crate::{
         constants::{STONE_BLUEPRINT, STONE_MINING_MAX, STONE_WORK},
-        powpod::PowPod,
         predicates::ItemPredicates,
         test_util::test::mock_vd_set,
+        vdfpod::VdfPod,
     };
 
     // Seed of 2612=0xA34 is a match with hash 6647892930992163=0x000A7EE9D427E832.
@@ -212,7 +212,7 @@ mod tests {
     // Contains the following public predicates: ItemDef, ItemKey, IsStone
     fn prove_stone(
         item_def: ItemDef,
-        pow_pod: MainPod,
+        vdf_pod: MainPod,
 
         // TODO: All the args below might belong in a ItemBuilder object
         batches: &[Arc<CustomPredicateBatch>],
@@ -227,11 +227,11 @@ mod tests {
         let st_item_key = item_builder.st_item_key(st_item_def.clone())?;
         item_builder.ctx.builder.reveal(&st_item_key);
 
-        let st_pow = pow_pod.public_statements[0].clone();
+        let st_vdf = vdf_pod.public_statements[0].clone();
 
         let mut craft_builder = CraftBuilder::new(BuildContext::new(&mut builder, batches), params);
-        craft_builder.ctx.builder.add_pod(pow_pod);
-        let st_is_stone = craft_builder.st_is_stone(item_def, st_item_def, st_pow)?;
+        craft_builder.ctx.builder.add_pod(vdf_pod);
+        let st_is_stone = craft_builder.st_is_stone(item_def, st_item_def, st_vdf)?;
         craft_builder.ctx.builder.reveal(&st_is_stone);
 
         // Prove MainPOD
@@ -318,15 +318,15 @@ mod tests {
             .do_mining(&params, key, STONE_START_SEED, STONE_MINING_MAX)?
             .unwrap();
 
-        let pow_pod = PowPod::new(
+        let vdf_pod = VdfPod::new(
             &params,
             vd_set.clone(),
             3, // num_iters
             RawValue::from(ingredients_def.dict(&params)?.commitment()),
         )?;
-        let main_pow_pod = MainPod {
-            pod: Box::new(pow_pod.clone()),
-            public_statements: pow_pod.pub_statements(),
+        let main_vdf_pod = MainPod {
+            pod: Box::new(vdf_pod.clone()),
+            public_statements: vdf_pod.pub_statements(),
             params: params.clone(),
         };
 
@@ -335,7 +335,7 @@ mod tests {
         let inputs_set = ingredients_def.inputs_set(&params)?;
         let item_def = ItemDef {
             ingredients: ingredients_def.clone(),
-            work: pow_pod.output,
+            work: vdf_pod.output,
         };
         let item_hash = item_def.item_hash(&params)?;
 
@@ -343,7 +343,7 @@ mod tests {
         // locally for future crafting.
         let stone_main_pod = prove_stone(
             item_def.clone(),
-            main_pow_pod,
+            main_vdf_pod,
             &batches,
             &params,
             prover,
@@ -389,7 +389,7 @@ mod tests {
                 ("ingredients".to_string(), Value::from(ingredients_dict)),
                 ("inputs".to_string(), Value::from(inputs_set)),
                 ("key".to_string(), Value::from(key)),
-                ("work".to_string(), Value::from(pow_pod.output)),
+                ("work".to_string(), Value::from(vdf_pod.output)),
             ]),
         );
 

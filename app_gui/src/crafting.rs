@@ -39,13 +39,13 @@ lazy_static! {
         description: "Stone.  Hard to find.",
         outputs: &["Stone"],
         predicate: r#"
-use intro Pow(count, input, output) from 0x3493488bc23af15ac5fabe38c3cb6c4b66adb57e3898adf201ae50cc57183f65
+use intro Vdf(count, input, output) from 0x3493488bc23af15ac5fabe38c3cb6c4b66adb57e3898adf201ae50cc57183f65
 
 IsStone(item, private: ingredients, inputs, key, work) = AND(
     ItemDef(item, ingredients, inputs, key, work)
     Equal(inputs, {})
     DictContains(ingredients, "blueprint", "stone")
-    Pow(3, ingredients, work)
+    Vdf(3, ingredients, work)
 )"#,
         ..Default::default()
     };
@@ -136,7 +136,7 @@ IsTomato(item, private: batch, ingredients, inputs, key, work, farm_level) = AND
     TomatoRecipe(batch, farm_level, ingredients, inputs, key, work)
     ItemInBatch(item, batch, "tomato")
 )
-    
+
 UsedFarm(item, level, private: batch, ingredients, inputs, key, work) = AND(
     TomatoRecipe(batch, level ingredients, inputs, key, work)
     ItemInBatch(item, batch, "farm")
@@ -164,7 +164,7 @@ SteelSwordRecipe(batch, ingredients, inputs, key, work, forge, steel1, steel2, w
     SetInsert(s3, s2, steel2)
     SetInsert(s4, s3, wood)
     SetInsert(inputs, s4, forge)
-    
+
     IsForge(forge)
     IsSteel(steel1)
     IsSteel(steel2)
@@ -215,7 +215,7 @@ IsH(item) = OR(
     IsH0(item)
     IsH1(item)
 )
-    
+
 IsO(item, private: batch, ingredients, inputs, key, work) = AND(
     DisassembleH2O(batch, ingredients, inputs, key, work)
     ItemInBatch(item, batch, "2")
@@ -233,7 +233,7 @@ IsRefinedUranium(item, private: ingredients, inputs, key, work) = AND(
 
     SetInsert(inputs, {}, uranium)
     IsUranium(uranium)
-    Pow(100, ingredients, work)
+    Vdf(100, ingredients, work)
 )"#,
         ..Default::default()
     };
