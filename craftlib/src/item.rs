@@ -91,6 +91,7 @@ impl<'a> CraftBuilder<'a> {
         &mut self,
         item_def: ItemDef,
         st_item_def: Statement,
+        st_pow: Statement,
     ) -> anyhow::Result<Statement> {
         // Build IsWood(item)
         Ok(st_custom!(self.ctx,
@@ -98,6 +99,7 @@ impl<'a> CraftBuilder<'a> {
                 st_item_def,
                 Equal(item_def.ingredients.inputs_set(self.params)?, EMPTY_VALUE),
                 DictContains(item_def.ingredients.dict(self.params)?, "blueprint", WOOD_BLUEPRINT),
+                st_pow,
                 Equal(item_def.work, EMPTY_VALUE)
             ))?)
     }

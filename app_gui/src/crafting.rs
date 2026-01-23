@@ -40,11 +40,13 @@ lazy_static! {
         outputs: &["Stone"],
         predicate: r#"
 use intro Vdf(count, input, output) from 0x3493488bc23af15ac5fabe38c3cb6c4b66adb57e3898adf201ae50cc57183f65
+use intro PoW(input, difficulty, hash_output) from 0x8088c0d4f95988793df8a203412f36df4d82cfd98f33a0f4287156eb29f84bd7
 
-IsStone(item, private: ingredients, inputs, key, work) = AND(
+IsStone(item, private: ingredients, inputs, key, work, difficulty, ingredients_hash) = AND(
     ItemDef(item, ingredients, inputs, key, work)
     Equal(inputs, {})
     DictContains(ingredients, "blueprint", "stone")
+    PoW(ingredients, difficulty, ingredients_hash)
     Vdf(3, ingredients, work)
 )"#,
         ..Default::default()
