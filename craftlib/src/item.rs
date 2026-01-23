@@ -75,6 +75,7 @@ impl<'a> CraftBuilder<'a> {
         &mut self,
         item_def: ItemDef,
         st_item_def: Statement,
+        st_pow: Statement,
         st_vdf: Statement,
     ) -> anyhow::Result<Statement> {
         // Build IsStone(item)
@@ -83,6 +84,7 @@ impl<'a> CraftBuilder<'a> {
                 st_item_def,
                 Equal(item_def.ingredients.inputs_set(self.params)?, EMPTY_VALUE),
                 DictContains(item_def.ingredients.dict(self.params)?, "blueprint", STONE_BLUEPRINT),
+                st_pow,
                 st_vdf
             ))?)
     }
@@ -129,6 +131,7 @@ impl<'a> CraftBuilder<'a> {
         &mut self,
         item_def: ItemDef,
         st_item_def: Statement,
+        st_pow: Statement,
         st_is_wood: Statement,
         st_is_stone: Statement,
     ) -> anyhow::Result<Statement> {
@@ -138,6 +141,7 @@ impl<'a> CraftBuilder<'a> {
             IsAxe() = (
                 st_item_def,
                 DictContains(item_def.ingredients.dict(self.params)?, "blueprint", AXE_BLUEPRINT),
+                st_pow,
                 Equal(item_def.work, EMPTY_VALUE),
                 st_axe_inputs
             ))?)
