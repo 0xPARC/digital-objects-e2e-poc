@@ -36,12 +36,13 @@ impl MiningRecipe {
         mine_max: u64,
     ) -> pod2::middleware::Result<Option<IngredientsDef>> {
         log::info!("Mining...");
+        let start = std::time::Instant::now();
         for seed in start_seed..=i64::MAX {
             let ingredients = self.prep_ingredients(key, seed);
             let ingredients_hash = ingredients.hash(params)?;
             let mining_val = ingredients_hash.to_fields(params)[0];
             if mining_val.0 <= mine_max {
-                log::info!("Mining complete!");
+                log::info!("Mining complete! Time taken: {:?}", start.elapsed());
                 return Ok(Some(ingredients));
             }
         }
