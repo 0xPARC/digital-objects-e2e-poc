@@ -21,6 +21,7 @@ use craftlib::{
     item::{CraftBuilder, MiningRecipe},
     powpod::PowPod,
     predicates::ItemPredicates,
+    vdfpod::VdfPod,
 };
 use plonky2::field::types::Field;
 use pod2::{
@@ -180,6 +181,7 @@ impl Helper {
         recipe: Recipe,
         item_def: ItemDef,
         input_item_pods: Vec<MainPod>,
+        vdf_pod: Option<VdfPod>,
         pow_pod: Option<PowPod>,
     ) -> anyhow::Result<MainPod> {
         let prover = &Prover {};
@@ -229,7 +231,7 @@ impl Helper {
             CraftBuilder::new(BuildContext::new(&mut builder, &self.batches), &self.params);
         let st_craft = match recipe {
             Recipe::Stone => {
-                // unwrap safe since if we're at Stone, pow_pod is Some
+                // unwrap safe since if we're at Stone, both pods are Some
                 let pow_pod = pow_pod.unwrap();
                 let st_pow = pow_pod.pub_statements()[0].clone();
                 let main_pow_pod = MainPod {
@@ -238,15 +240,47 @@ impl Helper {
                     params: craft_builder.params.clone(),
                 };
                 craft_builder.ctx.builder.add_pod(main_pow_pod);
-                craft_builder.st_is_stone(item_def, st_item_def.clone(), st_pow)?
+
+                let vdf_pod = vdf_pod.unwrap();
+                let st_vdf = vdf_pod.pub_statements()[0].clone();
+                let main_vdf_pod = MainPod {
+                    pod: Box::new(vdf_pod.clone()),
+                    public_statements: vdf_pod.pub_statements(),
+                    params: craft_builder.params.clone(),
+                };
+                craft_builder.ctx.builder.add_pod(main_vdf_pod);
+                craft_builder.st_is_stone(item_def, st_item_def.clone(), st_pow, st_vdf)?
             }
-            Recipe::Wood => craft_builder.st_is_wood(item_def, st_item_def.clone())?,
-            Recipe::Axe => craft_builder.st_is_axe(
-                item_def,
-                st_item_def.clone(),
-                sts_input_craft[0].clone(),
-                sts_input_craft[1].clone(),
-            )?,
+            Recipe::Wood => {
+                // unwrap safe since if we're at Wood, pow_pod is Some
+                let pow_pod = pow_pod.unwrap();
+                let st_pow = pow_pod.pub_statements()[0].clone();
+                let main_pow_pod = MainPod {
+                    pod: Box::new(pow_pod.clone()),
+                    public_statements: pow_pod.pub_statements(),
+                    params: craft_builder.params.clone(),
+                };
+                craft_builder.ctx.builder.add_pod(main_pow_pod);
+                craft_builder.st_is_wood(item_def, st_item_def.clone(), st_pow)?
+            }
+            Recipe::Axe => {
+                // unwrap safe since if we're at Axe, pow_pod is Some
+                let pow_pod = pow_pod.unwrap();
+                let st_pow = pow_pod.pub_statements()[0].clone();
+                let main_pow_pod = MainPod {
+                    pod: Box::new(pow_pod.clone()),
+                    public_statements: pow_pod.pub_statements(),
+                    params: craft_builder.params.clone(),
+                };
+                craft_builder.ctx.builder.add_pod(main_pow_pod);
+                craft_builder.st_is_axe(
+                    item_def,
+                    st_item_def.clone(),
+                    st_pow,
+                    sts_input_craft[0].clone(),
+                    sts_input_craft[1].clone(),
+                )?
+            }
             Recipe::WoodenAxe => craft_builder.st_is_wooden_axe(
                 item_def,
                 st_item_def.clone(),
@@ -306,7 +340,7 @@ pub fn craft_item(
     let vd_set = DEFAULT_VD_SET.clone();
     let key = rand_raw_value();
     info!("About to craft \"{recipe}\" with key {key:#}");
-    let (item_def, input_items, pow_pod) = match recipe {
+    let (item_def, input_items, vdf_pod, pow_pod) = match recipe {
         Recipe::Stone => {
             if !inputs.is_empty() {
                 bail!("{recipe} takes 0 inputs");
@@ -320,16 +354,26 @@ pub fn craft_item(
             let pow_pod = PowPod::new(
                 params,
                 vd_set.clone(),
+                RawValue::from(ingredients_def.dict(params)?.commitment()),
+                STONE_MINING_MAX,
+            )?;
+            log::info!("[TIME] PowPod proving time: {:?}", start.elapsed());
+
+            let start = std::time::Instant::now();
+            let vdf_pod = VdfPod::new(
+                params,
+                vd_set.clone(),
                 3, // num_iters
                 RawValue::from(ingredients_def.dict(params)?.commitment()),
             )?;
-            log::info!("[TIME] PowPod proving time: {:?}", start.elapsed());
+            log::info!("[TIME] VdfPod proving time: {:?}", start.elapsed());
             (
                 ItemDef {
                     ingredients: ingredients_def.clone(),
-                    work: pow_pod.output,
+                    work: vdf_pod.output,
                 },
                 vec![],
+                Some(vdf_pod),
                 Some(pow_pod),
             )
         }
@@ -341,6 +385,15 @@ pub fn craft_item(
             let ingredients_def = mining_recipe
                 .do_mining(params, key, 0, WOOD_MINING_MAX)?
                 .unwrap();
+
+            let start = std::time::Instant::now();
+            let pow_pod = PowPod::new(
+                params,
+                vd_set.clone(),
+                RawValue::from(ingredients_def.dict(params)?.commitment()),
+                WOOD_MINING_MAX,
+            )?;
+            log::info!("[TIME] PowPod proving time: {:?}", start.elapsed());
             (
                 ItemDef {
                     ingredients: ingredients_def.clone(),
@@ -348,6 +401,7 @@ pub fn craft_item(
                 },
                 vec![],
                 None,
+                Some(pow_pod),
             )
         }
         Recipe::Axe => {
@@ -363,6 +417,15 @@ pub fn craft_item(
             let ingredients_def = mining_recipe
                 .do_mining(params, key, 0, AXE_MINING_MAX)?
                 .unwrap();
+
+            let start = std::time::Instant::now();
+            let pow_pod = PowPod::new(
+                params,
+                vd_set.clone(),
+                RawValue::from(ingredients_def.dict(params)?.commitment()),
+                AXE_MINING_MAX,
+            )?;
+            log::info!("[TIME] PowPod proving time: {:?}", start.elapsed());
             (
                 ItemDef {
                     ingredients: ingredients_def.clone(),
@@ -370,6 +433,7 @@ pub fn craft_item(
                 },
                 vec![wood, stone],
                 None,
+                Some(pow_pod),
             )
         }
         Recipe::WoodenAxe => {
@@ -392,13 +456,14 @@ pub fn craft_item(
                 },
                 vec![wood1, wood2],
                 None,
+                None,
             )
         }
     };
 
     let helper = Helper::new(params.clone(), vd_set);
     let input_item_pods: Vec<_> = input_items.iter().map(|item| &item.pod).cloned().collect();
-    let pod = helper.make_item_pod(recipe, item_def.clone(), input_item_pods, pow_pod)?;
+    let pod = helper.make_item_pod(recipe, item_def.clone(), input_item_pods, vdf_pod, pow_pod)?;
 
     let crafted_item = CraftedItem { pod, def: item_def };
     let mut file = std::fs::File::create(output)?;

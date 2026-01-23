@@ -1,8 +1,20 @@
 use std::slice;
 
 use commitlib::predicates::CommitPredicates;
-use pod2::middleware::{CustomPredicateRef, Params};
+use plonky2::field::types::Field;
+use pod2::middleware::{CustomPredicateRef, F, Params};
 use pod2utils::PredicateDefs;
+
+use crate::constants::{AXE_MINING_MAX, STONE_MINING_MAX, WOOD_MINING_MAX};
+
+/// Convert a u64 difficulty to RawValue format for use in predicates (little-endian)
+fn difficulty_to_raw_string(difficulty: u64) -> String {
+    let difficulty_f = F::from_canonical_u64(difficulty);
+    format!(
+        "Raw(0x{:016x}{:016x}{:016x}{:016x})",
+        0u64, 0u64, 0u64, difficulty_f.0
+    )
+}
 
 pub struct ItemPredicates {
     pub defs: PredicateDefs,
@@ -17,58 +29,74 @@ impl ItemPredicates {
         // 4 predicates per batch
         // 8 arguments per predicate, at most 5 of which are public
         // 5 statements per predicate
-        let batch_defs = [
+
+        // Convert mining difficulties to RawValue format for predicates
+        let stone_difficulty_raw = difficulty_to_raw_string(STONE_MINING_MAX);
+        let wood_difficulty_raw = difficulty_to_raw_string(WOOD_MINING_MAX);
+        let axe_difficulty_raw = difficulty_to_raw_string(AXE_MINING_MAX);
+
+        let batch_def_1 = format!(
             r#"
-            use intro Pow(count, input, output) from 0x3493488bc23af15ac5fabe38c3cb6c4b66adb57e3898adf201ae50cc57183f65 // powpod vd hash
-        
-            // Example of a mined item with no inputs or sequential work.
-            // Stone requires working in a stone mine (blueprint="stone") and
-            // 10 leading 0s.
+            use intro Vdf(count, input, output) from 0x3493488bc23af15ac5fabe38c3cb6c4b66adb57e3898adf201ae50cc57183f65 // vdfpod vd hash
+            use intro Pow(hash, difficulty) from 0x42fed42704533123de144a9e820c9d6bdf4c8616f29664111469bd696b628686 // powpod vd hash
+
+            // Example of a mined item with mining difficulty check and VDF work.
+            // Stone requires:
+            // - blueprint="stone"
+            // - hash(ingredients) meets difficulty (Pow mining)
+            // - sequential work via VDF
             IsStone(item, private: ingredients, inputs, key, work) = AND(
                 ItemDef(item, ingredients, inputs, key, work)
-                Equal(inputs, {})
+                Equal(inputs, {{}})
                 DictContains(ingredients, "blueprint", "stone")
-                Pow(3, ingredients, work)
+                Pow(ingredients, {stone_difficulty_raw})  // Proves ingredients <= STONE_MINING_MAX
+                Vdf(3, ingredients, work)  // Proves 3 iterations of sequential hashing
             )
-        
-            // Example of a mined item which is more common but takes more work to
-            // extract.
+
+            // Example of a mined item with just Pow (no VDF work).
+            // Wood requires:
+            // - blueprint="wood"
+            // - hash(ingredients) meets difficulty (Pow mining)
             IsWood(item, private: ingredients, inputs, key, work) = AND(
                 ItemDef(item, ingredients, inputs, key, work)
-                Equal(inputs, {})
+                Equal(inputs, {{}})
                 DictContains(ingredients, "blueprint", "wood")
-                Equal(work, {})
-                // TODO input POD: SequentialWork(ingredients, work, 5)
-                // TODO input POD: HashInRange(0, 1<<5, ingredients)
+                Pow(ingredients, {wood_difficulty_raw})  // Proves ingredients <= WOOD_MINING_MAX
+                Equal(work, {{}})  // No VDF work required
             )
-            "#,
+            "#
+        );
+
+        let batch_def_2 = format!(
             r#"
+            use intro Pow(hash, difficulty) from 0x42fed42704533123de144a9e820c9d6bdf4c8616f29664111469bd696b628686 // powpod vd hash
+
             AxeInputs(inputs, private: s1, wood, stone) = AND(
                 // 2 ingredients
-                SetInsert(s1, {}, wood)
+                SetInsert(s1, {{}}, wood)
                 SetInsert(inputs, s1, stone)
-        
+
                 // prove the ingredients are correct.
                 IsWood(wood)
                 IsStone(stone)
             )
-        
-            // Combining Stone and Wood to get Axe is easy (no sequential work).
-            // TODO: Require a smelter as a tool
+
+            // Combining Stone and Wood to get Axe requires mining (no sequential work).
             IsAxe(item, private: ingredients, inputs, key, work) = AND(
                 ItemDef(item, ingredients, inputs, key, work)
                 DictContains(ingredients, "blueprint", "axe")
-                Equal(work, {})
-        
+                Pow(ingredients, {axe_difficulty_raw})  // Proves ingredients <= AXE_MINING_MAX
+                Equal(work, {{}})
+
                 AxeInputs(inputs)
             )
-        
+
             // Wooden Axe:
             WoodenAxeInputs(inputs, private: s1, wood1, wood2) = AND(
                 // 2 ingredients
-                SetInsert(s1, {}, wood1)
+                SetInsert(s1, {{}}, wood1)
                 SetInsert(inputs, s1, wood2)
-        
+
                 // prove the ingredients are correct.
                 IsWood(wood1)
                 IsWood(wood2)
@@ -78,13 +106,20 @@ impl ItemPredicates {
             IsWoodenAxe(item, private: ingredients, inputs, key, work) = AND(
                 ItemDef(item, ingredients, inputs, key, work)
                 DictContains(ingredients, "blueprint", "wooden-axe")
-                Equal(work, {})
-        
+                Equal(work, {{}})
+
                 WoodenAxeInputs(inputs)
             )
-            "#,
-        ];
-        let defs = PredicateDefs::new(params, &batch_defs, slice::from_ref(&commit_preds.defs));
+            "#
+        );
+
+        let batch_defs = [batch_def_1, batch_def_2];
+        let batch_defs_refs: Vec<&str> = batch_defs.iter().map(|s| s.as_str()).collect();
+        let defs = PredicateDefs::new(
+            params,
+            &batch_defs_refs,
+            slice::from_ref(&commit_preds.defs),
+        );
 
         ItemPredicates {
             is_stone: defs.predicate_ref_by_name("IsStone").unwrap(),
@@ -108,8 +143,8 @@ mod tests {
     use super::*;
     use crate::{
         constants::STONE_BLUEPRINT,
-        powpod::PowPod,
         test_util::test::{check_matched_wildcards, mock_vd_set},
+        vdfpod::VdfPod,
     };
 
     #[test]
@@ -145,22 +180,22 @@ mod tests {
         };
         let ingredients_dict = ingredients_def.dict(&params)?;
         let inputs_set = ingredients_def.inputs_set(&params)?;
-        // compute the PowPod
+        // compute the VdfPod
         let vd_set = &mock_vd_set();
-        let pow_pod = PowPod::new(
+        let vdf_pod = VdfPod::new(
             &params,
             vd_set.clone(),
             3,
             RawValue::from(ingredients_def.dict(&params)?.commitment()),
         )?;
-        let main_pow_pod = MainPod {
-            pod: Box::new(pow_pod.clone()),
-            public_statements: pow_pod.pub_statements(),
+        let main_vdf_pod = MainPod {
+            pod: Box::new(vdf_pod.clone()),
+            public_statements: vdf_pod.pub_statements(),
             params: params.clone(),
         };
-        let work: RawValue = pow_pod.output;
-        let st_pow = main_pow_pod.public_statements[0].clone();
-        builder.add_pod(main_pow_pod);
+        let work: RawValue = vdf_pod.output;
+        let st_vdf = main_vdf_pod.public_statements[0].clone();
+        builder.add_pod(main_vdf_pod);
         let item_def = ItemDef {
             ingredients: ingredients_def.clone(),
             work,
@@ -248,7 +283,7 @@ mod tests {
                 st_item_def,
                 st_inputs_eq_empty,
                 st_contains_blueprint,
-                st_pow,
+                st_vdf,
             ],
         ))?;
 
