@@ -38,30 +38,30 @@ impl ItemPredicates {
         let batch_def_1 = format!(
             r#"
             use intro Vdf(count, input, output) from 0x3493488bc23af15ac5fabe38c3cb6c4b66adb57e3898adf201ae50cc57183f65 // vdfpod vd hash
-            use intro PoW(hash, difficulty) from 0x42fed42704533123de144a9e820c9d6bdf4c8616f29664111469bd696b628686 // powpod vd hash
+            use intro Pow(hash, difficulty) from 0x42fed42704533123de144a9e820c9d6bdf4c8616f29664111469bd696b628686 // powpod vd hash
 
             // Example of a mined item with mining difficulty check and VDF work.
             // Stone requires:
             // - blueprint="stone"
-            // - hash(ingredients) meets difficulty (PoW mining)
+            // - hash(ingredients) meets difficulty (Pow mining)
             // - sequential work via VDF
             IsStone(item, private: ingredients, inputs, key, work) = AND(
                 ItemDef(item, ingredients, inputs, key, work)
                 Equal(inputs, {{}})
                 DictContains(ingredients, "blueprint", "stone")
-                PoW(ingredients, {stone_difficulty_raw})  // Proves ingredients <= STONE_MINING_MAX
+                Pow(ingredients, {stone_difficulty_raw})  // Proves ingredients <= STONE_MINING_MAX
                 Vdf(3, ingredients, work)  // Proves 3 iterations of sequential hashing
             )
 
-            // Example of a mined item with just PoW (no VDF work).
+            // Example of a mined item with just Pow (no VDF work).
             // Wood requires:
             // - blueprint="wood"
-            // - hash(ingredients) meets difficulty (PoW mining)
+            // - hash(ingredients) meets difficulty (Pow mining)
             IsWood(item, private: ingredients, inputs, key, work) = AND(
                 ItemDef(item, ingredients, inputs, key, work)
                 Equal(inputs, {{}})
                 DictContains(ingredients, "blueprint", "wood")
-                PoW(ingredients, {wood_difficulty_raw})  // Proves ingredients <= WOOD_MINING_MAX
+                Pow(ingredients, {wood_difficulty_raw})  // Proves ingredients <= WOOD_MINING_MAX
                 Equal(work, {{}})  // No VDF work required
             )
             "#
@@ -69,7 +69,7 @@ impl ItemPredicates {
 
         let batch_def_2 = format!(
             r#"
-            use intro PoW(hash, difficulty) from 0x42fed42704533123de144a9e820c9d6bdf4c8616f29664111469bd696b628686 // powpod vd hash
+            use intro Pow(hash, difficulty) from 0x42fed42704533123de144a9e820c9d6bdf4c8616f29664111469bd696b628686 // powpod vd hash
 
             AxeInputs(inputs, private: s1, wood, stone) = AND(
                 // 2 ingredients
@@ -85,7 +85,7 @@ impl ItemPredicates {
             IsAxe(item, private: ingredients, inputs, key, work) = AND(
                 ItemDef(item, ingredients, inputs, key, work)
                 DictContains(ingredients, "blueprint", "axe")
-                PoW(ingredients, {axe_difficulty_raw})  // Proves ingredients <= AXE_MINING_MAX
+                Pow(ingredients, {axe_difficulty_raw})  // Proves ingredients <= AXE_MINING_MAX
                 Equal(work, {{}})
 
                 AxeInputs(inputs)

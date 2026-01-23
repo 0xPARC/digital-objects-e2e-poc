@@ -40,13 +40,13 @@ lazy_static! {
         outputs: &["Stone"],
         predicate: r#"
 use intro Vdf(count, input, output) from 0x3493488bc23af15ac5fabe38c3cb6c4b66adb57e3898adf201ae50cc57183f65
-use intro PoW(input, difficulty, hash_output) from 0x8088c0d4f95988793df8a203412f36df4d82cfd98f33a0f4287156eb29f84bd7
+use intro Pow(hash, difficulty) from 0x42fed42704533123de144a9e820c9d6bdf4c8616f29664111469bd696b628686 // powpod vd hash
 
 IsStone(item, private: ingredients, inputs, key, work, difficulty, ingredients_hash) = AND(
     ItemDef(item, ingredients, inputs, key, work)
     Equal(inputs, {})
     DictContains(ingredients, "blueprint", "stone")
-    PoW(ingredients, difficulty, ingredients_hash)
+    Pow(ingredients, difficulty)
     Vdf(3, ingredients, work)
 )"#,
         ..Default::default()
@@ -59,6 +59,7 @@ IsWood(item, private: ingredients, inputs, key, work) = AND(
     ItemDef(item, ingredients, inputs, key, work)
     Equal(inputs, {})
     DictContains(ingredients, "blueprint", "wood")
+    Pow(ingredients, difficulty)
 )"#,
         ..Default::default()
     };
@@ -70,6 +71,7 @@ IsWood(item, private: ingredients, inputs, key, work) = AND(
 IsAxe(item, private: ingredients, inputs, key, work, s1, wood, stone) = AND(
     ItemDef(item, ingredients, inputs, key, work)
     DictContains(ingredients, "blueprint", "axe")
+    Pow(ingredients, difficulty)
     Equal(work, {})
 
     // 2 ingredients

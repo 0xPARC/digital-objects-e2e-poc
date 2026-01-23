@@ -19,7 +19,7 @@ use craftlib::{
         WOOD_MINING_MAX, WOOD_WORK, WOODEN_AXE_BLUEPRINT, WOODEN_AXE_MINING_MAX, WOODEN_AXE_WORK,
     },
     item::{CraftBuilder, MiningRecipe},
-    powpod::PoWPod,
+    powpod::PowPod,
     predicates::ItemPredicates,
     vdfpod::VdfPod,
 };
@@ -182,7 +182,7 @@ impl Helper {
         item_def: ItemDef,
         input_item_pods: Vec<MainPod>,
         vdf_pod: Option<VdfPod>,
-        pow_pod: Option<PoWPod>,
+        pow_pod: Option<PowPod>,
     ) -> anyhow::Result<MainPod> {
         let prover = &Prover {};
         let mut builder = MainPodBuilder::new(&self.params, &self.vd_set);
@@ -351,13 +351,13 @@ pub fn craft_item(
                 .unwrap();
 
             let start = std::time::Instant::now();
-            let pow_pod = PoWPod::new(
+            let pow_pod = PowPod::new(
                 params,
                 vd_set.clone(),
                 RawValue::from(ingredients_def.dict(params)?.commitment()),
                 STONE_MINING_MAX,
             )?;
-            log::info!("[TIME] PoWPod proving time: {:?}", start.elapsed());
+            log::info!("[TIME] PowPod proving time: {:?}", start.elapsed());
 
             let start = std::time::Instant::now();
             let vdf_pod = VdfPod::new(
@@ -387,13 +387,13 @@ pub fn craft_item(
                 .unwrap();
 
             let start = std::time::Instant::now();
-            let pow_pod = PoWPod::new(
+            let pow_pod = PowPod::new(
                 params,
                 vd_set.clone(),
                 RawValue::from(ingredients_def.dict(params)?.commitment()),
                 WOOD_MINING_MAX,
             )?;
-            log::info!("[TIME] PoWPod proving time: {:?}", start.elapsed());
+            log::info!("[TIME] PowPod proving time: {:?}", start.elapsed());
             (
                 ItemDef {
                     ingredients: ingredients_def.clone(),
@@ -419,13 +419,13 @@ pub fn craft_item(
                 .unwrap();
 
             let start = std::time::Instant::now();
-            let pow_pod = PoWPod::new(
+            let pow_pod = PowPod::new(
                 params,
                 vd_set.clone(),
                 RawValue::from(ingredients_def.dict(params)?.commitment()),
                 AXE_MINING_MAX,
             )?;
-            log::info!("[TIME] PoWPod proving time: {:?}", start.elapsed());
+            log::info!("[TIME] PowPod proving time: {:?}", start.elapsed());
             (
                 ItemDef {
                     ingredients: ingredients_def.clone(),

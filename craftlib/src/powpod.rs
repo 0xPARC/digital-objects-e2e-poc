@@ -1,29 +1,29 @@
-//! PoWPod: Introduction Pod that proves Proof of Work (mining difficulty).
+//! PowPod: Introduction Pod that proves Proof of Work (mining difficulty).
 //! - takes as input a hash value and a difficulty target
 //! - proves that hash[0] <= difficulty_target
 //!
 //! This is used to prove that mining work was done to find a valid nonce/seed.
 //!
 //! Circuit structure:
-//! 1. PoWCircuit:
+//! 1. PowCircuit:
 //!     - hash: RawValue (4 field elements - already a hash/commitment)
 //!     - difficulty_target: u64 constant
 //!     - proves: hash[0] <= difficulty_target
 //!
-//! 2. PoWPod:
+//! 2. PowPod:
 //!     - satisfies the pod2's Pod trait interface
-//!     - verifies the proof from PoWCircuit
+//!     - verifies the proof from PowCircuit
 //!
 //! Usage:
 //! ```rust
 //!   use pod2::{backends::plonky2::basetypes::DEFAULT_VD_SET, middleware::{Params, RawValue}};
-//!   use craftlib::powpod::PoWPod;
+//!   use craftlib::powpod::PowPod;
 //!
 //!   let params = Params::default();
 //!   let vd_set = &*DEFAULT_VD_SET;
 //!   let hash = RawValue::from(...); // ingredients commitment/hash
 //!   let difficulty = 0x0020_0000_0000_0000u64;
-//!   let pow_pod = PoWPod::new(&params, vd_set.clone(), hash, difficulty).unwrap();
+//!   let pow_pod = PowPod::new(&params, vd_set.clone(), hash, difficulty).unwrap();
 //! ```
 
 use anyhow::Result;
@@ -57,19 +57,18 @@ use pod2::{
     },
     measure_gates_begin, measure_gates_end, middleware,
     middleware::{
-        C, D, EMPTY_HASH, F, Hash, IntroPredicateRef, Params, Pod, Proof, RawValue,
-        ToFields, VDSet,
+        C, D, EMPTY_HASH, F, Hash, IntroPredicateRef, Params, Pod, Proof, RawValue, ToFields, VDSet,
     },
     timed,
 };
 use serde::{Deserialize, Serialize};
 
-const POW_POD_TYPE: (usize, &str) = (2002, "PoW");
+const POW_POD_TYPE: (usize, &str) = (2002, "Pow");
 
-static STANDARD_POW_POD_DATA: std::sync::LazyLock<(PoWPodTarget, CircuitData<F, C, D>)> =
+static STANDARD_POW_POD_DATA: std::sync::LazyLock<(PowPodTarget, CircuitData<F, C, D>)> =
     std::sync::LazyLock::new(|| build().expect("successful build"));
 
-fn build() -> Result<(PoWPodTarget, CircuitData<F, C, D>)> {
+fn build() -> Result<(PowPodTarget, CircuitData<F, C, D>)> {
     let params = Params::default();
 
     let rec_circuit_data =
@@ -79,18 +78,18 @@ fn build() -> Result<(PoWPodTarget, CircuitData<F, C, D>)> {
     let config = common_data.config.clone();
 
     let mut builder = CircuitBuilder::<F, D>::new(config);
-    let pow_pod_target = PoWPodTarget::add_targets(&mut builder, &params)?;
+    let pow_pod_target = PowPodTarget::add_targets(&mut builder, &params)?;
     pod2::backends::plonky2::recursion::pad_circuit(&mut builder, &common_data);
 
-    let data = timed!("PoWPod build", builder.build::<C>());
+    let data = timed!("PowPod build", builder.build::<C>());
     assert_eq!(common_data, data.common);
     Ok((pow_pod_target, data))
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct PoWPod {
+pub struct PowPod {
     pub params: Params,
-    pub hash: RawValue,  // The hash to check (e.g., dict commitment)
+    pub hash: RawValue, // The hash to check (e.g., dict commitment)
     pub difficulty: F,  // difficulty target as a field element
 
     pub vd_set: VDSet,
@@ -101,14 +100,9 @@ pub struct PoWPod {
 }
 
 #[allow(dead_code)]
-impl PoWPod {
-    /// Creates a PoWPod proving that hash[0] <= difficulty
-    pub fn new(
-        params: &Params,
-        vd_set: VDSet,
-        hash: RawValue,
-        difficulty: u64,
-    ) -> Result<PoWPod> {
+impl PowPod {
+    /// Creates a PowPod proving that hash[0] <= difficulty
+    pub fn new(params: &Params, vd_set: VDSet, hash: RawValue, difficulty: u64) -> Result<PowPod> {
         // Pre-check difficulty (optional, for early bail)
         if hash.0[0].0 > difficulty {
             anyhow::bail!("Hash does not meet difficulty requirement");
@@ -124,7 +118,7 @@ impl PoWPod {
             .collect_vec();
         let statements_hash: Hash = calculate_statements_hash(&statements, params);
 
-        let pow_input = PoWPodInput {
+        let pow_input = PowPodInput {
             vd_root: vd_set.root(),
             statements_hash,
             hash,
@@ -133,11 +127,8 @@ impl PoWPod {
 
         let mut pw = PartialWitness::<F>::new();
         pow_pod_target.set_targets(&mut pw, &pow_input)?;
-        
-        let proof_with_pis = timed!(
-            "prove PoW difficulty check",
-            circuit_data.prove(pw)?
-        );
+
+        let proof_with_pis = timed!("prove Pow difficulty check", circuit_data.prove(pw)?);
 
         circuit_data
             .verifier_data()
@@ -146,7 +137,7 @@ impl PoWPod {
         let common_hash: String =
             pod2::backends::plonky2::mainpod::cache_get_rec_main_pod_common_hash(params).clone();
 
-        Ok(PoWPod {
+        Ok(PowPod {
             params: params.clone(),
             statements_hash,
             hash,
@@ -166,7 +157,7 @@ struct Data {
     common_hash: String,
 }
 
-impl Pod for PoWPod {
+impl Pod for PowPod {
     fn params(&self) -> &Params {
         &self.params
     }
@@ -198,7 +189,7 @@ impl Pod for PoWPod {
                 proof: self.proof.clone(),
                 public_inputs,
             })
-            .map_err(|e| Error::custom(format!("PoWPod proof verification failure: {e:?}")))
+            .map_err(|e| Error::custom(format!("PowPod proof verification failure: {e:?}")))
     }
 
     fn statements_hash(&self) -> Hash {
@@ -291,7 +282,7 @@ fn pub_self_statements_target(
         builder,
         &ValueTarget::from_slice(&[difficulty, zero, zero, zero]),
     );
-    
+
     let args = [st_arg_0, st_arg_1]
         .into_iter()
         .chain(core::iter::repeat_with(|| {
@@ -308,23 +299,23 @@ fn pub_self_statements_target(
 }
 
 #[derive(Clone, Debug)]
-struct PoWPodTarget {
+struct PowPodTarget {
     vd_root: HashOutTarget,
     statements_hash: HashOutTarget,
     hash: ValueTarget,
     difficulty: Target,
 }
 
-struct PoWPodInput {
+struct PowPodInput {
     vd_root: Hash,
     statements_hash: Hash,
     hash: RawValue,
     difficulty: F,
 }
 
-impl PoWPodTarget {
+impl PowPodTarget {
     fn add_targets(builder: &mut CircuitBuilder<F, D>, params: &Params) -> Result<Self> {
-        let measure = measure_gates_begin!(builder, "PoWPodTarget");
+        let measure = measure_gates_begin!(builder, "PowPodTarget");
 
         // Add virtual inputs
         let hash = builder.add_virtual_value();
@@ -332,36 +323,36 @@ impl PoWPodTarget {
 
         // Check that hash[0] <= difficulty IN-CIRCUIT
         // We need to prove hash[0] <= difficulty in a way that handles field arithmetic
-        
+
         let hash_first = hash.elements[0];
-        
+
         // Strategy: Prove that difficulty - hash_first is non-negative in u64 space
         // 1. Compute diff = difficulty - hash_first (in field arithmetic)
         // 2. Split both into low/high 32-bit limbs to ensure they're valid u64s
         // 3. Prove the subtraction is valid in u64 space (no underflow)
-        
+
         // Split hash_first into two 32-bit limbs: hash_lo + hash_hi * 2^32
         let hash_bits = builder.split_le(hash_first, 64);
         let hash_lo_bits = &hash_bits[0..32];
         let hash_hi_bits = &hash_bits[32..64];
-        
+
         // Reconstruct to verify decomposition
         let two_32 = builder.constant(F::from_canonical_u64(1u64 << 32));
         let hash_lo = builder.le_sum(hash_lo_bits.iter().copied());
         let hash_hi = builder.le_sum(hash_hi_bits.iter().copied());
         let hash_reconstructed = builder.mul_add(hash_hi, two_32, hash_lo);
         builder.connect(hash_first, hash_reconstructed);
-        
-        // Split difficulty into two 32-bit limbs: diff_lo + diff_hi * 2^32  
+
+        // Split difficulty into two 32-bit limbs: diff_lo + diff_hi * 2^32
         let diff_bits = builder.split_le(difficulty, 64);
         let diff_lo_bits = &diff_bits[0..32];
         let diff_hi_bits = &diff_bits[32..64];
-        
+
         let diff_lo = builder.le_sum(diff_lo_bits.iter().copied());
         let diff_hi = builder.le_sum(diff_hi_bits.iter().copied());
         let diff_reconstructed = builder.mul_add(diff_hi, two_32, diff_lo);
         builder.connect(difficulty, diff_reconstructed);
-        
+
         // Prove difficulty >= hash_first in-circuit
         // Strategy: Show that (difficulty - hash_first) fits in 64 bits
         // If hash_first > difficulty, the difference would be negative,
@@ -370,12 +361,7 @@ impl PoWPodTarget {
         let _diff_bits = builder.split_le(diff_full, 64);
 
         // Calculate statements_hash
-        let statements = pub_self_statements_target(
-            builder,
-            params,
-            &hash.elements,
-            difficulty,
-        );
+        let statements = pub_self_statements_target(builder, params, &hash.elements, difficulty);
         let statements_hash = calculate_statements_hash_circuit(params, builder, &statements);
 
         // Register public inputs
@@ -384,8 +370,8 @@ impl PoWPodTarget {
         builder.register_public_inputs(&vd_root.elements);
 
         measure_gates_end!(builder, measure);
-        
-        Ok(PoWPodTarget {
+
+        Ok(PowPodTarget {
             vd_root,
             statements_hash,
             hash,
@@ -393,7 +379,7 @@ impl PoWPodTarget {
         })
     }
 
-    fn set_targets(&self, pw: &mut PartialWitness<F>, input: &PoWPodInput) -> Result<()> {
+    fn set_targets(&self, pw: &mut PartialWitness<F>, input: &PowPodInput) -> Result<()> {
         pw.set_target_arr(&self.hash.elements, &input.hash.0)?;
         pw.set_target(self.difficulty, input.difficulty)?;
         pw.set_hash_target(
@@ -408,10 +394,7 @@ impl PoWPodTarget {
 
 #[cfg(test)]
 mod tests {
-    use pod2::{
-        backends::plonky2::basetypes::DEFAULT_VD_SET,
-        middleware::hash_str,
-    };
+    use pod2::{backends::plonky2::basetypes::DEFAULT_VD_SET, middleware::hash_str};
 
     use super::*;
 
@@ -423,21 +406,24 @@ mod tests {
         // Find a valid input by brute force (for testing)
         let difficulty = 0x0020_0000_0000_0000u64;
         let mut found_input = None;
-        
+
         for i in 0..10000 {
             let test_input = RawValue::from(i as i64);
             let hash_output = RawValue::from(pod2::middleware::hash_value(&test_input));
             if hash_output.0[0].0 <= difficulty {
                 found_input = Some(test_input);
-                println!("Found valid input at i={}: hash={:#x}", i, hash_output.0[0].0);
+                println!(
+                    "Found valid input at i={}: hash={:#x}",
+                    i, hash_output.0[0].0
+                );
                 break;
             }
         }
-        
+
         let ingredients = found_input.expect("Should find valid input");
 
         // This should succeed
-        let pow_pod = PoWPod::new(&params, vd_set.clone(), ingredients, difficulty)?;
+        let pow_pod = PowPod::new(&params, vd_set.clone(), ingredients, difficulty)?;
         pow_pod.verify()?;
 
         println!(
@@ -461,7 +447,7 @@ mod tests {
         let difficulty = 1u64; // Very strict difficulty
 
         // This should fail
-        let result = PoWPod::new(&params, vd_set.clone(), input, difficulty);
+        let result = PowPod::new(&params, vd_set.clone(), input, difficulty);
         assert!(result.is_err());
 
         Ok(())
